@@ -1,11 +1,14 @@
 import numpy as np
 import math
+from decimal import Decimal
 
 def Compute_real_space_ewald_table(nR,a,xi):  # table (filled with zeroes as input)
 
-        # Table discretization in double precision
-        dr = np.longfloat(0.00100000000000000000000000000000)
-
+        # Table discretization in extended precision (80-bit)
+        dr_string = "0.00100000000000000000000000000000" #pass value as a string with arbitrary precision
+        dr = Decimal(dr_string)                          #convert to float with arbitrary precision
+        dr = np.longfloat(dr)                            #convert to numpy long float (truncate to 64/80/128-bit, depending on platform used) 
+        
         Imrr = np.zeros(nR)
         rr = np.zeros(nR)
         g1 = np.zeros(nR)
@@ -16,7 +19,7 @@ def Compute_real_space_ewald_table(nR,a,xi):  # table (filled with zeroes as inp
 
         xxi = np.longfloat(xi)
         a_64 = np.longfloat(a)
-        Pi = np.longfloat(3.1415926535897932384626433832795)
+        Pi = np.longfloat(np.pi)
         kk = np.arange(nR,dtype=np.longdouble)
         r_array = (kk * dr + dr)
         

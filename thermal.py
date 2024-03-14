@@ -4,10 +4,10 @@ import numpy as np
 from jax import jit
 import jax.numpy as jnp
 from jax.config import config
-config.update("jax_enable_x64", True)
+config.update("jax_enable_x64", False)
 import scipy
 from functools import partial
-import Lanczos_lax
+import lanczos
 
 
 def Random_force_on_grid_indexing(Nx,Ny,Nz):

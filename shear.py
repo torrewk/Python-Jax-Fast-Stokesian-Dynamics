@@ -2,18 +2,16 @@ from functools import partial
 from jax import jit
 import jax.numpy as jnp
 
-
-def update_box_tilt_factor(dt,shear_rate,tilt_factor):
-    tilt_factor = tilt_factor+dt*shear_rate
+def update_box_tilt_factor(dt,shear_rate_0,tilt_factor,step,omega,phase=0):
+    current_time = step*dt 
+    tilt_factor = jnp.where(omega == 0, tilt_factor+dt*shear_rate_0, shear_rate_0 * jnp.sin(omega*current_time+phase) / omega)
     if (tilt_factor >= 0.5):
         tilt_factor = -0.5 + (tilt_factor-0.5)
     return tilt_factor
 
 def update_shear_rate(dt,step,shear_rate_0,omega,phase=0):
-
     current_time = step*dt 
     shear_rate = shear_rate_0 * jnp.cos(omega*current_time+phase)    
-    
     return shear_rate
 
 
@@ -29,13 +27,13 @@ def compute_sheared_grid(Nx,Nz,Ny,tilt_factor,Lx,Ly,Lz,eta,xisq):
     gridk_y = (jnp.where(Nyy < (Ny+1)/2, Nyy, (Nyy - Ny)) - tilt_factor * gridk_x *Ly/Lx) / Ly
     gridk_x = gridk_x/Lx 
     gridk_z = jnp.where(Nzz < (Nz+1)/2, Nzz,(Nzz-Nz)) / Lz
-    gridk_x *= 2.0*3.1416926536
-    gridk_y *= 2.0*3.1416926536
-    gridk_z *= 2.0*3.1416926536
+    gridk_x *= 2.0*jnp.pi
+    gridk_y *= 2.0*jnp.pi
+    gridk_z *= 2.0*jnp.pi
 
     # k dot k and fourth component (contains the scaling factor of the FFT)
     k_sq = gridk_x*gridk_x + gridk_y*gridk_y + gridk_z*gridk_z
-    gridk_w = jnp.where(k_sq > 0, 6.0*3.1415926536 * (1.0 + k_sq/4.0/xisq)
+    gridk_w = jnp.where(k_sq > 0, 6.0*jnp.pi * (1.0 + k_sq/4.0/xisq)
                         * jnp.exp(-(1-eta) * k_sq/4.0/xisq) / (k_sq) / (Nx*Ny*Nz), 0)
 
     # store the results

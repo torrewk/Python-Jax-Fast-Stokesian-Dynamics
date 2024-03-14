@@ -12,9 +12,11 @@ It is recommended to install both JAX and JAX MD via 'pip', for simplicity.
 
 To run a simulation:
 
-1) Set the simulation parameters (number of particles, box size, number of steps, etc.) by editing the file JFSD.py 
+1) From console, run 'pytest test_class.npy' and make sure all tests pass
 
-2) Run JFSD.py
+2) Set the simulation parameters (number of particles, box size, number of steps, etc.) by editing the file JFSD.py 
+
+3) Run JFSD.py
 
 During the simulation, the particles trajectories are saved in a numpy array of shape (N_s, N_p, 3), with N_s the number of frames stored and N_p the number of particles.
 
