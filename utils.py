@@ -4,15 +4,21 @@ import random
 from functools import partial
 from jax_md import partition
 import jax.numpy as jnp
+from jax import random as jrandom
 from jax import jit
 from jax_md import space
+np.set_printoptions(precision=8, suppress=True)
 
 # Perform cholesky factorization and obtain lower triangle cholesky factor of input matrix
+
+
 @jit
 def chol_fac(A):
     return jnp.linalg.cholesky(A)
 
 # Check that ewald_cut is small enough to avoid interaction with the particles images (in real space part of calculation)
+
+
 def Check_ewald_cut(ewald_cut, Lx, Ly, Lz, error):
     if ((ewald_cut > Lx/2) or (ewald_cut > Ly/2) or (ewald_cut > Lz/2)):
         max_cut = max([Lx, Ly, Lz]) / 2.0
@@ -24,6 +30,8 @@ def Check_ewald_cut(ewald_cut, Lx, Ly, Lz, error):
     return
 
 # Maximum eigenvalue of A'*A to scale support, P, for spreading on deformed grids (Fiore and Swan, J. Chem. Phys., 2018)
+
+
 def Check_max_shear(gridh, xisq, Nx, Ny, Nz, max_strain, error):
 
     gamma = max_strain
@@ -94,6 +102,8 @@ def Compute_k_gridpoint_number(kmax, Lx, Ly, Lz):
     return Nx, Ny, Nz
 
 # given a support size (for gaussian spread) -> compute distances in a gaussP x gaussP x gaussP grid (where gauss P might be corrected in it is odd or even...)
+
+
 def Precompute_grid_distancing(gauss_P, gridh, tilt_factor, positions, N, Nx, Ny, Nz, Lx, Ly, Lz):
     # SEE Molbility.cu (line 265) for tips on how to change the distances when we have shear
     grid = np.zeros((gauss_P, gauss_P, gauss_P, N))
@@ -211,8 +221,8 @@ def check_overlap(dist):
 @partial(jit, static_argnums=[1])
 def generate_random_array(key, size):
     # advance RNG state (otherwise will get same random numbers)
-    key, subkey = random.split(key)
-    return subkey,  (random.uniform(subkey, (size,)))
+    key, subkey = jrandom.split(key)
+    return subkey,  (jrandom.uniform(subkey, (size,)))
 
 
 @partial(jit, static_argnums=[6, 16])
@@ -363,9 +373,27 @@ def precompute(positions, gaussian_grid_spacing, nl_ff, nl_lub, displacements_ve
     YH12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+15] + (
         ResTable_vals[22*(ind+1)+15]-ResTable_vals[22*(ind)+15]) * fac_lub), ResTable_vals[15])
 
+    XM11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+16] + (
+        ResTable_vals[22*(ind+1)+16]-ResTable_vals[22*(ind)+16]) * fac_lub), ResTable_vals[16])
+
+    XM12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+17] + (
+        ResTable_vals[22*(ind+1)+17]-ResTable_vals[22*(ind)+17]) * fac_lub), ResTable_vals[17])
+
+    YM11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+18] + (
+        ResTable_vals[22*(ind+1)+18]-ResTable_vals[22*(ind)+18]) * fac_lub), ResTable_vals[18])
+
+    YM12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+19] + (
+        ResTable_vals[22*(ind+1)+19]-ResTable_vals[22*(ind)+19]) * fac_lub), ResTable_vals[19])
+
+    ZM11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+20] + (
+        ResTable_vals[22*(ind+1)+20]-ResTable_vals[22*(ind)+20]) * fac_lub), ResTable_vals[20])
+
+    ZM12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+21] + (
+        ResTable_vals[22*(ind+1)+21]-ResTable_vals[22*(ind)+21]) * fac_lub), ResTable_vals[21])
+
     ResFunc = jnp.array([XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12, YB21,
-                         XG11, XG12, YG11, YG12, YH11, YH12])
+                         XG11, XG12, YG11, YG12, YH11, YH12, XM11, XM12, YM11, YM12, ZM11, ZM12])
 
     return ((all_indices_x), (all_indices_y), (all_indices_z), gaussian_grid_spacing1, gaussian_grid_spacing2,
             r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
-            r_lub, indices_i_lub,indices_j_lub,ResFunc)
+            r_lub, indices_i_lub, indices_j_lub,ResFunc)

@@ -370,23 +370,28 @@ def compute_real_space_slipvelocity(N,m_self,kT,dt,n_iter_Lanczos_ff,
         betae1 = betae1.at[0].add(1*norm)
         
         a,b = jnp.linalg.eigh(tridiagonal)
+        a = jnp.where( a<0 , 0., a)
         a = jnp.dot((jnp.dot(b,jnp.diag(jnp.sqrt(a)))),b.T)
         return jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
     
     random_array_real = (2.*random_array_real-1.)*jnp.sqrt(3.)
-    trid, vectors = Lanczos_lax.lanczos_alg(helper_Mpsi, 11*N, n_iter_Lanczos_ff, random_array_real)
-     
+    trid, vectors = lanczos.lanczos_alg(helper_Mpsi, 11*N, n_iter_Lanczos_ff, random_array_real)
+    
+    # #old
     psinorm = jnp.linalg.norm(random_array_real)
-    psiMpsi = jnp.dot(random_array_real,helper_Mpsi((random_array_real * 1/psinorm))) / (psinorm*psinorm)
+    # psiMpsi = jnp.dot(random_array_real,helper_Mpsi(random_array_real)) / (psinorm*psinorm)
     M12_psi_old = helper_compute_M12psi((n_iter_Lanczos_ff-1), trid[:(n_iter_Lanczos_ff-1),:(n_iter_Lanczos_ff-1)], vectors[:(n_iter_Lanczos_ff-1),:],psinorm)
     M12_psi = helper_compute_M12psi(n_iter_Lanczos_ff, trid, vectors,psinorm)
-    stepnorm = jnp.sqrt(jnp.linalg.norm((M12_psi-M12_psi_old)) / psiMpsi)
-
+    # stepnorm = jnp.sqrt( jnp.linalg.norm((M12_psi-M12_psi_old))  / psiMpsi )
+    buff = jnp.linalg.norm(M12_psi)
+    stepnorm = jnp.linalg.norm(M12_psi-M12_psi_old)
+    stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)
+    
     #combine w_lin_velocities, w_ang_vel_and_strain
     lin_vel = M12_psi.at[:3*N].get()
     ang_vel_and_strain = M12_psi.at[3*N:].get()
     
-    return lin_vel, ang_vel_and_strain, stepnorm
+    return lin_vel, ang_vel_and_strain, stepnorm, (jnp.linalg.eigh(trid))[0]
 
 @partial(jit, static_argnums=[0,2,3,4,5])
 def compute_wave_space_slipvelocity(N,m_self,Nx,Ny,Nz,gaussP,kT,dt,gridh,
@@ -591,18 +596,18 @@ def compute_nearfield_brownianforce(N,kT,dt,
         return x
     
     def Precondition_Brownian_RFUmultiply(psi):
-        # psi = jscipy.linalg.solve_triangular(jnp.transpose(R_fu_prec_lower_triang), psi, lower=False)
-        # psi = Precondition_DiagMult_kernel(psi, diagonal_elements_for_brownian, 1)
+        # psi = jscipy.linalg.solve_triangular(jnp.transpose(R_fu_prec_lower_triang), psi, lower=False) #more preconditioning (not needed apparently)
+        # psi = Precondition_DiagMult_kernel(psi, diagonal_elements_for_brownian, 1) #more preconditioning (not needed apparently)
         z = ComputeLubricationFU(psi)
         z += Precondition_Inn_kernel(psi,diagonal_zeroes_for_brownian)
-        # psi = Precondition_DiagMult_kernel(z,diagonal_elements_for_brownian, 1)
-        # return jscipy.linalg.solve_triangular(R_fu_prec_lower_triang, psi, lower=True)
-        # return psi
+        # psi = Precondition_DiagMult_kernel(z,diagonal_elements_for_brownian, 1) #more preconditioning (not needed apparently)
+        # return jscipy.linalg.solve_triangular(R_fu_prec_lower_triang, psi, lower=True) #more preconditioning (not needed apparently)
+        # return psi #more preconditioning (not needed apparently)
         return z
     
     def Precondition_Brownian_Undo(nf_Brownian_force):
-        # nf_Brownian_force = jnp.dot(R_fu_prec_lower_triang,nf_Brownian_force)
-        # nf_Brownian_force = Precondition_DiagMult_kernel(nf_Brownian_force,diagonal_elements_for_brownian,-1)
+        # nf_Brownian_force = jnp.dot(R_fu_prec_lower_triang,nf_Brownian_force) #more preconditioning (not needed apparently)
+        # nf_Brownian_force = Precondition_DiagMult_kernel(nf_Brownian_force,diagonal_elements_for_brownian,-1) #more preconditioning (not needed apparently)
         return Precondition_ImInn_kernel(nf_Brownian_force, diagonal_zeroes_for_brownian)
     
     def ComputeLubricationFU(velocities):
@@ -660,38 +665,32 @@ def compute_nearfield_brownianforce(N,kT,dt,
     def helper_compute_R12psi(n_iter_Lanczos_nf, trid, vectors):
         betae1 = jnp.zeros(n_iter_Lanczos_nf)
         betae1 = betae1.at[0].add(1*psinorm)
-        
         a,b = jnp.linalg.eigh(trid)
+        a = jnp.where(a<0., 0., a) #numerical cutoff to avoid small negative values
         a = jnp.dot((jnp.dot(b,jnp.diag(jnp.sqrt(a)))),b.T)
         
         return jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
-    
-    
 
     
     ############################################################################################################################################################
     
     
-    #Scale random numbers from [0,1] to [-sqrt(3),-sqrt(3)]
+    #Scale random numbers from [0,1] to [-sqrt(3),sqrt(3)]
     random_array = (2*random_array-1)*jnp.sqrt(3.)
     
-    # trid, vectors = Lanczos.lanczos_alg(Precondition_Brownian_RFUmultiply, 6*N, n_iter_Lanczos_nf, random_array)
-    trid, vectors = Lanczos_lax.lanczos_alg(Precondition_Brownian_RFUmultiply, 6*N, n_iter_Lanczos_nf, random_array)
+    trid, vectors = lanczos.lanczos_alg(Precondition_Brownian_RFUmultiply, 6*N, n_iter_Lanczos_nf, random_array)
        
     psinorm = jnp.linalg.norm(random_array)
-    # psiRpsi = jnp.dot(random_array,Precondition_Brownian_RFUmultiply((random_array * 1/psinorm))) / (psinorm*psinorm)
-    # psiRpsi = jnp.dot(random_array,ComputeLubricationFU((random_array)))
-    
-    
+        
     R_FU12psi_old = helper_compute_R12psi((n_iter_Lanczos_nf-1), trid[:(n_iter_Lanczos_nf-1),:(n_iter_Lanczos_nf-1)], vectors[:(n_iter_Lanczos_nf-1),:])
-    # R_FU12psi_old = Precondition_Brownian_Undo(R_FU12psi_old)
     R_FU12psi = helper_compute_R12psi(n_iter_Lanczos_nf, trid, vectors)
-    stepnorm = (jnp.linalg.norm((R_FU12psi-R_FU12psi_old)) / jnp.linalg.norm(R_FU12psi))
-    # print(jnp.linalg.norm(R_FU12psi))
+    
+    buff = jnp.linalg.norm(R_FU12psi)
+    stepnorm = jnp.linalg.norm((R_FU12psi-R_FU12psi_old))
+    stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)    
     R_FU12psi = Precondition_Brownian_Undo(R_FU12psi)
-    # stepnorm = jnp.abs(jnp.dot(R_FU12psi, R_FU12psi) - psiRpsi) / psiRpsi
-    # print(jnp.linalg.norm(R_FU12psi))
-    return R_FU12psi, stepnorm
+    
+    return R_FU12psi, stepnorm, (jnp.linalg.eigh(trid))[0]
 
 
 
@@ -1329,8 +1328,6 @@ def compute_exact_thermals(N,m_self,Nx,Ny,Nz,gaussP,gridh,kT,dt,
         return r_lin_velocities, r_ang_vel_and_strain
     
     
-        
-    
     #obtain matrix form of linear operator Mpsi, by computing Mpsi(e_i) with e_i basis vectors (1,0,...,0), (0,1,0,...) ...
     random_array = (2*random_array-1)*jnp.sqrt(3.)
     R_FU_Matrix = np.zeros((6*N,6*N))
@@ -1348,7 +1345,7 @@ def compute_exact_thermals(N,m_self,Nx,Ny,Nz,gaussP,gridh,kT,dt,
     sqrt_M = scipy.linalg.sqrtm(Matrix_M); 
     M12psi_debug = jnp.dot(sqrt_M,random_array_real* jnp.sqrt(2.0*kT/dt))
     
-    return convert_to_generalized(M12psi_debug), R_FU12psi_correct
+    return convert_to_generalized(M12psi_debug), R_FU12psi_correct, R_FU_Matrix
 
 
 
