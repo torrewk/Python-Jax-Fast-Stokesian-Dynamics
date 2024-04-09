@@ -377,12 +377,9 @@ def compute_real_space_slipvelocity(N,m_self,kT,dt,n_iter_Lanczos_ff,
     random_array_real = (2.*random_array_real-1.)*jnp.sqrt(3.)
     trid, vectors = lanczos.lanczos_alg(helper_Mpsi, 11*N, n_iter_Lanczos_ff, random_array_real)
     
-    # #old
     psinorm = jnp.linalg.norm(random_array_real)
-    # psiMpsi = jnp.dot(random_array_real,helper_Mpsi(random_array_real)) / (psinorm*psinorm)
     M12_psi_old = helper_compute_M12psi((n_iter_Lanczos_ff-1), trid[:(n_iter_Lanczos_ff-1),:(n_iter_Lanczos_ff-1)], vectors[:(n_iter_Lanczos_ff-1),:],psinorm)
     M12_psi = helper_compute_M12psi(n_iter_Lanczos_ff, trid, vectors,psinorm)
-    # stepnorm = jnp.sqrt( jnp.linalg.norm((M12_psi-M12_psi_old))  / psiMpsi )
     buff = jnp.linalg.norm(M12_psi)
     stepnorm = jnp.linalg.norm(M12_psi-M12_psi_old)
     stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)

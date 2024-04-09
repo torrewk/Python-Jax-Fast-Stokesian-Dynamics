@@ -1,42 +1,63 @@
 import main
 import numpy as np
 import utils
-#This script performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box
-#Specify the simulation parameters below and run
 
-Nsteps = 1000         # (int) Number of simulation timestep to perform
-N = 1000             # (int) Number of particles in the simulation
-writing_period = 1  # (int) Period for writing to file
-L = 20.                 # (float) Box size
-dt = 0.01              # (float) timestep
+print('This software performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box')
+print()
 
-# boolean flag to compute and save to file the stresslet (needed for rheology)
-stresslet_flag = 0
+Nsteps = int(input('Insert number of simulation timesteps to perform and press enter: '))
 
-print('Vol Fraction is ', N/(L*L*L)*4*np.pi/3)
+writing_period = int(input('Insert storing period (periodicity of saving data) and press enter: '))
+if(writing_period>Nsteps):
+    raise ValueError("Periodicity of saving cannot be larger than the total amount of simulation timesteps. Abort!")
 
-# seed for creating initial configuration of non-overlapping particles
-init_positions_seed = 864645
-positions = utils.CreateRandomConfiguration(
-    L, N, init_positions_seed)  # (N,3) array of particle positions
+N = int(input('Insert number of particles in the box and press enter: '))
+Lx = float(input('Insert x-length of simulation box and press enter: '))
+Ly = float(input('Insert y-length of simulation box and press enter: '))
+Lz = float(input('Insert z-length of simulation box and press enter: '))
 
-#seeds needed for the entire calculation
-seed_RFD = 46075  # random-finite-difference calculation for grad(R_FU)
-seed_ffwave = 73247  # far-field (wavespace) thermal fluctuations
-seed_ffreal = 4182  # far-field (realspace) thermal fluctuations
-seed_nf = 53465477  # near-field (realspace) thermal fluctuations
+dt = float(input('Insert value of time step and press enter: '))
 
-# (float) Brownian motion not fully tested, leave temperature to zero
-kT = 1 / 60 / np.pi
-shear_rate_0 = 0.1  # (float) Shear rate amplitude
-shear_freq = 0.     # (float) Shear frequency
-U = 10.*kT  # (float) Strength of colloidal bonds (AO interaction)
+kT = float(input('Insert value of temperature (set to 1 to have a single-particle diffusion coefficient = 1) and press enter: '))
+U = float(input('Insert value of interaction strength (in units of thermal energy) and press enter: '))
+U = U * kT
+
+shear_rate_0 = float(input('Insert value of shear rate amplitude and press enter: '))
+shear_freq = float(input('Insert value of shear rate frequency and press enter: '))
+
+stresslet_flag = int(input('Insert 1 for storing the stresslet, or 0 for not storing it, and press enter: '))
+
+print('Vol Fraction is ', N/(Lx*Ly*Lz)*4*np.pi/3)
+
+init_positions_seed = int(input("Insert a seed for initial particle configuration (set to 0 to set positions manually for each particle) and press enter: "))
+if(init_positions_seed == 0):
+    positions = np.zeros((N,3))
+    for i in range(N):
+        positions[i,0]=float(input(f"Insert the x-coordinates of particle {i} and press enter: "))
+        positions[i,1]=float(input(f"Insert the y-coordinates of particle {i} and press enter: "))
+        positions[i,2]=float(input(f"Insert the z-coordinates of particle {i} and press enter: "))
+else:
+    positions = utils.CreateRandomConfiguration(
+    Lx, N, init_positions_seed)  # (N,3) array of particle positions
+    
+        
+if (kT>0):
+    print('Brownian motion needs 4 seeds.')
+    seed_RFD = int(input("Insert a seed for the random-finite-difference and press enter: "))
+    seed_ffwave = int(input("Insert a seed for wave space far-field Brownian motion and press enter: "))
+    seed_ffreal = int(input("Insert a seed for real space far-field Brownian motion and press enter: "))
+    seed_nf = int(input("Insert a seed for real space near-field Brownian motion and press enter: "))
+else:
+    seed_RFD = seed_ffwave = seed_ffreal = seed_nf = 0
+
+
+
 
 main.main(
     Nsteps,
     writing_period,
     dt,  # simulation timestep
-    L, L, L,  # box sizes
+    Lx, Ly, Lz,  # box sizes
     N,  # number of particles
     0.5,  # max box strain
     kT,  # thermal energy

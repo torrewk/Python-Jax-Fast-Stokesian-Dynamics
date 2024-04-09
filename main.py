@@ -389,8 +389,8 @@ def main(
                 output_precompute
             )
             if(exitcode_gmres > 0):
-                print('GMRES (RFD) did not converge! Iterations are ', exitcode_gmres)
-                raise ValueError("Abort!")
+                raise ValueError(
+                    f"GMRES (RFD) did not converge! Iterations are {exitcode_gmres}. Abort!")
             general_velocity = saddle_x.at[11*N:].get()
 
             #Compute the near-field hydrodynamic stresslet
@@ -424,8 +424,8 @@ def main(
                 output_precompute
             )
             if(exitcode_gmres > 0):
-                print('GMRES (RFD) did not converge! Iterations are ', exitcode_gmres)
-                raise ValueError("Abort!")
+                raise ValueError(
+                    f"GMRES (RFD) did not converge! Iterations are {exitcode_gmres}. Abort!")
 
             #Compute the near-field hydrodynamic stresslet
             if((stresslet_flag > 0) and ((step % writing_period) == 0)):
@@ -530,20 +530,14 @@ def main(
                                                                                           n_iter_Lanczos_nf
                                                                                           )
                 saddle_b = saddle_b.at[11*N:].add(-buffer)
-
             #check that thermal fluctuation calculation went well
             if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.0001))):
-                print()
-                print('Far-field Lanczos did not converge! Stepnorm is ',
-                      stepnormff, ', iterations are ', n_iter_Lanczos_ff)
-                print('Eigenvalues of tridiagonal matrix are ', diag_ff)
-                raise ValueError("Abort!")
+                raise ValueError(
+                    f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!")
+
             if ((not math.isfinite(stepnormnf)) or ((n_iter_Lanczos_nf > 150) and (stepnormnf > 0.0001))):
-                print()
-                print('Near-field Lanczos did not converge! Stepnorm is ',
-                      stepnormnf, ', iterations are ', n_iter_Lanczos_nf)
-                print('Eigenvalues of tridiagonal matrix are ', diag_nf)
-                raise ValueError("Abort!")
+                raise ValueError(
+                    f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!")
 
         #Solve the system Ax=b, where x contains the particle velocities (relative to the background flow) and stresslet
         saddle_x, exitcode_gmres = solver(
@@ -555,9 +549,9 @@ def main(
              r_lub, indices_i_lub, indices_j_lub, ResFunction]
         )
         if(exitcode_gmres > 0):
-            print('GMRES did not converge! Iterations are ', exitcode_gmres)
-            raise ValueError("Abort!")
-
+            raise ValueError(
+                f"GMRES (RFD) did not converge! Iterations are {exitcode_gmres}. Abort!")
+        
         #Add the near-field contributions to the stresslet
         if((stresslet_flag > 0) and ((step % writing_period) == 0)):
             #get stresslet out of saddle point solution (and add it to the contribution from the Brownian drift, if temperature>0 )
