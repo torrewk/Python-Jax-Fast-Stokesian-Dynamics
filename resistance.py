@@ -435,3 +435,327 @@ def compute_RFE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, XG11, XG12, 
     forces = forces.at[indices_j_lub, 3:].add(l)
 
     return jnp.ravel(forces)
+
+
+@partial(jit, static_argnums=[0])
+def compute_RSE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, XM11, XM12, YM11, YM12, ZM11, ZM12, stresslet):
+    #These simulations are constructed so that, if there is strain,
+	# x is the flow direction
+	# y is the gradient direction
+	# z is the vorticity direction
+    # therefore,
+	# Einf = [ 0 g 0 ]
+	#	     [ g 0 0 ]
+    #		 [ 0 0 0 ]
+
+    #symmetry conditions
+    # XG21 = -XG12
+    # YG21 = -YG12
+    # YH21 = YH12
+
+    #define single particle strain (each particle experience same shear)
+    E = jnp.zeros((3, 3), float)
+    E = E.at[0, 1].add(shear_rate/2)
+    E = E.at[1, 0].add(shear_rate/2)
+
+    Edri = jnp.array([shear_rate/2 * r_lub.at[:, 1].get(),
+                      shear_rate/2 * r_lub.at[:, 0].get(), r_lub.at[:, 0].get() * 0.])
+    Edrj = Edri
+    rdEdri = r_lub.at[:, 0].get() * Edri.at[0].get() + \
+        r_lub.at[:, 1].get() * Edri.at[1].get()
+    rdEdrj = rdEdri
+    epsrdEdri = jnp.array([r_lub.at[:, 2].get() * Edri[1],
+                           -r_lub.at[:, 2].get() * Edri[0],
+                           r_lub.at[:, 1].get() * Edri[0] - r_lub.at[:, 0].get() * Edri[1]])
+
+    #compute stresslet for particles i
+    stresslet = stresslet.at[indices_i_lub, 0].add(
+        1.5*XM11 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rdEdri
+        + 1.5*XM12 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rdEdrj
+        + 0.5*YM11 * (2.*r_lub[:, 0]*Edri[0] + 2.*r_lub[:, 0]
+                      * Edri[0] - 4.*rdEdri*r_lub[:, 0]*r_lub[:, 0])
+        + 0.5*YM12 * (2.*r_lub[:, 0]*Edrj[0] + 2.*r_lub[:, 0]
+                      * Edrj[0] - 4.*rdEdrj*r_lub[:, 0]*r_lub[:, 0])
+        + 0.5*ZM11 * (2.*E[0][0] + (1.0 + r_lub[:, 0]*r_lub[:, 0])
+                      * rdEdri - 2.*r_lub[:, 0]*Edri[0] - 2.*r_lub[:, 0]*Edri[0])
+        + 0.5*ZM12 * (2.*E[0][0] + (1.0 + r_lub[:, 0]*r_lub[:, 0])
+                      * rdEdrj - 2.*r_lub[:, 0]*Edrj[0] - 2.*r_lub[:, 0]*Edrj[0])
+    )
+    stresslet = stresslet.at[indices_i_lub, 1].add(
+        1.5*XM11 * (r_lub[:, 0]*r_lub[:, 1]) * rdEdri
+        + 1.5*XM12 * (r_lub[:, 0]*r_lub[:, 1]) * rdEdrj
+        + 0.5*YM11 * (2.*r_lub[:, 0]*Edri[1] + 2.*r_lub[:, 1]
+                      * Edri[0] - 4.*rdEdri*r_lub[:, 0]*r_lub[:, 1])
+        + 0.5*YM12 * (2.*r_lub[:, 0]*Edrj[1] + 2.*r_lub[:, 1]
+                      * Edrj[0] - 4.*rdEdrj*r_lub[:, 0]*r_lub[:, 1])
+        + 0.5*ZM11 * (2.*E[0][1] + (1.0 + r_lub[:, 0]*r_lub[:, 1])
+                      * rdEdri - 2.*r_lub[:, 0]*Edri[1] - 2.*r_lub[:, 1]*Edri[0])
+        + 0.5*ZM12 * (2.*E[0][1] + (1.0 + r_lub[:, 0]*r_lub[:, 1])
+                      * rdEdrj - 2.*r_lub[:, 0]*Edrj[1] - 2.*r_lub[:, 1]*Edrj[0])
+    )
+    stresslet = stresslet.at[indices_i_lub, 2].add(
+        1.5*XM11 * (r_lub[:, 0]*r_lub[:, 2]) * rdEdri
+        + 1.5*XM12 * (r_lub[:, 0]*r_lub[:, 2]) * rdEdrj
+        + 0.5*YM11 * (2.*r_lub[:, 0]*Edri[2] + 2.*r_lub[:, 2]
+                      * Edri[0] - 4.*rdEdri*r_lub[:, 0]*r_lub[:, 2])
+        + 0.5*YM12 * (2.*r_lub[:, 0]*Edrj[2] + 2.*r_lub[:, 2]
+                      * Edrj[0] - 4.*rdEdrj*r_lub[:, 0]*r_lub[:, 2])
+        + 0.5*ZM11 * (2.*E[0][2] + (1.0 + r_lub[:, 0]*r_lub[:, 2])
+                      * rdEdri - 2.*r_lub[:, 0]*Edri[2] - 2.*r_lub[:, 2]*Edri[0])
+        + 0.5*ZM12 * (2.*E[0][2] + (1.0 + r_lub[:, 0]*r_lub[:, 2])
+                      * rdEdrj - 2.*r_lub[:, 0]*Edrj[2] - 2.*r_lub[:, 2]*Edrj[0])
+    )
+    stresslet = stresslet.at[indices_i_lub, 3].add(
+        1.5*XM11 * (r_lub[:, 1]*r_lub[:, 2]) * rdEdri
+        + 1.5*XM12 * (r_lub[:, 1]*r_lub[:, 2]) * rdEdrj
+        + 0.5*YM11 * (2.*r_lub[:, 1]*Edri[2] + 2.*r_lub[:, 2]
+                      * Edri[1] - 4.*rdEdri*r_lub[:, 1]*r_lub[:, 2])
+        + 0.5*YM12 * (2.*r_lub[:, 1]*Edrj[2] + 2.*r_lub[:, 2]
+                      * Edrj[1] - 4.*rdEdrj*r_lub[:, 1]*r_lub[:, 2])
+        + 0.5*ZM11 * (2.*E[1][2] + (1.0 + r_lub[:, 1]*r_lub[:, 2])
+                      * rdEdri - 2.*r_lub[:, 1]*Edri[2] - 2.*r_lub[:, 2]*Edri[1])
+        + 0.5*ZM12 * (2.*E[1][2] + (1.0 + r_lub[:, 1]*r_lub[:, 2])
+                      * rdEdrj - 2.*r_lub[:, 1]*Edrj[2] - 2.*r_lub[:, 2]*Edrj[1])
+    )
+    stresslet = stresslet.at[indices_i_lub, 4].add(
+        1.5*XM11 * (r_lub[:, 1]*r_lub[:, 1]) * rdEdri
+        + 1.5*XM12 * (r_lub[:, 1]*r_lub[:, 1]) * rdEdrj
+        + 0.5*YM11 * (2.*r_lub[:, 1]*Edri[1] + 2.*r_lub[:, 1]
+                      * Edri[1] - 4.*rdEdri*r_lub[:, 1]*r_lub[:, 1])
+        + 0.5*YM12 * (2.*r_lub[:, 1]*Edrj[1] + 2.*r_lub[:, 1]
+                      * Edrj[1] - 4.*rdEdrj*r_lub[:, 1]*r_lub[:, 1])
+        + 0.5*ZM11 * (2.*E[1][1] + (1.0 + r_lub[:, 1]*r_lub[:, 1])
+                      * rdEdri - 2.*r_lub[:, 1]*Edri[1] - 2.*r_lub[:, 1]*Edri[1])
+        + 0.5*ZM12 * (2.*E[1][1] + (1.0 + r_lub[:, 1]*r_lub[:, 1])
+                      * rdEdrj - 2.*r_lub[:, 1]*Edrj[1] - 2.*r_lub[:, 1]*Edrj[1])
+    )
+
+    #compute stresslet for particles j
+    stresslet = stresslet.at[indices_j_lub, 0].add(
+        1.5*XM11 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rdEdrj
+        + 1.5*XM12 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rdEdri
+        + 0.5*YM11 * (2.*r_lub[:, 0]*Edri[0] + 2.*r_lub[:, 0]
+                      * Edri[0] - 4.*rdEdrj*r_lub[:, 0]*r_lub[:, 0])
+        + 0.5*YM12 * (2.*r_lub[:, 0]*Edrj[0] + 2.*r_lub[:, 0]
+                      * Edrj[0] - 4.*rdEdri*r_lub[:, 0]*r_lub[:, 0])
+        + 0.5*ZM11 * (2.*E[0][0] + (1.0 + r_lub[:, 0]*r_lub[:, 0])
+                      * rdEdrj - 2.*r_lub[:, 0]*Edri[0] - 2.*r_lub[:, 0]*Edri[0])
+        + 0.5*ZM12 * (2.*E[0][0] + (1.0 + r_lub[:, 0]*r_lub[:, 0])
+                      * rdEdri - 2.*r_lub[:, 0]*Edrj[0] - 2.*r_lub[:, 0]*Edrj[0])
+    )
+    stresslet = stresslet.at[indices_j_lub, 1].add(
+        1.5*XM11 * (r_lub[:, 0]*r_lub[:, 1]) * rdEdrj
+        + 1.5*XM12 * (r_lub[:, 0]*r_lub[:, 1]) * rdEdri
+        + 0.5*YM11 * (2.*r_lub[:, 0]*Edri[1] + 2.*r_lub[:, 1]
+                      * Edri[0] - 4.*rdEdrj*r_lub[:, 0]*r_lub[:, 1])
+        + 0.5*YM12 * (2.*r_lub[:, 0]*Edrj[1] + 2.*r_lub[:, 1]
+                      * Edrj[0] - 4.*rdEdri*r_lub[:, 0]*r_lub[:, 1])
+        + 0.5*ZM11 * (2.*E[0][1] + (1.0 + r_lub[:, 0]*r_lub[:, 1])
+                      * rdEdrj - 2.*r_lub[:, 0]*Edri[1] - 2.*r_lub[:, 1]*Edri[0])
+        + 0.5*ZM12 * (2.*E[0][1] + (1.0 + r_lub[:, 0]*r_lub[:, 1])
+                      * rdEdri - 2.*r_lub[:, 0]*Edrj[1] - 2.*r_lub[:, 1]*Edrj[0])
+    )
+    stresslet = stresslet.at[indices_j_lub, 2].add(
+        1.5*XM11 * (r_lub[:, 0]*r_lub[:, 2]) * rdEdrj
+        + 1.5*XM12 * (r_lub[:, 0]*r_lub[:, 2]) * rdEdri
+        + 0.5*YM11 * (2.*r_lub[:, 0]*Edri[2] + 2.*r_lub[:, 2]
+                      * Edri[0] - 4.*rdEdrj*r_lub[:, 0]*r_lub[:, 2])
+        + 0.5*YM12 * (2.*r_lub[:, 0]*Edrj[2] + 2.*r_lub[:, 2]
+                      * Edrj[0] - 4.*rdEdri*r_lub[:, 0]*r_lub[:, 2])
+        + 0.5*ZM11 * (2.*E[0][2] + (1.0 + r_lub[:, 0]*r_lub[:, 2])
+                      * rdEdrj - 2.*r_lub[:, 0]*Edri[2] - 2.*r_lub[:, 2]*Edri[0])
+        + 0.5*ZM12 * (2.*E[0][2] + (1.0 + r_lub[:, 0]*r_lub[:, 2])
+                      * rdEdri - 2.*r_lub[:, 0]*Edrj[2] - 2.*r_lub[:, 2]*Edrj[0])
+    )
+    stresslet = stresslet.at[indices_j_lub, 3].add(
+        1.5*XM11 * (r_lub[:, 1]*r_lub[:, 2]) * rdEdrj
+        + 1.5*XM12 * (r_lub[:, 1]*r_lub[:, 2]) * rdEdri
+        + 0.5*YM11 * (2.*r_lub[:, 1]*Edri[2] + 2.*r_lub[:, 2]
+                      * Edri[1] - 4.*rdEdrj*r_lub[:, 1]*r_lub[:, 2])
+        + 0.5*YM12 * (2.*r_lub[:, 1]*Edrj[2] + 2.*r_lub[:, 2]
+                      * Edrj[1] - 4.*rdEdri*r_lub[:, 1]*r_lub[:, 2])
+        + 0.5*ZM11 * (2.*E[1][2] + (1.0 + r_lub[:, 1]*r_lub[:, 2])
+                      * rdEdrj - 2.*r_lub[:, 1]*Edri[2] - 2.*r_lub[:, 2]*Edri[1])
+        + 0.5*ZM12 * (2.*E[1][2] + (1.0 + r_lub[:, 1]*r_lub[:, 2])
+                      * rdEdri - 2.*r_lub[:, 1]*Edrj[2] - 2.*r_lub[:, 2]*Edrj[1])
+    )
+    stresslet = stresslet.at[indices_j_lub, 4].add(
+        1.5*XM11 * (r_lub[:, 1]*r_lub[:, 1]) * rdEdrj
+        + 1.5*XM12 * (r_lub[:, 1]*r_lub[:, 1]) * rdEdri
+        + 0.5*YM11 * (2.*r_lub[:, 1]*Edri[1] + 2.*r_lub[:, 1]
+                      * Edri[1] - 4.*rdEdrj*r_lub[:, 1]*r_lub[:, 1])
+        + 0.5*YM12 * (2.*r_lub[:, 1]*Edrj[1] + 2.*r_lub[:, 1]
+                      * Edrj[1] - 4.*rdEdri*r_lub[:, 1]*r_lub[:, 1])
+        + 0.5*ZM11 * (2.*E[1][1] + (1.0 + r_lub[:, 1]*r_lub[:, 1])
+                      * rdEdrj - 2.*r_lub[:, 1]*Edri[1] - 2.*r_lub[:, 1]*Edri[1])
+        + 0.5*ZM12 * (2.*E[1][1] + (1.0 + r_lub[:, 1]*r_lub[:, 1])
+                      * rdEdri - 2.*r_lub[:, 1]*Edrj[1] - 2.*r_lub[:, 1]*Edrj[1])
+    )
+
+    return stresslet
+
+
+@partial(jit, static_argnums=[6])
+def compute_RSU(stresslet,
+                velocities,
+                indices_i_lub,
+                indices_j_lub,
+                ResFunctions,
+                r_lub,
+                N):
+
+    XG11 = ResFunctions[11]
+    XG12 = ResFunctions[12]
+    YG11 = ResFunctions[13]
+    YG12 = ResFunctions[14]
+    YH11 = ResFunctions[15]
+    YH12 = ResFunctions[16]
+
+    vel_i = (jnp.reshape(velocities, (N, 6))).at[indices_i_lub].get()
+    vel_j = (jnp.reshape(velocities, (N, 6))).at[indices_j_lub].get()
+
+    # Dot product of r and U, i.e. axisymmetric projection (minus sign of rj is taken into account at the end of calculation)
+    rdui = r_lub.at[:, 0].get()*vel_i.at[:, 0].get()+r_lub.at[:, 1].get() * \
+        vel_i.at[:, 1].get()+r_lub.at[:, 2].get()*vel_i.at[:, 2].get()
+    rduj = r_lub.at[:, 0].get()*vel_j.at[:, 0].get()+r_lub.at[:, 1].get() * \
+        vel_j.at[:, 1].get()+r_lub.at[:, 2].get()*vel_j.at[:, 2].get()
+
+    #compute stresslet for particles i
+    stresslet = stresslet.at[indices_i_lub, 0].add(
+        XG11 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rdui
+        + XG12 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rduj
+        + YG11 * (vel_i[:, 0] * r_lub[:, 0] + r_lub[:, 0] *
+                  vel_i[:, 0] - 2. * r_lub[:, 0] * r_lub[:, 0] * rdui)
+        + YG12 * (vel_j[:, 0] * r_lub[:, 0] + r_lub[:, 0] *
+                  vel_j[:, 0] - 2. * r_lub[:, 0] * r_lub[:, 0] * rduj)
+    )
+    stresslet = stresslet.at[indices_i_lub, 1].add(
+        XG11 * (r_lub[:, 0]*r_lub[:, 1]) * rdui
+        + XG12 * (r_lub[:, 0]*r_lub[:, 1]) * rduj
+        + YG11 * (vel_i[:, 0] * r_lub[:, 1] + r_lub[:, 0] *
+                  vel_i[:, 1] - 2. * r_lub[:, 0] * r_lub[:, 1] * rdui)
+        + YG12 * (vel_j[:, 0] * r_lub[:, 1] + r_lub[:, 0] *
+                  vel_j[:, 1] - 2. * r_lub[:, 0] * r_lub[:, 1] * rduj)
+    )
+    stresslet = stresslet.at[indices_i_lub, 2].add(
+        XG11 * (r_lub[:, 0]*r_lub[:, 2]) * rdui
+        + XG12 * (r_lub[:, 0]*r_lub[:, 2]) * rduj
+        + YG11 * (vel_i[:, 0] * r_lub[:, 2] + r_lub[:, 0] *
+                  vel_i[:, 2] - 2. * r_lub[:, 0] * r_lub[:, 2] * rdui)
+        + YG12 * (vel_j[:, 0] * r_lub[:, 2] + r_lub[:, 0] *
+                  vel_j[:, 2] - 2. * r_lub[:, 0] * r_lub[:, 2] * rduj)
+    )
+    stresslet = stresslet.at[indices_i_lub, 3].add(
+        XG11 * (r_lub[:, 1]*r_lub[:, 2]) * rdui
+        + XG12 * (r_lub[:, 1]*r_lub[:, 2]) * rduj
+        + YG11 * (vel_i[:, 1] * r_lub[:, 2] + r_lub[:, 1] *
+                  vel_i[:, 2] - 2. * r_lub[:, 1] * r_lub[:, 2] * rdui)
+        + YG12 * (vel_j[:, 1] * r_lub[:, 2] + r_lub[:, 1] *
+                  vel_j[:, 2] - 2. * r_lub[:, 1] * r_lub[:, 2] * rduj)
+    )
+    stresslet = stresslet.at[indices_i_lub, 4].add(
+        XG11 * (r_lub[:, 1]*r_lub[:, 1] - 1./3.) * rdui
+        + XG12 * (r_lub[:, 1]*r_lub[:, 1] - 1./3.) * rduj
+        + YG11 * (vel_i[:, 1] * r_lub[:, 1] + r_lub[:, 1] *
+                  vel_i[:, 1] - 2. * r_lub[:, 1] * r_lub[:, 1] * rdui)
+        + YG12 * (vel_j[:, 1] * r_lub[:, 1] + r_lub[:, 1] *
+                  vel_j[:, 1] - 2. * r_lub[:, 1] * r_lub[:, 1] * rduj)
+    )
+
+    #compute stresslet for particles j
+    stresslet = stresslet.at[indices_j_lub, 0].add(
+        XG11 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rduj
+        + XG12 * (r_lub[:, 0]*r_lub[:, 0] - 1./3.) * rdui
+        + YG11 * (-vel_j[:, 0] * r_lub[:, 0] - r_lub[:, 0] *
+                  vel_j[:, 0] - 2. * r_lub[:, 0] * r_lub[:, 0] * rduj)
+        + YG12 * (-vel_i[:, 0] * r_lub[:, 0] - r_lub[:, 0] *
+                  vel_i[:, 0] - 2. * r_lub[:, 0] * r_lub[:, 0] * rdui)
+    )
+    stresslet = stresslet.at[indices_j_lub, 1].add(
+        XG11 * (r_lub[:, 0]*r_lub[:, 1]) * rduj
+        + XG12 * (r_lub[:, 0]*r_lub[:, 1]) * rdui
+        + YG11 * (-vel_j[:, 0] * r_lub[:, 1] - r_lub[:, 0] *
+                  vel_j[:, 1] - 2. * r_lub[:, 0] * r_lub[:, 1] * rduj)
+        + YG12 * (-vel_i[:, 0] * r_lub[:, 1] - r_lub[:, 0] *
+                  vel_i[:, 1] - 2. * r_lub[:, 0] * r_lub[:, 1] * rdui)
+    )
+    stresslet = stresslet.at[indices_j_lub, 2].add(
+        XG11 * (r_lub[:, 0]*r_lub[:, 2]) * rduj
+        + XG12 * (r_lub[:, 0]*r_lub[:, 2]) * rdui
+        + YG11 * (-vel_j[:, 0] * r_lub[:, 2] - r_lub[:, 0] *
+                  vel_j[:, 2] - 2. * r_lub[:, 0] * r_lub[:, 2] * rduj)
+        + YG12 * (-vel_i[:, 0] * r_lub[:, 2] - r_lub[:, 0] *
+                  vel_i[:, 2] - 2. * r_lub[:, 0] * r_lub[:, 2] * rdui)
+    )
+    stresslet = stresslet.at[indices_j_lub, 3].add(
+        XG11 * (r_lub[:, 1]*r_lub[:, 2]) * rduj
+        + XG12 * (r_lub[:, 1]*r_lub[:, 2]) * rdui
+        + YG11 * (-vel_j[:, 1] * r_lub[:, 2] - r_lub[:, 1] *
+                  vel_j[:, 2] - 2. * r_lub[:, 1] * r_lub[:, 2] * rduj)
+        + YG12 * (-vel_i[:, 1] * r_lub[:, 2] - r_lub[:, 1] *
+                  vel_i[:, 2] - 2. * r_lub[:, 1] * r_lub[:, 2] * rdui)
+    )
+    stresslet = stresslet.at[indices_j_lub, 4].add(
+        XG11 * (r_lub[:, 1]*r_lub[:, 1] - 1./3.) * rduj
+        + XG12 * (r_lub[:, 1]*r_lub[:, 1] - 1./3.) * rdui
+        + YG11 * (-vel_j[:, 1] * r_lub[:, 1] - r_lub[:, 1] *
+                  vel_j[:, 1] - 2. * r_lub[:, 1] * r_lub[:, 1] * rduj)
+        + YG12 * (-vel_i[:, 1] * r_lub[:, 1] - r_lub[:, 1] *
+                  vel_i[:, 1] - 2. * r_lub[:, 1] * r_lub[:, 1] * rdui)
+    )
+
+    epsrdwi = jnp.array([r_lub.at[:, 2].get() * vel_i.at[:, 4].get() - r_lub.at[:, 1].get() * vel_i.at[:, 5].get(),
+                        -r_lub.at[:, 2].get() * vel_i.at[:, 3].get() +
+                         r_lub.at[:, 0].get() * vel_i.at[:, 5].get(),
+                        r_lub.at[:, 1].get() * vel_i.at[:, 3].get() - r_lub.at[:, 0].get() * vel_i.at[:, 4].get()])
+
+    epsrdwj = jnp.array([r_lub.at[:, 2].get() * vel_j.at[:, 4].get() - r_lub.at[:, 1].get() * vel_j.at[:, 5].get(),
+                        -r_lub.at[:, 2].get() * vel_j.at[:, 3].get() +
+                         r_lub.at[:, 0].get() * vel_j.at[:, 5].get(),
+                        r_lub.at[:, 1].get() * vel_j.at[:, 3].get() - r_lub.at[:, 0].get() * vel_j.at[:, 4].get()])
+
+    #compute stresslet for particles i
+    stresslet = stresslet.at[indices_i_lub, 0].add(
+        YH11 * (r_lub[:, 0] * epsrdwi[0] + epsrdwi[0] * r_lub[:, 0])
+        + YH12 * (r_lub[:, 0] * epsrdwj[0] + epsrdwj[0] * r_lub[:, 0])
+    )
+    stresslet = stresslet.at[indices_i_lub, 1].add(
+        YH11 * (r_lub[:, 0] * epsrdwi[1] + epsrdwi[0] * r_lub[:, 1])
+        + YH12 * (r_lub[:, 0] * epsrdwj[1] + epsrdwj[0] * r_lub[:, 1])
+    )
+    stresslet = stresslet.at[indices_i_lub, 2].add(
+        YH11 * (r_lub[:, 0] * epsrdwi[2] + epsrdwi[0] * r_lub[:, 2])
+        + YH12 * (r_lub[:, 0] * epsrdwj[2] + epsrdwj[0] * r_lub[:, 2])
+    )
+    stresslet = stresslet.at[indices_i_lub, 3].add(
+        YH11 * (r_lub[:, 1] * epsrdwi[2] + epsrdwi[1] * r_lub[:, 2])
+        + YH12 * (r_lub[:, 1] * epsrdwj[2] + epsrdwj[1] * r_lub[:, 2])
+    )
+    stresslet = stresslet.at[indices_i_lub, 4].add(
+        YH11 * (r_lub[:, 2] * epsrdwi[2] + epsrdwi[2] * r_lub[:, 2])
+        + YH12 * (r_lub[:, 2] * epsrdwj[2] + epsrdwj[2] * r_lub[:, 2])
+    )
+
+    #compute stresslet for particles j
+    stresslet = stresslet.at[indices_j_lub, 0].add(
+        YH11 * (r_lub[:, 0] * epsrdwj[0] + epsrdwj[0] * r_lub[:, 0])
+        + YH12 * (r_lub[:, 0] * epsrdwi[0] + epsrdwi[0] * r_lub[:, 0])
+    )
+    stresslet = stresslet.at[indices_j_lub, 1].add(
+        YH11 * (r_lub[:, 0] * epsrdwj[1] + epsrdwj[0] * r_lub[:, 1])
+        + YH12 * (r_lub[:, 0] * epsrdwi[1] + epsrdwi[0] * r_lub[:, 1])
+    )
+    stresslet = stresslet.at[indices_j_lub, 2].add(
+        YH11 * (r_lub[:, 0] * epsrdwj[2] + epsrdwj[0] * r_lub[:, 2])
+        + YH12 * (r_lub[:, 0] * epsrdwi[2] + epsrdwi[0] * r_lub[:, 2])
+    )
+    stresslet = stresslet.at[indices_j_lub, 3].add(
+        YH11 * (r_lub[:, 1] * epsrdwj[2] + epsrdwj[1] * r_lub[:, 2])
+        + YH12 * (r_lub[:, 1] * epsrdwi[2] + epsrdwi[1] * r_lub[:, 2])
+    )
+    stresslet = stresslet.at[indices_j_lub, 4].add(
+        YH11 * (r_lub[:, 2] * epsrdwj[2] + epsrdwj[2] * r_lub[:, 2])
+        + YH12 * (r_lub[:, 2] * epsrdwi[2] + epsrdwi[2] * r_lub[:, 2])
+    )
+
+    return -stresslet

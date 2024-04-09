@@ -43,8 +43,10 @@ def main(
     seed_ffreal,     # int (seed for real space part of far-field velocity slip
     seed_nf,         # int (seed for near-field random forces
     shear_rate_0,    # float (axisymmetric shear rate amplitude)
-    shear_freq,      # float (frequency of shear, set to zero to have simple shear)
-    output           # string (file name for output)
+    # float (frequency of shear, set to zero to have simple shear)
+    shear_freq,
+    output,          # string (file name for output)
+    stresslet_flag   # bool (to have stresslet in the output)
 ):
 
     #Update particle positions and neighbor lists
@@ -175,9 +177,9 @@ def main(
 
         #Solve the linear system Ax= b
         x, exitCode = jscipy.sparse.linalg.gmres(
-            A = compute_saddle, b=rhs, tol=1e-5, restart=25, M=compute_precond) 
+            A=compute_saddle, b=rhs, tol=1e-5, restart=25, M=compute_precond)
 
-        return x
+        return x, exitCode
 
     start_time = time.time()  # Needed to evaluate Time-Steps-per-Second (TPS)
     #######################################################################
@@ -266,7 +268,7 @@ def main(
     #######################################################################
     AppliedForce = jnp.zeros(3*N, float)
     AppliedTorques = jnp.zeros(3*N, float)
-    if(buoyancy_flag == 1): #apply buoyancy forces (in z direction)
+    if(buoyancy_flag == 1):  # apply buoyancy forces (in z direction)
         AppliedForce = AppliedForce.at[2::3].add(-1.)
     ######################################################################
     # Initialize neighborlists
@@ -281,7 +283,8 @@ def main(
     nl_lub = np.array(nbrs_lub.idx)
     nl_ff = np.array(nbrs_ff.idx)
     #######################################################################
-    trajectory = np.zeros((int(Nsteps/writing_period + 1), N, 3), float)
+    trajectory = np.zeros((int(Nsteps/writing_period), N, 3), float)
+    stresslet_history = np.zeros((int(Nsteps/writing_period), N, 5), float)
 
     # precompute grid distances for FFT (same for each gaussian support)
     gaussian_grid_spacing = utils.Precompute_grid_distancing(
@@ -302,6 +305,9 @@ def main(
          normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z,
          nyquist_indices_x, nyquist_indices_y, nyquist_indices_z) = thermal.Random_force_on_grid_indexing(Nx, Ny, Nz)
 
+    #initialize stresslet (for output, not needed to integrate e.o.m.) (5*N array)
+    stresslet = jnp.zeros((N, 5), float)
+
     end_time = time.time()
     elapsed_time = end_time - start_time
     print('Compilation of first part took ', elapsed_time, 'seconds')
@@ -314,6 +320,10 @@ def main(
 
         #initialize generalized velocity (6*N array, for linear and angular components)
         general_velocity = jnp.zeros(6*N, float)
+
+        if((stresslet_flag > 0) and ((step % writing_period) == 0)):
+            #reset stresslet (for output, not needed to integrate e.o.m.) (5*N array)
+            stresslet = jnp.zeros((N, 5), float)
 
         #Define arrays for the saddle point solvers (solve linear system Ax=b, and A is the saddle point matrix)
         saddle_b = jnp.zeros(17*N, float)
@@ -343,11 +353,11 @@ def main(
         #Perform cholesky factorization and obtain lower triangle cholesky factor of R_fu
         R_fu_prec_lower_triang = utils.chol_fac(R_fu_prec_lower_triang)
 
-        #compute shear-rate for current timestep: simple(shear_freq=0) or oscillatory(shear_freq>0)
+        #Compute shear-rate for current timestep: simple(shear_freq=0) or oscillatory(shear_freq>0)
         shear_rate = shear.update_shear_rate(
             dt, step, shear_rate_0, shear_freq, phase=0)
 
-        # If T>0, compute Brownian Drift and use it to initialize the velocity
+        # If temperature is not zero, compute Brownian Drift
         if(T > 0):
 
             key_RFD, random_array = utils.generate_random_array(
@@ -365,18 +375,32 @@ def main(
             buffer_nl_ff = np.array(buffer_nbrs_ff.idx)
 
             #Solve the saddle point problem in the positive direction
-            saddle_x = solver(
+            output_precompute = utils.precompute(buffer_positions, buffer_gaussian_grid_spacing, buffer_nl_ff, buffer_nl_lub, buffer_displacements_vector_matrix, xy,
+                                                 N, Lx, Ly, Lz, Nx, Ny, Nz,
+                                                 prefac, expfac, quadW,
+                                                 gaussP, gaussPd2,
+                                                 ewald_n, ewald_dr, ewald_cut, ewaldC1,
+                                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals)
+
+            saddle_x, exitcode_gmres = solver(
                 saddle_b,  # rhs vector of the linear system
                 gridk,
                 R_fu_prec_lower_triang,
-                utils.precompute(buffer_positions, buffer_gaussian_grid_spacing, buffer_nl_ff, buffer_nl_lub, buffer_displacements_vector_matrix, xy,
-                                 N, Lx, Ly, Lz, Nx, Ny, Nz,
-                                 prefac, expfac, quadW,
-                                 gaussP, gaussPd2,
-                                 ewald_n, ewald_dr, ewald_cut, ewaldC1,
-                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals)[::]
+                output_precompute
             )
+            if(exitcode_gmres > 0):
+                raise ValueError(
+                    f"GMRES (RFD) did not converge! Iterations are {exitcode_gmres}. Abort!")
             general_velocity = saddle_x.at[11*N:].get()
+
+            #Compute the near-field hydrodynamic stresslet
+            if((stresslet_flag > 0) and ((step % writing_period) == 0)):
+                stresslet = resistance.compute_RSU(stresslet, general_velocity,
+                                                   indices_i_lub,
+                                                   indices_j_lub,
+                                                   output_precompute[18],
+                                                   r_lub,
+                                                   N)
 
             #Perform a displacement in the negative random directions and save it to a buffer
             buffer_positions, buffer_displacements_vector_matrix, buffer_nbrs_lub, buffer_nbrs_lub_prec, buffer_nbrs_ff = update_positions(
@@ -387,21 +411,42 @@ def main(
             buffer_nl_ff = np.array(buffer_nbrs_ff.idx)
 
             #Solve the saddle point problem in the negative direction
-            saddle_x = solver(
+            output_precompute = utils.precompute(buffer_positions, buffer_gaussian_grid_spacing, buffer_nl_ff, buffer_nl_lub, buffer_displacements_vector_matrix, xy,
+                                                 N, Lx, Ly, Lz, Nx, Ny, Nz,
+                                                 prefac, expfac, quadW,
+                                                 gaussP, gaussPd2,
+                                                 ewald_n, ewald_dr, ewald_cut, ewaldC1,
+                                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals)
+            saddle_x, exitcode_gmres = solver(
                 saddle_b,  # rhs vector of the linear system
                 gridk,
                 R_fu_prec_lower_triang,
-                utils.precompute(buffer_positions, buffer_gaussian_grid_spacing, buffer_nl_ff, buffer_nl_lub, buffer_displacements_vector_matrix, xy,
-                                 N, Lx, Ly, Lz, Nx, Ny, Nz,
-                                 prefac, expfac, quadW,
-                                 gaussP, gaussPd2,
-                                 ewald_n, ewald_dr, ewald_cut, ewaldC1,
-                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals)
+                output_precompute
             )
+            if(exitcode_gmres > 0):
+                raise ValueError(
+                    f"GMRES (RFD) did not converge! Iterations are {exitcode_gmres}. Abort!")
+
+            #Compute the near-field hydrodynamic stresslet
+            if((stresslet_flag > 0) and ((step % writing_period) == 0)):
+                buffer_stresslet = (
+                    resistance.compute_RSU(
+                        jnp.zeros((N, 5), float),
+                        saddle_x.at[11*N:].get(),
+                        indices_i_lub,
+                        indices_j_lub,
+                        output_precompute[18],
+                        r_lub,
+                        N
+                    )
+                )
 
             #Take Difference and apply scaling
             general_velocity += (-saddle_x.at[11*N:].get())
             general_velocity = general_velocity * T / epsilon
+            if((stresslet_flag > 0) and ((step % writing_period) == 0)):
+                stresslet += -buffer_stresslet
+                stresslet = stresslet * T / epsilon
 
             #Reset RHS to zero for next saddle point solver
             saddle_b = jnp.zeros(17*N, float)
@@ -413,14 +458,15 @@ def main(
 
         #Add the (-) ambient rate of strain to the right-hand side
         # see 'computational tricks' from Andrew Fiore's paper
-        saddle_b = saddle_b.at[(6*N+1):(11*N):5].add(-shear_rate)
+        if(shear_rate_0 != 0):
+            saddle_b = saddle_b.at[(6*N+1):(11*N):5].add(-shear_rate)
 
-        #Compute near field shear contribution R_FE and add it to the rhs of the system
-        saddle_b = saddle_b.at[11*N:].add(resistance.compute_RFE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, ResFunction[11], ResFunction[12],
-                                                                 ResFunction[13], ResFunction[14], ResFunction[15], ResFunction[16],
-                                                                 -ResFunction[12], -ResFunction[14], ResFunction[16]))
+            #Compute near field shear contribution R_FE and add it to the rhs of the system
+            saddle_b = saddle_b.at[11*N:].add(resistance.compute_RFE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, ResFunction[11], ResFunction[12],
+                                                                     ResFunction[13], ResFunction[14], ResFunction[15], ResFunction[16],
+                                                                     -ResFunction[12], -ResFunction[14], ResFunction[16]))
 
-        # If T>0, compute Thermal Fluctuations
+        # Compute Thermal Fluctuations only if temperature is not zero
         if(T > 0):
 
             #Generate random numbers for far-field random forces
@@ -440,13 +486,13 @@ def main(
                                                                                   gaussian_grid_spacing1, gaussian_grid_spacing2)
 
             #Compute far-field (real space contribution) slip velocity and set in rhs of linear system
-            rs_linvel, rs_angvel_strain, stepnormff = thermal.compute_real_space_slipvelocity(
+            rs_linvel, rs_angvel_strain, stepnormff, diag_ff = thermal.compute_real_space_slipvelocity(
                 N, m_self, T, dt, int(n_iter_Lanczos_ff),
                 random_array_real, r, indices_i, indices_j,
                 f1, f2, g1, g2, h1, h2, h3)
-            while((stepnormff > 0.0001) and (n_iter_Lanczos_ff < 100)):
-                n_iter_Lanczos_ff += 15
-                rs_linvel, rs_angvel_strain, stepnormff = thermal.compute_real_space_slipvelocity(
+            while((stepnormff > 0.0001) and (n_iter_Lanczos_ff < 150)):
+                n_iter_Lanczos_ff += 20
+                rs_linvel, rs_angvel_strain, stepnormff, diag_ff = thermal.compute_real_space_slipvelocity(
                     N, m_self, T, dt, int(n_iter_Lanczos_ff),
                     random_array_real, r, indices_i, indices_j,
                     f1, f2, g1, g2, h1, h2, h3)
@@ -454,35 +500,47 @@ def main(
             saddle_b = saddle_b.at[:11*N].add(thermal.convert_to_generalized(
                 N, ws_linvel, rs_linvel, ws_angvel_strain, rs_angvel_strain))
 
-            #Compute near-field random forces and set in rhs of linear system
-            buffer, stepnormnf = thermal.compute_nearfield_brownianforce(N, T, dt,
-                                                                         random_array_nf,
-                                                                         r_lub, indices_i_lub, indices_j_lub,
-                                                                         ResFunction[0], ResFunction[1], ResFunction[
-                                                                             2], ResFunction[3], ResFunction[4], ResFunction[5],
-                                                                         ResFunction[6], ResFunction[7], ResFunction[
-                                                                             8], ResFunction[9], ResFunction[10],
-                                                                         diagonal_elements_for_brownian,
-                                                                         R_fu_prec_lower_triang,
-                                                                         diagonal_zeroes_for_brownian,
-                                                                         n_iter_Lanczos_nf)
-            while((stepnormnf > 0.0001) and (n_iter_Lanczos_nf < 100)):
-                n_iter_Lanczos_nf += 15
-                buffer, stepnormnf = thermal.compute_nearfield_brownianforce(N, T, dt,
-                                                                             random_array_nf,
-                                                                             r_lub, indices_i_lub, indices_j_lub,
-                                                                             ResFunction[0], ResFunction[1], ResFunction[
-                                                                                 2], ResFunction[3], ResFunction[4], ResFunction[5],
-                                                                             ResFunction[6], ResFunction[7], ResFunction[
-                                                                                 8], ResFunction[9], ResFunction[10],
-                                                                             diagonal_elements_for_brownian,
-                                                                             R_fu_prec_lower_triang,
-                                                                             diagonal_zeroes_for_brownian,
-                                                                             n_iter_Lanczos_nf)
-            saddle_b = saddle_b.at[11*N:].add(buffer)
+            stepnormnf = 0.
+            if(N > 1):  # no lubrication for isolated particles
+                #Compute near-field random forces and set in rhs of linear system
+                buffer, stepnormnf, diag_nf = thermal.compute_nearfield_brownianforce(N, T, dt,
+                                                                                      random_array_nf,
+                                                                                      r_lub, indices_i_lub, indices_j_lub,
+                                                                                      ResFunction[0], ResFunction[1], ResFunction[
+                                                                                          2], ResFunction[3], ResFunction[4], ResFunction[5],
+                                                                                      ResFunction[6], ResFunction[7], ResFunction[
+                                                                                          8], ResFunction[9], ResFunction[10],
+                                                                                      diagonal_elements_for_brownian,
+                                                                                      R_fu_prec_lower_triang,
+                                                                                      diagonal_zeroes_for_brownian,
+                                                                                      n_iter_Lanczos_nf
+                                                                                      )
+                while((stepnormnf > 0.0001) and (n_iter_Lanczos_nf < 150)):
+                    n_iter_Lanczos_nf += 20
+                    buffer, stepnormnf, diag_nf = thermal.compute_nearfield_brownianforce(N, T, dt,
+                                                                                          random_array_nf,
+                                                                                          r_lub, indices_i_lub, indices_j_lub,
+                                                                                          ResFunction[0], ResFunction[1], ResFunction[
+                                                                                              2], ResFunction[3], ResFunction[4], ResFunction[5],
+                                                                                          ResFunction[6], ResFunction[7], ResFunction[
+                                                                                              8], ResFunction[9], ResFunction[10],
+                                                                                          diagonal_elements_for_brownian,
+                                                                                          R_fu_prec_lower_triang,
+                                                                                          diagonal_zeroes_for_brownian,
+                                                                                          n_iter_Lanczos_nf
+                                                                                          )
+                saddle_b = saddle_b.at[11*N:].add(-buffer)
+            #check that thermal fluctuation calculation went well
+            if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.0001))):
+                raise ValueError(
+                    f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!")
+
+            if ((not math.isfinite(stepnormnf)) or ((n_iter_Lanczos_nf > 150) and (stepnormnf > 0.0001))):
+                raise ValueError(
+                    f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!")
 
         #Solve the system Ax=b, where x contains the particle velocities (relative to the background flow) and stresslet
-        saddle_x = solver(
+        saddle_x, exitcode_gmres = solver(
             saddle_b,
             gridk,
             R_fu_prec_lower_triang,
@@ -490,6 +548,28 @@ def main(
              r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
              r_lub, indices_i_lub, indices_j_lub, ResFunction]
         )
+        if(exitcode_gmres > 0):
+            raise ValueError(
+                f"GMRES (RFD) did not converge! Iterations are {exitcode_gmres}. Abort!")
+        
+        #Add the near-field contributions to the stresslet
+        if((stresslet_flag > 0) and ((step % writing_period) == 0)):
+            #get stresslet out of saddle point solution (and add it to the contribution from the Brownian drift, if temperature>0 )
+            stresslet += jnp.reshape(-saddle_x[6*N:11*N], (N, 5))
+            stresslet = resistance.compute_RSU(stresslet, saddle_x.at[11*N:].get(),
+                                               indices_i_lub,
+                                               indices_j_lub,
+                                               output_precompute[18],
+                                               r_lub,
+                                               N)
+            #Add shear near-field contributions to the stresslet
+            if(shear_rate_0 != 0):
+                stresslet = resistance.compute_RSE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, ResFunction[17], ResFunction[18],
+                                                   ResFunction[19], ResFunction[20], ResFunction[21], ResFunction[22], stresslet)
+            #save stresslet
+            stresslet_history[int(step/writing_period), :, :] = stresslet
+            if(output != 'None'):
+                np.save('stresslet_'+output, stresslet_history)
 
         #Update positions
         (positions, displacements_vector_matrix,
@@ -506,7 +586,7 @@ def main(
         gaussian_grid_spacing = utils.Precompute_grid_distancing(
             gaussP, gridh[0], xy, positions, N, Nx, Ny, Nz, Lx, Ly, Lz)
 
-        #If system is sheared, update wave vectors grid and box tilt factor
+        #If system is sheared, update wave-vectors grid and box tilt factor
         if(shear_rate_0 != 0):
             xy = shear.update_box_tilt_factor(
                 dt, shear_rate_0, xy, step, shear_freq)
@@ -527,15 +607,24 @@ def main(
 
         #Write trajectory to file
         if((step % writing_period) == 0):
+
+            #check that the position to save do not contain 'nan' or 'inf'
+            if((jnp.isnan(positions)).any() or (jnp.isinf(positions)).any()):
+                raise ValueError(
+                    "Invalid particles positions. Abort!")
+
+            #save position to trajectory (and to file)
             trajectory[int(step/writing_period), :, :] = positions
             if(output != 'None'):
                 np.save(output, trajectory)
-            # overlaps,overlaps2 = utils.check_overlap(displacements_vector_matrix) #kwt debug: check if particles overlap
-            # print('Step= ',step,' Overlaps are ',jnp.sum(overlaps)-N)             #kwt debug: check if particles overlap
-        # jax.profiler.save_device_memory_profile("memory.prof")                    #kwt debug: check use of memory at the end of a step
+
+            # kwt debug: check if particles overlap
+            overlaps, overlaps2 = utils.check_overlap(
+                displacements_vector_matrix)
+            print('Step= ', step, ' Overlaps are ', jnp.sum(overlaps)-N)
 
     total_time_end = time.time()
     print('Time for ', Nsteps, ' steps is ', total_time_end-total_time_start-compilation_time,
           'or ', Nsteps/(total_time_end-total_time_start-compilation_time), ' steps per second')
 
-    return trajectory
+    return trajectory, stresslet_history

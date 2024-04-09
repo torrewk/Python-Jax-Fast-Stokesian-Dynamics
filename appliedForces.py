@@ -87,11 +87,12 @@ def sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U, indices_i, in
         Fp = jnp.zeros((N, N, 3))
         dist_mod = jnp.sqrt(dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                             * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
-        sigma = 2.  # particle diameter
+        # particle diameter (shifted of 1% to help numerical stability)
+        sigma = 2. * (1.01)
 
         #compute forces for each pair
         # relax constant (If lubrication is not on, k should to be ~ o(1) )
-        k = 10000000.
+        k = 1000.
         Fp_mod = jnp.where(indices_i != indices_j, k *
                            (1-sigma/dist_mod[indices_i, indices_j]), 0.)
         Fp_mod = jnp.where(
