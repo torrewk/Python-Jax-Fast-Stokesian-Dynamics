@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "jax",
+    "jax==0.4.23",
     "jax-md",
     "numpy",
     "scipy"
