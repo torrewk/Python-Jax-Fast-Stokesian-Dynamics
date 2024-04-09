@@ -1,6 +1,6 @@
-import main
 import numpy as np
-import utils
+
+from jfsd import main, utils
 
 print('This software performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box')
 print()
@@ -39,8 +39,7 @@ if(init_positions_seed == 0):
 else:
     positions = utils.CreateRandomConfiguration(
     Lx, N, init_positions_seed)  # (N,3) array of particle positions
-    
-        
+
 if (kT>0):
     print('Brownian motion needs 4 seeds.')
     seed_RFD = int(input("Insert a seed for the random-finite-difference and press enter: "))
