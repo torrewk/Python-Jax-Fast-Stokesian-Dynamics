@@ -1,4 +1,4 @@
-import main
+from jfsd import main
 import jax.numpy as jnp
 import numpy as np
 import freud
@@ -7,7 +7,7 @@ import freud
 class TestClass:
 
     def test_deterministic_hydro(self):
-        reference_traj = np.load('files/dancing_spheres_ref.npy')
+        reference_traj = np.load('data/dancing_spheres_ref.npy')
         traj, _ = main.main(
             1000, 10, 0.05, 50, 50, 50, 3, 0.5,
             0., 1, 0.5, 0.001, 0., 1, 1.,
@@ -18,7 +18,7 @@ class TestClass:
         assert (error < 1e-8)
 
     def test_external_shear(self):
-        reference_traj = np.load('files/shear_pair_ref.npy')
+        reference_traj = np.load('data/shear_pair_ref.npy')
         dr = 0.01
         traj, _ = main.main(
             1000, 10, 0.01, 50, 50, 50, 2, 0.5,
