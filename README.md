@@ -1,4 +1,4 @@
-# jfsd: Fast Sokesian Dynamics with JAX
+# jfsd: Fast Stokesian Dynamics with JAX
 
 > [!CAUTION]
 > This software is still in active development. Changes can and will occur without warning. That said
