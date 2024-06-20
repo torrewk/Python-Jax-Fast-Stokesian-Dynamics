@@ -1,12 +1,15 @@
-import numpy as np
 import math
 import random
 from functools import partial
-import jaxmd_partition as partition
+
 import jax.numpy as jnp
-from jax import random as jrandom
+import numpy as np
 from jax import jit
-import jaxmd_space as space
+from jax import random as jrandom
+
+from jfsd import jaxmd_partition as partition
+from jfsd import jaxmd_space as space
+
 np.set_printoptions(precision=8, suppress=True)
 
 # Perform cholesky factorization and obtain lower triangle cholesky factor of input matrix

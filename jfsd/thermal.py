@@ -1,13 +1,16 @@
 import os
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+import jax.numpy as jnp
 import numpy as np
 from jax import jit
-import jax.numpy as jnp
 from jax.config import config
+
 config.update("jax_enable_x64", False)
-import scipy
 from functools import partial
-import lanczos
+
+import scipy
+
+from jfsd import lanczos
 
 
 def Random_force_on_grid_indexing(Nx,Ny,Nz):

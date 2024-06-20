@@ -18,36 +18,25 @@
 
 """Code to transform functions on individual tuples of particles to sets."""
 
-import jax
-from absl import logging
-
-from functools import reduce, partial
-from collections import namedtuple
-
-from enum import Enum
-from enum import IntEnum
-
-from typing import Any, Callable, Optional, Dict, Tuple, Generator, Union
-
 import math
+from collections import namedtuple
+from enum import Enum, IntEnum
+from functools import partial, reduce
 from operator import mul
+from typing import Any, Callable, Dict, Generator, Optional, Tuple, Union
 
+import jax
+import jax.numpy as jnp
+import jraph
 import numpy as onp
-
-from jax import lax
-from jax import ops
-from jax import jit, vmap, eval_shape
+from absl import logging
+from jax import eval_shape, jit, lax, ops, tree_map, vmap
 from jax.core import ShapedArray
 from jax.interpreters import partial_eval as pe
-from jax import tree_map
-import jax.numpy as jnp
 
-import jaxmd_space as space
-import jaxmd_dataclasses as dataclasses
-import jaxmd_util as util
-
-import jraph
-
+from jfsd import jaxmd_dataclasses as dataclasses
+from jfsd import jaxmd_space as space
+from jfsd import jaxmd_util as util
 
 # Types
 
