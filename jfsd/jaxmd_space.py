@@ -49,23 +49,14 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
     `[n, neighbors, spatial_dim]`.
 """
 
-from typing import Callable, Union, Tuple, Any, Optional
-
-from jax.core import ShapedArray
-
-from jax import eval_shape
-from jax import vmap
-from jax import custom_jvp
+from typing import Any, Callable, Optional, Tuple, Union
 
 import jax
-
 import jax.numpy as jnp
+from jax import custom_jvp, eval_shape, vmap
+from jax.core import ShapedArray
 
-from jaxmd_util import Array
-from jaxmd_util import f32
-from jaxmd_util import f64
-from jaxmd_util import safe_mask
-
+from jfsd.jaxmd_util import Array, f32, f64, safe_mask
 
 # Types
 

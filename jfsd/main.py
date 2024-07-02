@@ -1,19 +1,16 @@
 import math
-import time
 import os
-import numpy as np
+import time
+
 import jax.numpy as jnp
 import jax.scipy as jscipy
-import jaxmd_space as space
+from jfsd import jaxmd_space as space
+import numpy as np
+from jax import jit, random
 from jax.config import config
-from jax import random, jit
-import resistance
-import mobility
-import thermal
-import utils
-import appliedForces
-import shear
-import ewaldTables
+
+from jfsd import appliedForces, ewaldTables, mobility, resistance, shear, thermal, utils
+
 config.update("jax_enable_x64", False)
 np.set_printoptions(precision=8, suppress=True)
 # line needed to avoid JAX allocating most of the GPU memory even if not needed

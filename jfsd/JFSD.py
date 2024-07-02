@@ -1,6 +1,6 @@
-import main
 import numpy as np
-import utils
+
+from jfsd import main, utils
 
 print('This software performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box')
 print()

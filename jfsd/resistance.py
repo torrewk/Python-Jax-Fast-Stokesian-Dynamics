@@ -1,9 +1,12 @@
-from jax.config import config
-import jaxmd_space as space
+import os
+from functools import partial
+
 import jax.numpy as jnp
 from jax import jit
-from functools import partial
-import os
+from jax.config import config
+
+from jfsd import jaxmd_space as space
+
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 config.update("jax_enable_x64", False)
 

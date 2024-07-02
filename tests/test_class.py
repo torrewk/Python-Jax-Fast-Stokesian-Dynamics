@@ -1,8 +1,9 @@
-import main
+import freud
 import jax.numpy as jnp
 import numpy as np
-import freud
 from jax.lib import xla_bridge
+
+from jfsd import main
 
 
 def jax_has_gpu():
