@@ -17,38 +17,99 @@ np.set_printoptions(precision=8, suppress=True)
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
 
-#This function wraps all the components and integrate the particles equation of motions forward in time
-#While the simulation is performed, trajectories data are saved into a .npy file
-
 def main(
-    Nsteps,          # int (number of timesteps)
-    writing_period,  # int (period for writing to file)
-    dt,              # float (timestep)
-    Lx, Ly, Lz,      # float (Box sizes)
-    N,               # int (number of particles)
-    max_strain,      # float (max strain applied to the box)
-    T,               # float (termal energy)
-    a,               # float (particle radius)
-    xi,              # float (Ewald split parameter)
-    error,           # float (tolerance error)
-    U,               # float (interaction strength)
-    buoyancy_flag,   # int   (set to 1 to have gravity acting on colloids)
-    U_cutoff,        # float (distance cutoff for interacting particles)
-    positions,       # float ( (N,3) array of particles initial positions)
-    seed_RFD,        # int (seed for Brownian Drift calculation)
-    seed_ffwave,     # int (seed for wave space part of far-field velocity slip
-    seed_ffreal,     # int (seed for real space part of far-field velocity slip
-    seed_nf,         # int (seed for near-field random forces
-    shear_rate_0,    # float (axisymmetric shear rate amplitude)
-    # float (frequency of shear, set to zero to have simple shear)
-    shear_freq,
-    output,          # string (file name for output)
-    stresslet_flag,  # bool (to have stresslet in the output)
-    velocity_flag,   # bool (to have velocities in the output)
-    orient_flag,     # bool (to have particle orientations in the output)
-    constant_applied_forces, # float ( (N,3) array of forces)
-    constant_applied_torques  # float ( (N,3) array of torques)
-):
+    Nsteps: int,
+    writing_period: int,
+    dt: float,
+    Lx: float, Ly: float, Lz: float,
+    N: int,
+    max_strain: float,
+    T: float,
+    a: float,
+    xi: float,
+    error: float,
+    U: float,
+    buoyancy_flag: int,
+    U_cutoff: float,
+    positions: float,
+    seed_RFD: int,
+    seed_ffwave: int,
+    seed_ffreal: int,
+    seed_nf: int,
+    shear_rate_0: float,
+    shear_freq: float,
+    output: str,
+    stresslet_flag: bool,
+    velocity_flag: bool,
+    orient_flag: bool,
+    constant_applied_forces: float,
+    constant_applied_torques: float) -> tuple:
+    """Integrate the particles equation of motions forward in time.
+
+    While the simulation is performed, trajectories data are saved into a .npy file.
+
+    Parameters
+    ----------
+    Nsteps:
+        Number of timesteps
+    writing_period:
+        Period for writing to file
+    dt:
+        Timestep
+    Lx:
+        Box size (x-direction)
+    Ly:
+        Box size (y-direction)
+    Lz:
+        Box size (z-direction)
+    N:
+        Number of particles
+    max_strain:
+        max strain applied to the box
+    T:
+        Thermal energy
+    a:
+        Particle radius
+    xi:
+        Ewald split parameter
+    error:
+        Tolerance error
+    U:
+        Interaction strength
+    buoyancy_flag:
+        Set to 1 to have gravity acting on colloids
+    U_cutoff:
+        Distance cutoff for interacting particles
+    positions:
+        (N,3) array of particles initial positions
+    seed_RFD:
+        Seed for Brownian Drift calculation
+    seed_ffwave:
+        Seed for wave space part of far-field velocity slip
+    seed_nf:
+        Seed for near-field random forces
+    shear_rate_0:
+        Axisymmetric shear rate amplitude
+    shear_freq:
+        Frequency of shear, set to zero to have simple shear
+    output:
+        File name for output
+    stresslet_flag:
+        To have stresslet in the output
+    velocity_flag:
+        To have velocities in the output
+    orient_flag:
+        To have particle orientations in the output
+    constant_applied_forces:
+        (N,3) array of forces
+    constant_applied_torques:
+        (N,3) array of torques
+
+    Returns
+    -------
+        trajectory, stresslet_history, velocities
+
+    """
 
     #Update particle positions and neighbor lists
     @jit
