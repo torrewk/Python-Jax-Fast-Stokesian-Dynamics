@@ -2,12 +2,36 @@ import numpy as np
 import math
 from decimal import Decimal
 
-def Compute_real_space_ewald_table(nR,a,xi):  # table (filled with zeroes as input)
+def Compute_real_space_ewald_table(
+        nR: int,
+        a: float,
+        xi: float) -> tuple:
 
-        # Table discretization in extended precision (80-bit)
-        dr_string = "0.00100000000000000000000000000000" #pass value as a string with arbitrary precision
-        dr = Decimal(dr_string)                          #convert to float with arbitrary precision
-        dr = np.longfloat(dr)                            #convert to numpy long float (truncate to 64/80/128-bit, depending on platform used) 
+        """Construct the table containing mobility scalar functions values
+        as functions of discrete distance. These will be used to linearly interpolate
+        obtaining values for any distance. Due to high complexity of the mobility functions,
+        calculations are performed in 'extended' precision and then truncate to single precision.
+        
+        Parameters
+        ----------
+        nR:
+            Number of entries in tabulation, for each scalar mobility function
+        a:
+            Particle radius
+        xi: 
+            Ewald splitting parameter
+            
+            
+        Returns
+        -------
+        ewaldC
+    
+        """ 
+        
+        # table discretization in extended precision (80-bit)
+        dr_string = "0.00100000000000000000000000000000" # pass value as a string with arbitrary precision
+        dr = Decimal(dr_string)                          # convert to float with arbitrary precision
+        dr = np.longfloat(dr)                            # convert to numpy long float (truncate to 64/80/128-bit, depending on platform used) 
         
         Imrr = np.zeros(nR)
         rr = np.zeros(nR)
@@ -23,7 +47,7 @@ def Compute_real_space_ewald_table(nR,a,xi):  # table (filled with zeroes as inp
         kk = np.arange(nR,dtype=np.longdouble)
         r_array = (kk * dr + dr)
         
-        # Expression have been simplified assuming no overlap, touching, and overlap
+        # expression have been simplified assuming no overlap, touching, and overlap
 
         for i in range(nR):
             
@@ -359,13 +383,13 @@ def Compute_real_space_ewald_table(nR,a,xi):  # table (filled with zeroes as inp
                 + (9*math.erfc(r*xxi)*math.pow(a_64, -6)*math.pow(r, -5)*math.pow(xxi, -8)*(-45 + 8*math.pow(xxi, 2)*(6*math.pow(r, 2) - 3*math.pow(r, 4)*math.pow(
                                     xxi, 2) - 2*math.pow(r, 8)*math.pow(xxi, 6) + 4*math.pow(a_64, 2)*(15 - 9*math.pow(r, 2)*math.pow(xxi, 2) + 4*math.pow(r, 6)*math.pow(xxi, 6)))))/8192.)
         
-        ewaldC1 = np.zeros((2*nR, 4))
-        ewaldC1[0::2, 0]=((Imrr))  # UF1
-        ewaldC1[0::2, 1]=((rr))  # UF2
-        ewaldC1[0::2, 2]=((g1/2))  # UC1
-        ewaldC1[0::2, 3]=((-g2/2))  # UC2
-        ewaldC1[1::2, 0]=((h1))  # DC1
-        ewaldC1[1::2, 1]=((h2))  # DC2
-        ewaldC1[1::2, 2]=((h3))  # DC3
+        ewaldC = np.zeros((2*nR, 4))
+        ewaldC[0::2, 0]=((Imrr))  # UF1
+        ewaldC[0::2, 1]=((rr))  # UF2
+        ewaldC[0::2, 2]=((g1/2))  # UC1
+        ewaldC[0::2, 3]=((-g2/2))  # UC2
+        ewaldC[1::2, 0]=((h1))  # DC1
+        ewaldC[1::2, 1]=((h2))  # DC2
+        ewaldC[1::2, 2]=((h3))  # DC3
                        
-        return ewaldC1
+        return ewaldC

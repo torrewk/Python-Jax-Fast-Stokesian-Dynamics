@@ -9,20 +9,54 @@ from jax import random as jrandom
 
 from jfsd import jaxmd_partition as partition
 from jfsd import jaxmd_space as space
-
 np.set_printoptions(precision=8, suppress=True)
 
-# Perform cholesky factorization and obtain lower triangle cholesky factor of input matrix
-
-
 @jit
-def chol_fac(A):
+def chol_fac(
+        A: float) -> tuple:
+    
+    """Perform a Cholesky factorization of the input matrix. 
+
+    Parameters
+    ----------
+    A:
+        input matrix to decompose
+        
+    Returns
+    -------
+    Lower triangle Cholesky factor of input matrix A
+
+    """   
+    
     return jnp.linalg.cholesky(A)
 
-# Check that ewald_cut is small enough to avoid interaction with the particles images (in real space part of calculation)
+def Check_ewald_cut(
+        ewald_cut: float,
+        Lx: float, 
+        Ly: float, 
+        Lz: float, 
+        error: float) -> tuple:
+    
+    """Check that Ewald cutoff is small enough to avoid interaction with the particles images (in real space part of calculation).
 
+    Parameters
+    ----------
+    ewald_cut:
+        Ewald space cut-off for real-space far-field hydrodynamic interactions
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+    error:
+        Tolerance error
+        
+    Returns
+    -------
 
-def Check_ewald_cut(ewald_cut, Lx, Ly, Lz, error):
+    """ 
+    
     if ((ewald_cut > Lx/2) or (ewald_cut > Ly/2) or (ewald_cut > Lz/2)):
         max_cut = max([Lx, Ly, Lz]) / 2.0
         new_xi = np.sqrt(-np.log(error)) / max_cut
@@ -32,10 +66,39 @@ def Check_ewald_cut(ewald_cut, Lx, Ly, Lz, error):
         print('Ewald Cutoff is ', ewald_cut)
     return
 
-# Maximum eigenvalue of A'*A to scale support, P, for spreading on deformed grids (Fiore and Swan, J. Chem. Phys., 2018)
+def Check_max_shear(
+        gridh: float, 
+        xisq: float, 
+        Nx: int, 
+        Ny: int, 
+        Nz: int, 
+        max_strain: float, 
+        error: float) -> tuple:
+    
+    """Check maximum eigenvalue of A'*A to scale support, P, for spreading on deformed grids (Fiore and Swan, J. Chem. Phys., 2018).
 
+    Parameters
+    ----------
+    gridh:
+        Wave space grid discrete spacing
+    xisq:
+        Squared Ewald split parameter
+    Nx:
+        Number of grid points in x direction
+    Ny:
+        Number of grid points in y direction
+    Nz:
+        Number of grid points in z direction
+    max_strain:
+        Max strain applied to the box
+    error:
+        Tolerance error
+        
+    Returns
+    -------
+    eta, gaussP
 
-def Check_max_shear(gridh, xisq, Nx, Ny, Nz, max_strain, error):
+    """ 
 
     gamma = max_strain
     lambdaa = 1 + gamma*gamma / 2 + gamma * np.sqrt(1+gamma*gamma/4)
@@ -55,8 +118,31 @@ def Check_max_shear(gridh, xisq, Nx, Ny, Nz, max_strain, error):
             f"Quadrature Support Exceeds Available Grid. \n (Mx, My, Mz) = ({Nx}), ({Ny}), ({Nz}). Support Size, P = {gaussP}")
     return eta, gaussP
 
+def Compute_k_gridpoint_number(
+        kmax: float, 
+        Lx: float, 
+        Ly: float, 
+        Lz: float) -> tuple:
+    
+    """Perform a Cholesky factorization of the input matrix. 
 
-def Compute_k_gridpoint_number(kmax, Lx, Ly, Lz):
+    Parameters
+    ----------
+    kmax:
+        Max wave number 
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+        
+    Returns
+    -------
+    Nx, Ny, Nz
+
+    """ 
+    
     # Set initial number of grid points in wave space
     Nx = int(kmax * Lx / (2.0 * jnp.pi) * 2.0) + 1
     Ny = int(kmax * Ly / (2.0 * jnp.pi) * 2.0) + 1
@@ -104,12 +190,56 @@ def Compute_k_gridpoint_number(kmax, Lx, Ly, Lz):
             "Requested Number of Fourier Nodes Exceeds Max Dimension of 512^3")
     return Nx, Ny, Nz
 
-# given a support size (for gaussian spread) -> compute distances in a gaussP x gaussP x gaussP grid (where gauss P might be corrected in it is odd or even...)
+def Precompute_grid_distancing(
+        gaussP: int, 
+        gridh: float, 
+        tilt_factor: float, 
+        positions: float, 
+        N: int, 
+        Nx: int, 
+        Ny: int, 
+        Nz: int,
+        Lx: float, 
+        Ly: float, 
+        Lz: float) -> tuple:
+    
+    """Given a support size for Gaussian spread,
+    compute distances in a (gaussP x gaussP x gaussP) grid 
+    with gauss P shifted by 1 unit if it is odd or even
 
+    Parameters
+    ----------
+    gaussP:
+        Gaussian support size for wave space calculation
+    gridh:
+        Wave space grid discrete spacing
+    tilt_factor:
+        Current box tilt factor
+    positions:
+        Array of current particles positions (N,3)
+    N:
+        Number of particles
+    Nx:
+        Number of grid points in x direction
+    Ny:
+        Number of grid points in y direction
+    Nz:
+        Number of grid points in z direction
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+        
+    Returns
+    -------
+    grid
 
-def Precompute_grid_distancing(gauss_P, gridh, tilt_factor, positions, N, Nx, Ny, Nz, Lx, Ly, Lz):
+    """ 
+    
     # SEE Molbility.cu (line 265) for tips on how to change the distances when we have shear
-    grid = np.zeros((gauss_P, gauss_P, gauss_P, N))
+    grid = np.zeros((gaussP, gaussP, gaussP, N))
     # center_offsets = (jnp.array(positions)+jnp.array([Lx,Ly,Lz])/2)*jnp.array([Nx,Ny,Nz])/jnp.array([Lx,Ly,Lz])
     center_offsets = (np.array(positions)+np.array([Lx, Ly, Lz])/2)
     center_offsets[:, 0] += (-tilt_factor*center_offsets[:, 1])
@@ -120,19 +250,61 @@ def Precompute_grid_distancing(gauss_P, gridh, tilt_factor, positions, N, Nx, Ny
     center_offsets -= np.array(center_offsets, dtype=int)
     center_offsets = np.where(
         center_offsets > 0.5, -(1-center_offsets), center_offsets)
-    for i in range(gauss_P):
-        for j in range(gauss_P):
-            for k in range(gauss_P):
-                grid[i, j, k, :] = gridh*gridh * ((i - int(gauss_P/2) - center_offsets[:, 0] + tilt_factor*(j - int(gauss_P/2) - center_offsets[:, 1]))**2
-                                                  + (j - int(gauss_P/2) -
+    for i in range(gaussP):
+        for j in range(gaussP):
+            for k in range(gaussP):
+                grid[i, j, k, :] = gridh*gridh * ((i - int(gaussP/2) - center_offsets[:, 0] + tilt_factor*(j - int(gaussP/2) - center_offsets[:, 1]))**2
+                                                  + (j - int(gaussP/2) -
                                                      center_offsets[:, 1])**2
-                                                  + (k - int(gauss_P/2) - center_offsets[:, 2])**2)
+                                                  + (k - int(gaussP/2) - center_offsets[:, 2])**2)
     return grid
 
+def CreateRandomConfiguration(
+        L: float, 
+        N: int, 
+        seed: int) -> tuple:
+    
+    """Create a random configuration of non-overlapping sphere. 
+    NOTE: this function is not optimized and should be used only for configuration with
+    small number of particles (<1000) and small volume fraction (<25%). 
 
-def CreateRandomConfiguration(L, N, seed):
+    Parameters
+    ----------
+    L:
+        Box size requested
+    N:
+        Number of particles requested
+    seed:
+        Seed for random number generator
+        
+    Returns
+    -------
+    positions
 
-    def distance_periodic(p1, p2, L):
+    """ 
+
+    def distance_periodic(
+            p1: float, 
+            p2: float, 
+            L: float) -> tuple:
+        
+        """Compute (squared) distance between two particles in a periodic box. 
+
+        Parameters
+        ----------
+        p1:
+            Position of first particle
+        p2:
+            Position of second particle
+        L:
+            Size of the periodic box
+            
+        Returns
+        -------
+        Squared distance 
+
+        """ 
+        
         d = np.abs(p1 - p2)
         d = np.where(d > L / 2, L - d, d)
         return (np.sum(d*d))
@@ -162,38 +334,62 @@ def CreateRandomConfiguration(L, N, seed):
             # print(n)
 
         if attempts > max_attempts:
-            ValueError("Computation too long, abort.")
+            ValueError("Computation too long, abort. Retry with smaller volume fraction and/or less particles.")
             break
 
     return jnp.array(positions)
 
+def initialize_neighborlist(
+        U_cut: float, 
+        Lx: float, 
+        Ly: float, 
+        Lz: float, 
+        displacement: float, 
+        ewald_cut: float) -> tuple:
+    
+    """Initialize various neighborlists, given a box and a distance cutoff.  
 
-# Set various Neighborlist
-def initialize_neighborlist(U_cut, Lx, Ly, Lz, displacement, ewald_cut):
+    Parameters
+    ----------
+    U_cut:
+        Cutoff (max) distance for pair-interactions
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+    displacement:
+        Displacement metric 
+    ewald_cut:
+        Ewald space cut-off for real-space far-field hydrodynamic interactions
+        
+    Returns
+    -------
+    lub_neighbor_fn, prec_lub_neighbor_fn, ff_neighbor_fn, pot_neighbor_fn
+
+    """ 
 
     # For Lubrication Hydrodynamic Forces Calculation
-    lub_neighbor_fn = partition.neighbor_list(displacement,  # Displacement metric
-                                              # Box size
+    lub_neighbor_fn = partition.neighbor_list(displacement,  
                                               jnp.array([Lx, Ly, Lz]),
-                                              # r_cutoff=0.,  # Spatial cutoff for 2 particles to be neighbor
                                               r_cutoff=4.,  # Spatial cutoff for 2 particles to be neighbor
                                               dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
                                               capacity_multiplier=1,
                                               format=partition.NeighborListFormat.OrderedSparse,
                                               disable_cell_list=True)
     # For Precondition of Lubrication Hydrodynamic Forces Calculation
-    prec_lub_neighbor_fn = partition.neighbor_list(displacement,  # Displacement metric
+    prec_lub_neighbor_fn = partition.neighbor_list(displacement,
                                                    # Box size
                                                    jnp.array([Lx, Ly, Lz]),
                                                    r_cutoff=2.1,  # Spatial cutoff for 2 particles to be neighbor
-                                                   # r_cutoff=0.,  # Spatial cutoff for 2 particles to be neighbor
                                                    dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
                                                    capacity_multiplier=1,
                                                    format=partition.NeighborListFormat.OrderedSparse,
                                                    disable_cell_list=True)
 
     # For Far-Field Real Space Hydrodynamic Forces Calculation
-    ff_neighbor_fn = partition.neighbor_list(displacement,  # Displacement metric
+    ff_neighbor_fn = partition.neighbor_list(displacement,  
                                              # Box size
                                              jnp.array([Lx, Ly, Lz]),
                                              r_cutoff=ewald_cut,  # Spatial cutoff for 2 particles to be neighbor
@@ -202,7 +398,7 @@ def initialize_neighborlist(U_cut, Lx, Ly, Lz, displacement, ewald_cut):
                                              format=partition.NeighborListFormat.OrderedSparse,
                                              disable_cell_list=True)
     # For Interparticle Potential Forces Calculation
-    pot_neighbor_fn = partition.neighbor_list(displacement,  # Displacement metric
+    pot_neighbor_fn = partition.neighbor_list(displacement,
                                               # Box size
                                               jnp.array([Lx, Ly, Lz]),
                                               r_cutoff=U_cut,  # Spatial cutoff for 2 particles to be neighbor
@@ -212,10 +408,24 @@ def initialize_neighborlist(U_cut, Lx, Ly, Lz, displacement, ewald_cut):
                                               disable_cell_list=True)
     return lub_neighbor_fn, prec_lub_neighbor_fn, ff_neighbor_fn, pot_neighbor_fn
 
-
-# Check overlaps between particles and returns (number of overlaps + number of particles) (radius of a particle is set to 1)
 @jit
-def check_overlap(dist):
+def check_overlap(
+        dist: float) -> tuple:
+    
+    """Check overlaps between particles and returns number of overlaps + number of particles.
+    Note that the radius of a particle is set to 1.
+
+    Parameters
+    ----------
+    dist:
+        Radial distances between particles
+        
+    Returns
+    -------
+    Number of overlaps + Number of particles
+
+    """ 
+    
     dist_sq = (dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
     exitcode = jnp.where(dist_sq < 3.996, 1., 0.)
@@ -224,21 +434,124 @@ def check_overlap(dist):
 
     return exitcode, jnp.sqrt(exitcode2)  # return 0 if
 
-
 @partial(jit, static_argnums=[1])
-def generate_random_array(key, size):
+def generate_random_array(
+        key: int, 
+        size: int) -> tuple:
+    
+    """Generate array of random number using JAX.
+
+    Parameters
+    ----------
+    key:
+        Current key of random number generator
+    size:
+        Size of random array to generate
+        
+    Returns
+    -------
+    subkey,  (jrandom.uniform(subkey, (size,)))
+
+    """ 
+    
     # advance RNG state (otherwise will get same random numbers)
     key, subkey = jrandom.split(key)
     return subkey,  (jrandom.uniform(subkey, (size,)))
 
-
 @partial(jit, static_argnums=[6, 16])
-def precompute(positions, gaussian_grid_spacing, nl_ff, nl_lub, displacements_vector_matrix, tilt_factor,
-               N, Lx, Ly, Lz, Nx, Ny, Nz,
-               prefac, expfac, quadW,
-               gaussP, gaussPd2,
-               ewald_n, ewald_dr, ewald_cut, ewaldC1,
-               ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals):
+def precompute(
+        positions: float, 
+        gaussian_grid_spacing: float, 
+        nl_ff: int, 
+        nl_lub: int, 
+        displacements_vector_matrix: float, 
+        tilt_factor: float,
+        N: int, 
+        Lx: float, 
+        Ly: float, 
+        Lz: float, 
+        Nx: int, 
+        Ny: int, 
+        Nz: int,
+        prefac: float, 
+        expfac: float, 
+        quadW: float,
+        gaussP: int, 
+        gaussPd2: int,
+        ewald_n: int, 
+        ewald_dr: float, 
+        ewald_cut: float, 
+        ewaldC: float,
+        ResTable_min: float, 
+        ResTable_dr: float, 
+        ResTable_dist: float, 
+        ResTable_vals: float) -> tuple:
+    
+    """Compute all the necessary quantities needed to update the particle position at a given timestep.
+
+    Parameters
+    ----------
+    positions:
+        Array of current particles positions (N,3)
+    gaussian_grid_spacing:
+        Distances from support center to each gridpoint in the gaussian support  
+    nl_ff:
+        Far-field neighborlist indices
+    nl_lub:
+        Near-field neighborlist indices
+    displacements_vector_matrix:
+        Matrix of current displacements between particles, with each element a vector
+    tilt_factor:
+        Current box tilt factor
+    N:
+        Number of particles
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+    Nx:
+        Number of grid points in x direction
+    Ny:
+        Number of grid points in y direction
+    Nz:
+        Number of grid points in z direction
+    prefac:
+        Prefactor needed for FFT
+    expfac:
+        Exponential factor needed for FFT
+    quadW:
+        Product of wave grid discretization parameter in each direction (grid_dx*grid_dy*grid_dz)
+    gaussP:
+        Gaussian support size for wave space calculation 
+    gaussPd2:
+        Integer part of Gaussian support size divide by 2
+    ewald_n:
+        Number of entries in Ewald table, for each mobility function
+    ewald_dr:
+        Ewald table discretization parameter
+    ewald_cut:
+        Ewald space cut-off for real-space far-field hydrodynamic interactions
+    ewaldC:
+        Ewald table containing mobility scalar functions values
+    ResTable_min:
+        Minimum distance resolved for lubrication interactions
+    ResTable_dr:
+        Resistance table discretization parameter
+    ResTable_dist:
+        Resistance table array of distances
+    ResTable_vals:
+        Resistance table containing resistance scalar functions values
+    
+        
+    Returns
+    -------
+    all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
+     r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
+     r_lub, indices_i_lub, indices_j_lub,ResFunc
+
+    """ 
 
     ###Wave Space calculation quantities
 
@@ -287,10 +600,10 @@ def precompute(positions, gaussian_grid_spacing, nl_ff, nl_lub, displacements_ve
     offset1 = 2 * r_ind  # even indices
     offset2 = 2 * r_ind + 1  # odd indices
 
-    tewaldC1m = ewaldC1.at[offset1].get()  # UF and UC
-    tewaldC1p = ewaldC1.at[offset1+2].get()
-    tewaldC2m = ewaldC1.at[offset2].get()  # DC
-    tewaldC2p = ewaldC1.at[offset2+2].get()
+    tewaldC1m = ewaldC.at[offset1].get()  # UF and UC
+    tewaldC1p = ewaldC.at[offset1+2].get()
+    tewaldC2m = ewaldC.at[offset2].get()  # DC
+    tewaldC2p = ewaldC.at[offset2+2].get()
 
     fac_ff = dist / ewald_dr - r_ind - 1.0  # interpolation factor
 

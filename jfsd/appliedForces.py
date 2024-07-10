@@ -5,14 +5,78 @@ import jax.numpy as jnp
 from jax import jit
 from jax.config import config
 
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
-config.update("jax_enable_x64", False)
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
+config.update("jax_enable_x64", False) # disable double precision
 
 
 @partial(jit, static_argnums=[0])
-def sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U, indices_i, indices_j, dist, Ucutoff):
+def sumAppliedForces(
+        N: int, 
+        AppliedForce: float, 
+        AppliedTorques: float, 
+        saddle_b: float, 
+        U: float, 
+        indices_i: int, 
+        indices_j: int, 
+        dist: float, 
+        Ucutoff: float) -> tuple:
+    
+    """Sum all applied forces/torques for each particle. Take into account:
+        external forces/torques,
+        hard-sphere repulsions,
+        short-range attractions
 
-    def compute_LJhe_potentialforces(U, indices_i, indices_j, dist):
+    Parameters
+    ----------
+    N:
+        Number of particles
+    AppliedForce:
+        Applied (external) forces, e.g. buoyancy
+    AppliedTorques:
+        Applied (external) torques
+    saddle_b:
+        Right-hand side vector of saddle point system Ax=b
+    U:
+        Energy of a single colloidal bond
+    indices_i:
+        Indices of first particle in neighbor list pairs 
+    indices_j:
+        Indices of second particle in neighbor list pairs 
+    dist:
+        Radial distances between particles
+    Ucutoff:
+        Cutoff (max) distance for pair-interactions
+        
+    Returns
+    -------
+    saddle_b
+
+    """
+
+    def compute_LJhe_potentialforces(
+            U: float, 
+            indices_i: int, 
+            indices_j: int, 
+            dist: float) -> tuple:
+        
+        """Compute pair interactions using a "high exponent" Lennard-Jones potential (attractions+repulsions)
+    
+        Parameters
+        ----------
+        U:
+            Energy of a single colloidal bond
+        indices_i:
+            Indices of first particle in neighbor list pairs 
+        indices_j:
+            Indices of second particle in neighbor list pairs 
+        dist:
+            Radial distances between particles
+            
+        Returns
+        -------
+        Fp
+    
+        """
         Fp = jnp.zeros((N, N, 3))
         dist_mod = jnp.sqrt(dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                             * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
@@ -51,7 +115,30 @@ def sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U, indices_i, in
 
         return Fp
 
-    def compute_AO_potentialforces(U, indices_i, indices_j, dist):
+    def compute_AO_potentialforces(
+            U: float, 
+            indices_i: int, 
+            indices_j: int, 
+            dist: float) -> tuple:
+        
+        """Compute pair interactions using an Asakura-Osawa potential (attractions)
+    
+        Parameters
+        ----------
+        U:
+            Energy of a single colloidal bond
+        indices_i:
+            Indices of first particle in neighbor list pairs 
+        indices_j:
+            Indices of second particle in neighbor list pairs 
+        dist:
+            Radial distances between particles
+            
+        Returns
+        -------
+        Fp
+    
+        """
         Fp = jnp.zeros((N, N, 3))
         dist_sqr = (dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                     * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
@@ -90,41 +177,27 @@ def sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U, indices_i, in
         Fp = jnp.sum(Fp, 1)
 
         return Fp
+
+    def compute_hs_forces(
+            indices_i: int, 
+            indices_j: int, 
+            dist: float) -> tuple:
+        """Compute hard-sphere pair interactions using an asymmetric harmonic potential (repulsion)
     
-    def compute_harmonic_bond(U, indices_i, indices_j, dist):
-        Fp = jnp.zeros((N, N, 3))
-        dist_sqr = (dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
-                    * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
-
-        # r0=3
-        r0=2.
-        #compute forces for each pair
-        buff = jnp.sqrt(dist_sqr[indices_i, indices_j]) - r0
-        Fp_mod = U * jnp.abs(buff) / buff
-        Fp_mod = Fp_mod / jnp.sqrt(dist_sqr[indices_i, indices_j])
-
-        #get forces in components
-        
-        Fp = Fp.at[indices_i, indices_j, 0].add(
-            Fp_mod*dist[indices_i, indices_j, 0])
-        Fp = Fp.at[indices_i, indices_j, 1].add(
-            Fp_mod*dist[indices_i, indices_j, 1])
-        Fp = Fp.at[indices_i, indices_j, 2].add(
-            Fp_mod*dist[indices_i, indices_j, 2])
-        
-        Fp = Fp.at[indices_j, indices_i, 0].add(
-            Fp_mod*dist[indices_j, indices_i, 0])
-        Fp = Fp.at[indices_j, indices_i, 1].add(
-            Fp_mod*dist[indices_j, indices_i, 1])
-        Fp = Fp.at[indices_j, indices_i, 2].add(
-            Fp_mod*dist[indices_j, indices_i, 2])
-
-        #sum all forces in each particle
-        Fp = jnp.sum(Fp, 1)
-
-        return Fp
-
-    def compute_hs_forces(indices_i, indices_j, dist):
+        Parameters
+        ----------
+        indices_i:
+            Indices of first particle in neighbor list pairs 
+        indices_j:
+            Indices of second particle in neighbor list pairs 
+        dist:
+            Radial distances between particles
+            
+        Returns
+        -------
+        Fp
+    
+        """
         Fp = jnp.zeros((N, N, 3))
         dist_mod = jnp.sqrt(dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                             * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
@@ -158,18 +231,16 @@ def sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U, indices_i, in
 
         return Fp
 
+    # compute hard sphere repulsion, and short-range attractions
     hs_Force = compute_hs_forces(indices_i, indices_j, dist)
     AO_force = compute_AO_potentialforces(U, indices_i, indices_j, dist)
-    # AO_force = compute_harmonic_bond(U, indices_i, indices_j, dist)
 
-    saddle_b = saddle_b.at[(11*N+0)::6].add(-AppliedForce.at[0::3].get() - hs_Force.at[:,
-                                                                                       0].get() - AO_force.at[:, 0].get())  # Add imposed (-forces) to rhs of linear system
-    saddle_b = saddle_b.at[(11*N+1)::6].add(-AppliedForce.at[1::3].get() -
-                                            hs_Force.at[:, 1].get() - AO_force.at[:, 1].get())
-    saddle_b = saddle_b.at[(11*N+2)::6].add(-AppliedForce.at[2::3].get() -
-                                            hs_Force.at[:, 2].get() - AO_force.at[:, 2].get())
+    # add imposed (-forces) to rhs of linear system
+    saddle_b = saddle_b.at[(11*N+0)::6].add(-AppliedForce.at[0::3].get() - hs_Force.at[:,0].get() - AO_force.at[:, 0].get())  
+    saddle_b = saddle_b.at[(11*N+1)::6].add(-AppliedForce.at[1::3].get() - hs_Force.at[:, 1].get() - AO_force.at[:, 1].get())
+    saddle_b = saddle_b.at[(11*N+2)::6].add(-AppliedForce.at[2::3].get() - hs_Force.at[:, 2].get() - AO_force.at[:, 2].get())
 
-    # Add imposed (-torques) to rhs of linear system
+    # add imposed (-torques) to rhs of linear system
     saddle_b = saddle_b.at[(11*N+3)::6].add(-AppliedTorques.at[0::3].get())
     saddle_b = saddle_b.at[(11*N+4)::6].add(-AppliedTorques.at[1::3].get())
     saddle_b = saddle_b.at[(11*N+5)::6].add(-AppliedTorques.at[2::3].get())

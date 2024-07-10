@@ -2,21 +2,117 @@ from functools import partial
 from jax import jit
 import jax.numpy as jnp
 
-def update_box_tilt_factor(dt,shear_rate_0,tilt_factor,step,omega,phase=0):
+def update_box_tilt_factor(
+        dt: float,
+        shear_rate_0: float,
+        tilt_factor: float,
+        step: int,
+        omega: float,
+        phase: float=0):
+    
+    """Update tilt factors of box (in case of shear)
+    
+    Parameters
+    ----------
+    dt:
+        Timestep value
+    shear_rate_0:
+        Shear rate amplitude
+    tilt_factor:
+        Box tilt factor before the update
+    step:
+        Current time step
+    omega:
+        Angular frequerncy of applied oscillatory shear
+    phase:
+        Phase of applied oscillatory shear
+        
+    Returns
+    -------
+    tilt_factor
+    
+    """ 
+    
     current_time = step*dt 
     tilt_factor = jnp.where(omega == 0, tilt_factor+dt*shear_rate_0, shear_rate_0 * jnp.sin(omega*current_time+phase) / omega)
     if (tilt_factor >= 0.5):
         tilt_factor = -0.5 + (tilt_factor-0.5)
     return tilt_factor
 
-def update_shear_rate(dt,step,shear_rate_0,omega,phase=0):
+def update_shear_rate(
+        dt: float,
+        step: int,
+        shear_rate_0: float,
+        omega: float,
+        phase: float=0) -> tuple:
+    
+    """Update shear rate 
+    
+    Parameters
+    ----------
+    dt:
+        Timestep value
+    step:
+        Current time step
+    shear_rate_0:
+        Shear rate amplitude
+    omega:
+        Angular frequerncy of applied oscillatory shear
+    phase:
+        Phase of applied oscillatory shear
+
+    Returns
+    -------
+    shear_rate
+    
+    """ 
+    
     current_time = step*dt 
     shear_rate = shear_rate_0 * jnp.cos(omega*current_time+phase)    
     return shear_rate
 
 
 @partial(jit, static_argnums=[0,1,2])
-def compute_sheared_grid(Nx,Nz,Ny,tilt_factor,Lx,Ly,Lz,eta,xisq):
+def compute_sheared_grid(
+        Nx: int,
+        Nz: int,
+        Ny: int,
+        tilt_factor: float,
+        Lx: float,
+        Ly: float,
+        Lz: float,
+        eta: float,
+        xisq: float) -> tuple:
+    
+    """Compute wave vectors on a given grid, these are then needed for FFT  
+    
+    Parameters
+    ----------
+    Nx:
+        Number of grid points in x direction
+    Ny:
+        Number of grid points in y direction
+    Nz:
+        Number of grid points in z direction
+    tilt_factor:
+        Current box tilt factor
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+    eta:
+        Gaussian splitting parameter
+    xisq:
+        Squared Ewald split parameter
+    
+    Returns
+    -------
+    gridk
+    
+    """ 
+    
     gridk = jnp.zeros((Nx*Ny*Nz, 4),float) 
     # Here create arrays that store the indices that we would have if this function was not vectorized (using for loop instead)
     Nxx = jnp.repeat(jnp.repeat(jnp.arange(Nz), Ny), Nx)

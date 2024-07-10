@@ -7,18 +7,40 @@ from jax.config import config
 
 from jfsd import jaxmd_space as space
 
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
-config.update("jax_enable_x64", False)
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
+config.update("jax_enable_x64", False) #disable double precision
 
 
 @partial(jit, static_argnums=[2, 3])
 def RFU_Precondition(
-        ichol_relaxer,
-        R,
-        N,
-        n_pairs_lub_prec,
-        nl_lub_prec,
-):
+        ichol_relaxer: float,
+        R: float,
+        N: int,
+        n_pairs_lub_prec: int,
+        nl_lub_prec: int) -> tuple:
+    
+    """Construct the lubrication resistance matrix R_FU
+    for particle pairs very close (distance <= 2.1 * radius). This is used as 
+    part of the full precondition matrix used in the saddle point problem. 
+    
+    Parameters
+    ----------
+    ichol_relaxer:
+        Relaxation factor for Cholesky decomposition
+    R:
+        Vector of particle distances
+    N:
+        Number of particles
+    n_pairs_lub_prec:
+        Number of particle pairs to include in the lubrication matrix
+    nl_lub_prec:
+        Near-field precondition neighborlist indices
+        
+    Returns
+    -------
+    R_fu_precondition, diagonal_elements_for_brownian
+
+    """  
 
     # Load resistance table
     ResTable_dist = jnp.load('files/ResTableDist.npy')
@@ -303,12 +325,36 @@ def RFU_Precondition(
 
 
 @partial(jit, static_argnums=[5])
-def ComputeLubricationFU(velocities,
-                         indices_i_lub,
-                         indices_j_lub,
-                         ResFunctions,
-                         r_lub,
-                         N):
+def ComputeLubricationFU(
+        velocities: float,
+        indices_i_lub: int,
+        indices_j_lub: int,
+        ResFunctions: float,
+        r_lub: float,
+        N: int) -> tuple:
+    
+    """Compute matrix-vector product of lubrication R_FU resistance matrix with particle velocities.
+
+    Parameters
+    ----------
+    velocities:
+        Input particle linear/angular velocities
+    indices_i_lub:
+        Indices of first particle in near-field neighbor list pairs 
+    indices_j_lub:
+        Indices of second particle in near-field neighbor list pairs 
+    ResFunctions:
+        Resistance scalar functions evaluated for the current particle configuration
+    r_lub:
+        Units vectors connecting each pair of particles in the near-field neighbor list
+    N:
+        Number of particles
+        
+    Returns
+    -------
+    jnp.ravel(forces)
+
+    """  
 
     XA11 = ResFunctions[0]
     YA11 = ResFunctions[2]
@@ -383,15 +429,70 @@ def ComputeLubricationFU(velocities,
 
 
 @partial(jit, static_argnums=[0])
-def compute_RFE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, XG11, XG12, YG11, YG12, YH11, YH12, XG21, YG21, YH21):
-    #These simulations are constructed so that, if there is strain,
-	# x is the flow direction
-	# y is the gradient direction
-	# z is the vorticity direction
-    # therefore,
-	# Einf = [ 0 g/2 0 ]
-	#	     [ g/2 0 0 ]
-    #		 [ 0 0 0 ]
+def compute_RFE(
+        N: int, 
+        shear_rate: float, 
+        r_lub: float, 
+        indices_i_lub: int, 
+        indices_j_lub: int, 
+        XG11: float, 
+        XG12: float, 
+        YG11: float, 
+        YG12: float, 
+        YH11: float, 
+        YH12: float, 
+        XG21: float, 
+        YG21: float, 
+        YH21: float) -> tuple:
+    
+    """Compute matrix-vector product of lubrication R_FE resistance matrix with particle rate of strain.
+    These simulations are constructed so that, if there is strain,
+	x is the flow direction
+	y is the gradient direction
+	z is the vorticity direction
+    therefore,
+	Einf = [ 0  g/2 0 ]
+		   [g/2  0  0 ]
+    	   [ 0   0  0 ]
+
+    Parameters
+    ----------
+    N:
+        Number of particles
+    shear_rate:
+        Shear rate at current step
+    r_lub:
+        Units vectors connecting each pair of particles in the near-field neighbor list
+    indices_i_lub:
+        Indices of first particle in near-field neighbor list pairs 
+    indices_j_lub:
+        Indices of second particle in near-field neighbor list pairs 
+    XG11:
+        Resistance scalar functions evaluated for the current particle configuration
+    XG12:
+        Resistance scalar functions evaluated for the current particle configuration
+    YG11:
+        Resistance scalar functions evaluated for the current particle configuration
+    YG12:
+        Resistance scalar functions evaluated for the current particle configuration
+    YH11:
+        Resistance scalar functions evaluated for the current particle configuration
+    YH12:
+        Resistance scalar functions evaluated for the current particle configuration
+    XG21:
+        Resistance scalar functions evaluated for the current particle configuration
+    YG21:
+        Resistance scalar functions evaluated for the current particle configuration
+    YH21:
+        Resistance scalar functions evaluated for the current particle configuration
+        
+    Returns
+    -------
+    jnp.ravel(forces)
+
+    """  
+    
+    #
 
     #symmetry conditions
     # XG21 = -XG12
@@ -441,15 +542,62 @@ def compute_RFE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, XG11, XG12, 
 
 
 @partial(jit, static_argnums=[0])
-def compute_RSE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, XM11, XM12, YM11, YM12, ZM11, ZM12, stresslet):
-    #These simulations are constructed so that, if there is strain,
-	# x is the flow direction
-	# y is the gradient direction
-	# z is the vorticity direction
-    # therefore,
-	# Einf = [ 0 g/2 0 ]
-	#	     [ g/2 0 0 ]
-    #		 [ 0 0 0 ]
+def compute_RSE(
+        N: int, 
+        shear_rate: float, 
+        r_lub: float, 
+        indices_i_lub: int, 
+        indices_j_lub: int, 
+        XM11: float, 
+        XM12: float, 
+        YM11: float, 
+        YM12: float, 
+        ZM11: float, 
+        ZM12: float, 
+        stresslet: float) -> tuple:
+    
+    """Compute matrix-vector product of lubrication R_SE resistance matrix with particle rate of strain.
+    These simulations are constructed so that, if there is strain,
+	x is the flow direction
+	y is the gradient direction
+	z is the vorticity direction
+    therefore,
+	Einf = [ 0  g/2 0 ]
+		   [g/2  0  0 ]
+    	   [ 0   0  0 ]
+
+    Parameters
+    ----------
+    N:
+        Number of particles
+    shear_rate:
+        Shear rate at current step
+    r_lub:
+        Units vectors connecting each pair of particles in the near-field neighbor list
+    indices_i_lub:
+        Indices of first particle in near-field neighbor list pairs 
+    indices_j_lub:
+        Indices of second particle in near-field neighbor list pairs 
+    XM11:
+        Resistance scalar functions evaluated for the current particle configuration
+    XM12:
+        Resistance scalar functions evaluated for the current particle configuration
+    YM11:
+        Resistance scalar functions evaluated for the current particle configuration
+    YM12:
+        Resistance scalar functions evaluated for the current particle configuration
+    ZM11:
+        Resistance scalar functions evaluated for the current particle configuration
+    ZM12:
+        Resistance scalar functions evaluated for the current particle configuration
+    stresslet:
+        Input stresslet
+        
+    Returns
+    -------
+    stresslet
+
+    """ 
 
     #symmetry conditions
     # XG21 = -XG12
@@ -594,21 +742,46 @@ def compute_RSE(N, shear_rate, r_lub, indices_i_lub, indices_j_lub, XM11, XM12, 
         + 0.5*ZM11 * (2.*E[1][1] + (1.0 + r_lub[:, 1]*r_lub[:, 1])
                       * rdEdrj - 2.*r_lub[:, 1]*Edri[1] - 2.*r_lub[:, 1]*Edri[1])
         + 0.5*ZM12 * (2.*E[1][1] + (1.0 + r_lub[:, 1]*r_lub[:, 1])
-                      * rdEdri - 2.*r_lub[:, 1]*Edrj[1] - 2.*r_lub[:, 1]*Edrj[1]))
-        
+                      * rdEdri - 2.*r_lub[:, 1]*Edrj[1] - 2.*r_lub[:, 1]*Edrj[1]))  
     )
 
     return stresslet
 
 
 @partial(jit, static_argnums=[6])
-def compute_RSU(stresslet,
-                velocities,
-                indices_i_lub,
-                indices_j_lub,
-                ResFunctions,
-                r_lub,
-                N):
+def compute_RSU(
+        stresslet: float,
+        velocities: float,
+        indices_i_lub: int,
+        indices_j_lub: int,
+        ResFunctions: float,
+        r_lub: float,
+        N: int) -> tuple:
+    
+    """Compute matrix-vector product of lubrication R_SU resistance matrix with particle velocities.
+
+    Parameters
+    ----------
+    stresslet:
+        Input particle stresslet
+    velocities:
+        Input particle linear/angular velocities
+    indices_i_lub:
+        Indices of first particle in near-field neighbor list pairs 
+    indices_j_lub:
+        Indices of second particle in near-field neighbor list pairs 
+    ResFunctions:
+        Resistance scalar functions evaluated for the current particle configuration
+    r_lub:
+        Units vectors connecting each pair of particles in the near-field neighbor list
+    N:
+        Number of particles
+
+    Returns
+    -------
+    stresslet
+
+    """  
 
     XG11 = ResFunctions[11]
     XG12 = ResFunctions[12]
