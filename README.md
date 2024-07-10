@@ -10,7 +10,7 @@ This repository contains a Python implementation of the Fast Stokesian Dynamics 
 ## Set up work (virtual) environment:
 
 ```bash
-git clone git+https://github.com/UtrechtUniversity/ibridges-servers-uu.git
+git clone https://github.com/UtrechtUniversity/ibridges-servers-uu.git
 ```
 
 ## Go into the directory of the project and type the command:
