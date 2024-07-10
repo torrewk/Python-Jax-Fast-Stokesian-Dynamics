@@ -1,28 +1,94 @@
 import os
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
 from functools import partial
 from jax import jit
 import jax.numpy as jnp
 from jax.config import config
-config.update("jax_enable_x64", False)
+config.update("jax_enable_x64", False) #disable double precision
 
-
-
-# output: the generalized velocities vector of particles (velocities+angular velocities+rateOfStrain: 11N)
-# input: the generalized forces (force+torque+stresslet: 11*N) of particles
 @partial(jit, static_argnums=[0,1,2,3,4])
 def GeneralizedMobility(
-        N,
-        Nx,
-        Ny,
-        Nz,
-        gaussP,
-        gridk,
-        m_self,
-        all_indices_x,all_indices_y,all_indices_z,gaussian_grid_spacing1,gaussian_grid_spacing2,
-        r,indices_i,indices_j,f1,f2,g1,g2,h1,h2,h3,
-        generalized_forces
-        ):
+        N: int,
+        Nx: int,
+        Ny: int,
+        Nz: int,
+        gaussP: int,
+        gridk: float,
+        m_self: float,
+        all_indices_x: int,
+        all_indices_y: int,
+        all_indices_z: int,
+        gaussian_grid_spacing1: float,
+        gaussian_grid_spacing2: float,
+        r: float,
+        indices_i: int,
+        indices_j: int,
+        f1: float,
+        f2: float,
+        g1: float,
+        g2: float,
+        h1: float,
+        h2: float,
+        h3: float,
+        generalized_forces: float) -> tuple:
+    
+    """Construct the saddle point operator A,
+        which acts on x and returns A*x (without using A in matrix representation)
+
+    Parameters
+    ----------
+    N:
+        Number of particles
+    Nx:
+        Number of grid points in x direction
+    Ny:
+        Number of grid points in y direction
+    Nz:
+        Number of grid points in z direction
+    gaussP:
+        Gaussian support size for wave space calculation 
+    gridk:
+        Wave number values in the grid
+    m_self:
+        Mobility self contribution
+    all_indices_x:
+        All indices (x) of wave grid points for each particle
+    all_indices_y:
+        All indices (y) of wave grid points for each particle
+    all_indices_z:
+        All indices (z) of wave grid points for each particle
+    gaussian_grid_spacing1:
+        Scaled distances from support center to each gridpoint, for FFT  
+    gaussian_grid_spacing2:
+        Scaled distances from support center to each gridpoint, for inverse FFT  
+    r:
+        Units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i:
+        Indices of first particle in far-field neighbor list pairs 
+    indices_j:
+        Indices of second particle in far-field neighbor list pairs 
+    f1:
+        Mobility scalar function 1
+    f2:
+        Mobility scalar function 2
+    g1:
+        Mobility scalar function 3
+    g2:
+        Mobility scalar function 4
+    h1:
+        Mobility scalar function 5
+    h2:
+        Mobility scalar function 6
+    h3:
+        Mobility scalar function 7
+    generalized_forces:
+        Input generalized forces (force/torque/stresslet)
+        
+    Returns
+    -------
+    generalized_velocities (linear/angular velocities and rateOfStrain) 
+
+    """
     
     # Helper function
     def swap_real_imag(cplx_arr):
