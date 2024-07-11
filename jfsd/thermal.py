@@ -1053,58 +1053,47 @@ def compute_nearfield_brownianforce(
         
         return jnp.ravel(forces)
     
+@partial(jit, static_argnums=[0])
+def compute_BD_randomforce(
+        N: int,
+        kT: float,
+        dt: float,
+        random_array: float) -> tuple:
     
-    def helper_compute_R12psi(
-            n_iter_Lanczos_nf: int, 
-            trid: float, 
-            vectors: float) -> tuple:
-        
-        """Compute square root of lubrication matrix from Lanczos decomposition.
+    """Compute thermal fluctuation for Brownian Dynamics.
 
-        Parameters
-        ----------
-        n_iter_Lanczos_ff:
-            Number of Lanczos iteration performed
-        trid:
-            Tridiagonal matrix obtained from Lanczos decomposition
-        vectors:
-            Vectors spanning Krylov subspace, obtained from Lanczos decomposition
-            
-        Returns
-        -------
-        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+    Parameters
+    ----------
+    N:
+        Number of particles
+    kT:
+        Thermal energy
+    dt:
+        Time step
+    random_array:
+        Array of random numbers with the proper variance
+    
+    Returns
+    -------
+    random_velocity
 
-        """
+    """  
+    
+    # scale random numbers from [0,1] to [-sqrt(3),sqrt(3)] to obtain 
+    # a random variable with zero mean and unit variance
+    random_velocity = (2*random_array-1)*jnp.sqrt(3.)
+    
+    # translational drag coefficient for a sphere is 1 in simulation units (6*pi*eta*a)
+    drag_coeff = jnp.ones(6*N)
+    # rotational drag coefficient for a sphere is 4/3 in simulation units (8*pi*eta*a)
+    drag_coeff = drag_coeff.at[3::6].set(4/3)
+    drag_coeff = drag_coeff.at[4::6].set(4/3)
+    drag_coeff = drag_coeff.at[5::6].set(4/3)
+    
+    # scale by proper factor to satisfy fluctuation-dissipation theorem
+    random_velocity = random_velocity * jnp.sqrt(2.0*kT/dt * 3. / drag_coeff) 
         
-        betae1 = jnp.zeros(n_iter_Lanczos_nf)
-        betae1 = betae1.at[0].add(1*psinorm)
-        a,b = jnp.linalg.eigh(trid)
-        a = jnp.where(a<0., 0., a) #numerical cutoff to avoid small negative values
-        a = jnp.dot((jnp.dot(b,jnp.diag(jnp.sqrt(a)))),b.T)
-        
-        return jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
-
-    
-    ############################################################################################################################################################
-    
-    
-    #Scale random numbers from [0,1] to [-sqrt(3),sqrt(3)]
-    random_array = (2*random_array-1)*jnp.sqrt(3.)
-    
-    trid, vectors = lanczos.lanczos_alg(Precondition_Brownian_RFUmultiply, 6*N, n_iter_Lanczos_nf, random_array)
-       
-    psinorm = jnp.linalg.norm(random_array)
-        
-    R_FU12psi_old = helper_compute_R12psi((n_iter_Lanczos_nf-1), trid[:(n_iter_Lanczos_nf-1),:(n_iter_Lanczos_nf-1)], vectors[:(n_iter_Lanczos_nf-1),:])
-    R_FU12psi = helper_compute_R12psi(n_iter_Lanczos_nf, trid, vectors)
-    
-    buff = jnp.linalg.norm(R_FU12psi)
-    stepnorm = jnp.linalg.norm((R_FU12psi-R_FU12psi_old))
-    stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)    
-    R_FU12psi = Precondition_Brownian_Undo(R_FU12psi)
-    
-    # return R_FU12psi, stepnorm, (jnp.linalg.eigh(trid))[0]
-    return R_FU12psi, stepnorm, trid
+    return random_velocity
 
 @partial(jit, static_argnums=[0])
 def convert_to_generalized(

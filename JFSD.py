@@ -1,9 +1,11 @@
 import numpy as np
 
-from jfsd import main, utils
+from jfsd import main, mainBD, utils
 
 print('This software performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box')
 print()
+
+HIs_flag = int(input('First, insert 0 for Brownian Dynamics, or 1 for Stokesian Dynamics and press enter: '))
 
 Nsteps = int(input('Insert number of simulation timesteps to perform and press enter: '))
 
@@ -22,6 +24,7 @@ dt = float(input('Insert value of time step and press enter: '))
 kT = float(input('Insert value of temperature (set to 1 to have a single-particle diffusion coefficient = 1) and press enter: '))
 U = float(input('Insert value of interaction strength (in units of thermal energy) and press enter: '))
 U = U * kT
+U_cutoff = float(input('Insert value of space cutoff for pair-interactions (in units of particle radius) and press enter: '))
 
 shear_rate_0 = float(input('Insert value of shear rate amplitude and press enter: '))
 shear_freq = float(input('Insert value of shear rate frequency and press enter: '))
@@ -69,39 +72,70 @@ else:
 
 output_name = str(input('Insert the name of the output file and press enter:'))    
         
-if (kT>0):
+if ((kT>0) and (HIs_flag==1)):
     print('Brownian motion needs 4 seeds.')
     seed_RFD = int(input("Insert a seed for the random-finite-difference and press enter: "))
     seed_ffwave = int(input("Insert a seed for wave space far-field Brownian motion and press enter: "))
     seed_ffreal = int(input("Insert a seed for real space far-field Brownian motion and press enter: "))
     seed_nf = int(input("Insert a seed for real space near-field Brownian motion and press enter: "))
+if ((kT>0) and (HIs_flag==0)):
+    print('Brownian motion needs 1 seed.')
+    seed_RFD = 0
+    seed_ffwave = 0
+    seed_ffreal = 0
+    seed_nf = int(input("Insert a seed for Brownian forces and press enter: "))
 else:
     seed_RFD = seed_ffwave = seed_ffreal = seed_nf = 0
 
 
-
-
-main.main(
-    Nsteps,
-    writing_period,
-    dt,  # simulation timestep
-    Lx, Ly, Lz,  # box sizes
-    N,  # number of particles
-    0.5,  # max box strain
-    kT,  # thermal energy
-    1,  # radius of a colloid (leave to 1)
-    0.5,  # ewald parameter (leave to 0.5)
-    0.001,  # error tolerance
-    U,  # strength of bonds
-    0,  # buoyancy
-    0, # LJ potential cutoff  
-    positions,
-    seed_RFD, seed_ffwave, seed_ffreal, seed_nf,
-    shear_rate_0, shear_freq,
-    output_name,  # file name for output )
-    stresslet_flag,
-    velocity_flag,
-    orientation_flag,
-    constant_applied_forces,
-    constant_applied_torques
-)
+if (HIs_flag==1):
+    main.main(
+        Nsteps,
+        writing_period,
+        dt,  # simulation timestep
+        Lx, Ly, Lz,  # box sizes
+        N,  # number of particles
+        0.5,  # max box strain
+        kT,  # thermal energy
+        1,  # radius of a colloid (leave to 1)
+        0.5,  # ewald parameter (leave to 0.5)
+        0.001,  # error tolerance
+        U,  # strength of bonds
+        0,  # buoyancy
+        0, # potential cutoff  
+        positions,
+        seed_RFD, seed_ffwave, seed_ffreal, seed_nf,
+        shear_rate_0, shear_freq,
+        output_name,  # file name for output )
+        stresslet_flag,
+        velocity_flag,
+        orientation_flag,
+        constant_applied_forces,
+        constant_applied_torques,
+        HIs_flag)
+    
+elif(HIs_flag==0):
+    mainBD.main(
+        Nsteps,
+        writing_period,
+        dt,  # simulation timestep
+        Lx, Ly, Lz,  # box sizes
+        N,  # number of particles
+        0.5,  # max box strain
+        kT,  # thermal energy
+        1,  # radius of a colloid (leave to 1)
+        0.5,  # ewald parameter (leave to 0.5)
+        0.001,  # error tolerance
+        U,  # strength of bonds
+        0,  # buoyancy
+        U_cutoff, # potential cutoff  
+        positions,
+        seed_RFD, seed_ffwave, seed_ffreal, seed_nf,
+        shear_rate_0, shear_freq,
+        output_name,  # file name for output )
+        stresslet_flag,
+        velocity_flag,
+        orientation_flag,
+        constant_applied_forces,
+        constant_applied_torques,
+        HIs_flag)

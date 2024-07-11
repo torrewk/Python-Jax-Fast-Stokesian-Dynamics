@@ -22,7 +22,8 @@ class TestClass:
             0., 1, 0.5, 0.001, 0., 1, 1.,
             jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
             0, 0, 0, 0, 0., 0.,
-            'None', 0, 0, 0,np.array([0]), np.array([0]) )
+            'None', 0, 0, 0,np.array([0]), np.array([0]),
+            1 )
         error = np.linalg.norm(reference_traj-traj)
         assert (error < 1e-8)
 
@@ -37,7 +38,8 @@ class TestClass:
             0., 1, 0.5, 0.001, 0., 0, 1.,
             jnp.array([[0., 1.+dr, 0.], [0., -1.-dr, 0.]]),
             0, 0, 0, 0, 0.1, 0.,
-            'None', 0, 0, 0,np.array([0]), np.array([0]) )
+            'None', 0, 0, 0,np.array([0]), np.array([0]),
+            1 )
         error = np.linalg.norm(reference_traj-traj)
         assert (error < 1e-8)
 
@@ -65,7 +67,8 @@ class TestClass:
                 jnp.array([[0., 0., 0.]]),
                 rfd_seeds[i], ff_w_seeds[i], ff_r_seeds[i], 0,
                 0., 0.,
-                'None', 0, 0, 0, np.array([0]), np.array([0]))
+                'None', 0, 0, 0, np.array([0]), np.array([0]), 
+                1)
             msd.compute(positions=(traj))
             MSDs.append(msd.msd)
         MSDs_average = np.mean(MSDs, axis=0)

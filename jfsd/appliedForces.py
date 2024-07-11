@@ -19,7 +19,8 @@ def sumAppliedForces(
         indices_i: int, 
         indices_j: int, 
         dist: float, 
-        Ucutoff: float) -> tuple:
+        Ucutoff: float,
+        HIs_flag: int) -> tuple:
     
     """Sum all applied forces/torques for each particle. Take into account:
         external forces/torques,
@@ -46,6 +47,8 @@ def sumAppliedForces(
         Radial distances between particles
     Ucutoff:
         Cutoff (max) distance for pair-interactions
+    HIs_flag:
+        Flag used to set level of hydrodynamic interaction. 0 for BD, 1 for SD.
         
     Returns
     -------
@@ -206,7 +209,8 @@ def sumAppliedForces(
 
         #compute forces for each pair
         # relax constant (If lubrication is not on, k should to be ~ o(1) )
-        k = 1000.
+        k = jnp.where(HIs_flag > 0, 1000. , 100)
+        
         Fp_mod = jnp.where(indices_i != indices_j, k *
                            (1-sigma/dist_mod[indices_i, indices_j]), 0.)
         Fp_mod = jnp.where(
@@ -244,5 +248,10 @@ def sumAppliedForces(
     saddle_b = saddle_b.at[(11*N+3)::6].add(-AppliedTorques.at[0::3].get())
     saddle_b = saddle_b.at[(11*N+4)::6].add(-AppliedTorques.at[1::3].get())
     saddle_b = saddle_b.at[(11*N+5)::6].add(-AppliedTorques.at[2::3].get())
+    #if there are no HIs, divide torques by rotational drag coeff (not done for forces as the translational drag coeff is set to 1 in simulation units)
+    saddle_b = saddle_b.at[(11*N+3)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+3)::6].get(), saddle_b.at[(11*N+3)::6].get()*3/4)) 
+    saddle_b = saddle_b.at[(11*N+4)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+4)::6].get(), saddle_b.at[(11*N+4)::6].get()*3/4)) 
+    saddle_b = saddle_b.at[(11*N+5)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+5)::6].get(), saddle_b.at[(11*N+5)::6].get()*3/4)) 
+
 
     return saddle_b

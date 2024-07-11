@@ -408,6 +408,47 @@ def initialize_neighborlist(
                                               disable_cell_list=True)
     return lub_neighbor_fn, prec_lub_neighbor_fn, ff_neighbor_fn, pot_neighbor_fn
 
+def initialize_single_neighborlist(
+        space_cut: float, 
+        Lx: float, 
+        Ly: float, 
+        Lz: float, 
+        displacement: float) -> tuple:
+    
+    """Initialize a single neighborlists, given a box and a distance cutoff. Note that creation of neighborlists 
+    is perfomed using code from jax_md. At the moment, the code does not use cell list, as it produces artifact.
+    In future, the creation of neighborlists will be handled entirely by JFSD, leveraging cell lists.
+
+    Parameters
+    ----------
+    space_cut:
+        Cutoff (max) distance for particles to be considered neighbors
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+    displacement:
+        Displacement metric 
+    
+    Returns
+    -------
+    neighbor_fn
+
+    """ 
+
+    # For Lubrication Hydrodynamic Forces Calculation
+    neighbor_fn = partition.neighbor_list(displacement,  
+                                              jnp.array([Lx, Ly, Lz]),
+                                              r_cutoff=space_cut,  # Spatial cutoff for 2 particles to be neighbor
+                                              dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
+                                              capacity_multiplier=1,
+                                              format=partition.NeighborListFormat.OrderedSparse,
+                                              disable_cell_list=True)
+    
+    return neighbor_fn
+
 @jit
 def check_overlap(
         dist: float) -> tuple:
@@ -428,8 +469,8 @@ def check_overlap(
     
     dist_sq = (dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
-    exitcode = jnp.where(dist_sq < 3.996, 1., 0.)
-    exitcode2 = jnp.where(dist_sq < 3.996, dist_sq, 0.)
+    exitcode = jnp.where(dist_sq < 4.008004, 1., 0.)
+    exitcode2 = jnp.where(dist_sq < 4.008004, dist_sq, 0.)
     exitcode2 = jnp.where(exitcode2 > 0, exitcode2, 0.)
 
     return exitcode, jnp.sqrt(exitcode2)  # return 0 if
@@ -717,3 +758,53 @@ def precompute(
     return ((all_indices_x), (all_indices_y), (all_indices_z), gaussian_grid_spacing1, gaussian_grid_spacing2,
             r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
             r_lub, indices_i_lub, indices_j_lub,ResFunc)
+                                    
+@partial(jit, static_argnums=[3])
+def precomputeBD(
+        positions: float, 
+        nl: int, 
+        displacements_vector_matrix: float, 
+        N: int, 
+        Lx: float, 
+        Ly: float, 
+        Lz: float) -> tuple:
+    
+    """Compute all the necessary quantities needed to update the particle position at a given timestep, for Brownian Dynamics.
+
+    Parameters
+    ----------
+    positions:
+        Array of current particles positions (N,3)
+    nl:
+        Neighborlist indices
+    displacements_vector_matrix:
+        Matrix of current displacements between particles, with each element a vector
+    N:
+        Number of particles
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+    
+    Returns
+    -------
+     r, indices_i, indices_j
+
+    """ 
+#######################################################################################################
+    #Brownian Dynamics calculation quantities
+    indices_i = nl[0, :]  # Pair indices (i<j always)
+    indices_j = nl[1, :]
+    # array of vectors from particle i to j (size = npairs)
+    R = displacements_vector_matrix.at[nl[0, :], nl[1, :]].get()
+    dist_lub = space.distance(R)  # distance between particle i and j
+    # unit vector from particle j to i
+    r = R / dist_lub.at[:, None].get()
+
+    
+
+    return (r, indices_i, indices_j)
+
+

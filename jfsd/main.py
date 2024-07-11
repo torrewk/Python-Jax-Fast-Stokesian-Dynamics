@@ -45,7 +45,9 @@ def main(
     velocity_flag: bool,
     orient_flag: bool,
     constant_applied_forces: float,
-    constant_applied_torques: float) -> tuple:
+    constant_applied_torques: float,
+    HIs_flag: int) -> tuple:
+    
     """Integrate the particles equation of motions forward in time.
 
     While the simulation is performed, trajectories data are saved into a .npy file.
@@ -88,6 +90,8 @@ def main(
         Seed for Brownian Drift calculation
     seed_ffwave:
         Seed for wave space part of far-field velocity slip
+    seed_ffreal:
+        Seed for real space part of far-field velocity slip
     seed_nf:
         Seed for near-field random forces
     shear_rate_0:
@@ -106,6 +110,8 @@ def main(
         Array of external forces (N,3)
     constant_applied_torques:
         Array of external torques (N,3)
+    HIs_flag:
+        Flag used to set level of hydrodynamic interaction. 0 for BD, 1 for SD.
 
     Returns
     -------
@@ -122,7 +128,8 @@ def main(
         nbrs_lub_prec: partition.NeighborList, 
         nbrs_ff: partition.NeighborList, 
         net_vel: float,
-        dt: float) -> tuple:                               
+        dt: float) -> tuple:    
+                           
         """Update particle positions and neighbor lists
         
         Parameters
@@ -596,7 +603,7 @@ def main(
         # add applied forces and conservative (pair potential) forces to right-hand side of system
         saddle_b = appliedForces.sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U,
                                                   indices_i_lub, indices_j_lub, displacements_vector_matrix,
-                                                  U_cutoff)
+                                                  U_cutoff,HIs_flag)
         
         # add (-) the ambient rate of strain to the right-hand side
         if(shear_rate_0 != 0):
