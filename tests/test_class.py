@@ -23,7 +23,7 @@ class TestClass:
             jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
             0, 0, 0, 0, 0., 0.,
             'None', 0, 0, 0,np.array([0]), np.array([0]),
-            1 )
+            1)
         error = np.linalg.norm(reference_traj-traj)
         assert (error < 1e-8)
 
@@ -39,7 +39,7 @@ class TestClass:
             jnp.array([[0., 1.+dr, 0.], [0., -1.-dr, 0.]]),
             0, 0, 0, 0, 0.1, 0.,
             'None', 0, 0, 0,np.array([0]), np.array([0]),
-            1 )
+            1)
         error = np.linalg.norm(reference_traj-traj)
         assert (error < 1e-8)
 

@@ -1,6 +1,6 @@
 import os
 from functools import partial
-
+from jax.typing import ArrayLike
 import jax.numpy as jnp
 from jax import jit
 from jax.config import config
@@ -12,15 +12,15 @@ config.update("jax_enable_x64", False) # disable double precision
 @partial(jit, static_argnums=[0])
 def sumAppliedForces(
         N: int, 
-        AppliedForce: float, 
-        AppliedTorques: float, 
-        saddle_b: float, 
+        AppliedForce: ArrayLike, 
+        AppliedTorques: ArrayLike, 
+        saddle_b: ArrayLike, 
         U: float, 
-        indices_i: int, 
-        indices_j: int, 
-        dist: float, 
+        indices_i: ArrayLike, 
+        indices_j: ArrayLike, 
+        dist: ArrayLike, 
         Ucutoff: float,
-        HIs_flag: int) -> tuple:
+        HIs_flag: int) -> ArrayLike:
     
     """Sum all applied forces/torques for each particle. Take into account:
         external forces/torques,
@@ -58,9 +58,9 @@ def sumAppliedForces(
 
     def compute_LJhe_potentialforces(
             U: float, 
-            indices_i: int, 
-            indices_j: int, 
-            dist: float) -> tuple:
+            indices_i: ArrayLike, 
+            indices_j: ArrayLike, 
+            dist: ArrayLike) -> ArrayLike:
         
         """Compute pair interactions using a "high exponent" Lennard-Jones potential (attractions+repulsions)
     
@@ -120,9 +120,9 @@ def sumAppliedForces(
 
     def compute_AO_potentialforces(
             U: float, 
-            indices_i: int, 
-            indices_j: int, 
-            dist: float) -> tuple:
+            indices_i: ArrayLike, 
+            indices_j: ArrayLike, 
+            dist: ArrayLike) -> ArrayLike:
         
         """Compute pair interactions using an Asakura-Osawa potential (attractions)
     
@@ -182,9 +182,9 @@ def sumAppliedForces(
         return Fp
 
     def compute_hs_forces(
-            indices_i: int, 
-            indices_j: int, 
-            dist: float) -> tuple:
+            indices_i: ArrayLike, 
+            indices_j: ArrayLike, 
+            dist: ArrayLike) -> ArrayLike:
         """Compute hard-sphere pair interactions using an asymmetric harmonic potential (repulsion)
     
         Parameters
@@ -208,7 +208,8 @@ def sumAppliedForces(
         sigma = 2. * (1.001)
 
         #compute forces for each pair
-        # relax constant (If lubrication is not on, k should to be ~ o(1) )
+        # spring constant (with lubrication hydrodynamic this should to be ~ o(1000) at least
+        # because of divergent effective drag coeff on particles)
         k = jnp.where(HIs_flag > 0, 1000. , 100)
         
         Fp_mod = jnp.where(indices_i != indices_j, k *

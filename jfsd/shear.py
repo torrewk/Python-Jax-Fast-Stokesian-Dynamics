@@ -1,6 +1,7 @@
 from functools import partial
 from jax import jit
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 def update_box_tilt_factor(
         dt: float,
@@ -8,7 +9,7 @@ def update_box_tilt_factor(
         tilt_factor: float,
         step: int,
         omega: float,
-        phase: float=0):
+        phase: float=0) -> float:
     
     """Update tilt factors of box (in case of shear)
     
@@ -82,7 +83,7 @@ def compute_sheared_grid(
         Ly: float,
         Lz: float,
         eta: float,
-        xisq: float) -> tuple:
+        xisq: float) -> ArrayLike:
     
     """Compute wave vectors on a given grid, these are then needed for FFT  
     

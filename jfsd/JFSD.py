@@ -1,6 +1,6 @@
 import numpy as np
 
-from jfsd import main, mainBD, utils
+from jfsd import main, utils
 
 print('This software performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box')
 print()
@@ -87,9 +87,7 @@ if ((kT>0) and (HIs_flag==0)):
 else:
     seed_RFD = seed_ffwave = seed_ffreal = seed_nf = 0
 
-
-if (HIs_flag==1):
-    main.main(
+main.main(
         Nsteps,
         writing_period,
         dt,  # simulation timestep
@@ -103,32 +101,6 @@ if (HIs_flag==1):
         U,  # strength of bonds
         0,  # buoyancy
         0, # potential cutoff  
-        positions,
-        seed_RFD, seed_ffwave, seed_ffreal, seed_nf,
-        shear_rate_0, shear_freq,
-        output_name,  # file name for output )
-        stresslet_flag,
-        velocity_flag,
-        orientation_flag,
-        constant_applied_forces,
-        constant_applied_torques,
-        HIs_flag)
-    
-elif(HIs_flag==0):
-    mainBD.main(
-        Nsteps,
-        writing_period,
-        dt,  # simulation timestep
-        Lx, Ly, Lz,  # box sizes
-        N,  # number of particles
-        0.5,  # max box strain
-        kT,  # thermal energy
-        1,  # radius of a colloid (leave to 1)
-        0.5,  # ewald parameter (leave to 0.5)
-        0.001,  # error tolerance
-        U,  # strength of bonds
-        0,  # buoyancy
-        U_cutoff, # potential cutoff  
         positions,
         seed_RFD, seed_ffwave, seed_ffreal, seed_nf,
         shear_rate_0, shear_freq,

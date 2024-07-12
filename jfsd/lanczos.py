@@ -1,11 +1,12 @@
 import jax.numpy as jnp
 from jax import lax
+from jax.typing import ArrayLike
 
 def lanczos_alg(
-    matrix_vector_product: float,
+    matrix_vector_product: ArrayLike,
     dim: int,
     order: int,
-    init_vec: float) -> tuple:
+    init_vec: ArrayLike) -> tuple:
 
     """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^t) * x
     M  is the input matrix (N x N),
@@ -30,7 +31,7 @@ def lanczos_alg(
     """ 
 
     def update(
-            args: float, 
+            args: tuple, 
             i: int) -> tuple:
         """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^t) * x
         M  is the input matrix (N x N),

@@ -1,11 +1,12 @@
 import numpy as np
 import math
 from decimal import Decimal
+from jax.typing import ArrayLike
 
 def Compute_real_space_ewald_table(
         nR: int,
         a: float,
-        xi: float) -> tuple:
+        xi: float) -> ArrayLike:
 
         """Construct the table containing mobility scalar functions values
         as functions of discrete distance. These will be used to linearly interpolate

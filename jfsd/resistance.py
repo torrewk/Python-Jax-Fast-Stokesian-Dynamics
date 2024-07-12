@@ -4,7 +4,7 @@ from functools import partial
 import jax.numpy as jnp
 from jax import jit
 from jax.config import config
-
+from jax.typing import ArrayLike
 from jfsd import jaxmd_space as space
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
@@ -14,10 +14,10 @@ config.update("jax_enable_x64", False) #disable double precision
 @partial(jit, static_argnums=[2, 3])
 def RFU_Precondition(
         ichol_relaxer: float,
-        R: float,
+        R: ArrayLike,
         N: int,
         n_pairs_lub_prec: int,
-        nl_lub_prec: int) -> tuple:
+        nl_lub_prec: ArrayLike) -> tuple:
     
     """Construct the lubrication resistance matrix R_FU
     for particle pairs very close (distance <= 2.1 * radius). This is used as 
@@ -326,12 +326,12 @@ def RFU_Precondition(
 
 @partial(jit, static_argnums=[5])
 def ComputeLubricationFU(
-        velocities: float,
-        indices_i_lub: int,
-        indices_j_lub: int,
-        ResFunctions: float,
-        r_lub: float,
-        N: int) -> tuple:
+        velocities: ArrayLike,
+        indices_i_lub: ArrayLike,
+        indices_j_lub: ArrayLike,
+        ResFunctions: tuple,
+        r_lub: ArrayLike,
+        N: int) -> ArrayLike:
     
     """Compute matrix-vector product of lubrication R_FU resistance matrix with particle velocities.
 
@@ -435,15 +435,15 @@ def compute_RFE(
         r_lub: float, 
         indices_i_lub: int, 
         indices_j_lub: int, 
-        XG11: float, 
-        XG12: float, 
-        YG11: float, 
-        YG12: float, 
-        YH11: float, 
-        YH12: float, 
-        XG21: float, 
-        YG21: float, 
-        YH21: float) -> tuple:
+        XG11: ArrayLike, 
+        XG12: ArrayLike, 
+        YG11: ArrayLike, 
+        YG12: ArrayLike, 
+        YH11: ArrayLike, 
+        YH12: ArrayLike, 
+        XG21: ArrayLike, 
+        YG21: ArrayLike, 
+        YH21: ArrayLike) -> ArrayLike:
     
     """Compute matrix-vector product of lubrication R_FE resistance matrix with particle rate of strain.
     These simulations are constructed so that, if there is strain,
@@ -491,8 +491,6 @@ def compute_RFE(
     jnp.ravel(forces)
 
     """  
-    
-    #
 
     #symmetry conditions
     # XG21 = -XG12
@@ -545,16 +543,16 @@ def compute_RFE(
 def compute_RSE(
         N: int, 
         shear_rate: float, 
-        r_lub: float, 
-        indices_i_lub: int, 
-        indices_j_lub: int, 
-        XM11: float, 
-        XM12: float, 
-        YM11: float, 
-        YM12: float, 
-        ZM11: float, 
-        ZM12: float, 
-        stresslet: float) -> tuple:
+        r_lub: ArrayLike, 
+        indices_i_lub: ArrayLike, 
+        indices_j_lub: ArrayLike, 
+        XM11: ArrayLike, 
+        XM12: ArrayLike, 
+        YM11: ArrayLike, 
+        YM12: ArrayLike, 
+        ZM11: ArrayLike, 
+        ZM12: ArrayLike, 
+        stresslet: ArrayLike) -> ArrayLike:
     
     """Compute matrix-vector product of lubrication R_SE resistance matrix with particle rate of strain.
     These simulations are constructed so that, if there is strain,
@@ -750,13 +748,13 @@ def compute_RSE(
 
 @partial(jit, static_argnums=[6])
 def compute_RSU(
-        stresslet: float,
-        velocities: float,
-        indices_i_lub: int,
-        indices_j_lub: int,
-        ResFunctions: float,
-        r_lub: float,
-        N: int) -> tuple:
+        stresslet: ArrayLike,
+        velocities: ArrayLike,
+        indices_i_lub: ArrayLike,
+        indices_j_lub: ArrayLike,
+        ResFunctions: tuple,
+        r_lub: ArrayLike,
+        N: int) -> ArrayLike:
     
     """Compute matrix-vector product of lubrication R_SU resistance matrix with particle velocities.
 

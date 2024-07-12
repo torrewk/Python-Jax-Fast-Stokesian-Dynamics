@@ -1,19 +1,21 @@
 import math
 import random
 from functools import partial
-
 import jax.numpy as jnp
 import numpy as np
 from jax import jit
 from jax import random as jrandom
-
 from jfsd import jaxmd_partition as partition
 from jfsd import jaxmd_space as space
-np.set_printoptions(precision=8, suppress=True)
+from jax.typing import ArrayLike
+from typing import Callable, Any
+
+# Define types for the functions
+DisplacementFn = Callable[[Any, Any], Any]
 
 @jit
 def chol_fac(
-        A: float) -> tuple:
+        A: ArrayLike) -> ArrayLike:
     
     """Perform a Cholesky factorization of the input matrix. 
 
@@ -35,7 +37,7 @@ def Check_ewald_cut(
         Lx: float, 
         Ly: float, 
         Lz: float, 
-        error: float) -> tuple:
+        error: float):
     
     """Check that Ewald cutoff is small enough to avoid interaction with the particles images (in real space part of calculation).
 
@@ -67,7 +69,7 @@ def Check_ewald_cut(
     return
 
 def Check_max_shear(
-        gridh: float, 
+        gridh: ArrayLike, 
         xisq: float, 
         Nx: int, 
         Ny: int, 
@@ -192,16 +194,16 @@ def Compute_k_gridpoint_number(
 
 def Precompute_grid_distancing(
         gaussP: int, 
-        gridh: float, 
+        gridh: ArrayLike, 
         tilt_factor: float, 
-        positions: float, 
+        positions: ArrayLike, 
         N: int, 
         Nx: int, 
         Ny: int, 
         Nz: int,
         Lx: float, 
         Ly: float, 
-        Lz: float) -> tuple:
+        Lz: float) -> ArrayLike:
     
     """Given a support size for Gaussian spread,
     compute distances in a (gaussP x gaussP x gaussP) grid 
@@ -238,7 +240,6 @@ def Precompute_grid_distancing(
 
     """ 
     
-    # SEE Molbility.cu (line 265) for tips on how to change the distances when we have shear
     grid = np.zeros((gaussP, gaussP, gaussP, N))
     # center_offsets = (jnp.array(positions)+jnp.array([Lx,Ly,Lz])/2)*jnp.array([Nx,Ny,Nz])/jnp.array([Lx,Ly,Lz])
     center_offsets = (np.array(positions)+np.array([Lx, Ly, Lz])/2)
@@ -262,7 +263,7 @@ def Precompute_grid_distancing(
 def CreateRandomConfiguration(
         L: float, 
         N: int, 
-        seed: int) -> tuple:
+        seed: int) -> ArrayLike:
     
     """Create a random configuration of non-overlapping sphere. 
     NOTE: this function is not optimized and should be used only for configuration with
@@ -284,9 +285,9 @@ def CreateRandomConfiguration(
     """ 
 
     def distance_periodic(
-            p1: float, 
-            p2: float, 
-            L: float) -> tuple:
+            p1: ArrayLike, 
+            p2: ArrayLike, 
+            L: float) -> ArrayLike:
         
         """Compute (squared) distance between two particles in a periodic box. 
 
@@ -339,81 +340,12 @@ def CreateRandomConfiguration(
 
     return jnp.array(positions)
 
-def initialize_neighborlist(
-        U_cut: float, 
-        Lx: float, 
-        Ly: float, 
-        Lz: float, 
-        displacement: float, 
-        ewald_cut: float) -> tuple:
-    
-    """Initialize various neighborlists, given a box and a distance cutoff.  
-
-    Parameters
-    ----------
-    U_cut:
-        Cutoff (max) distance for pair-interactions
-    Lx:
-        Box size in x direction
-    Ly:
-        Box size in y direction
-    Lz:
-        Box size in z direction
-    displacement:
-        Displacement metric 
-    ewald_cut:
-        Ewald space cut-off for real-space far-field hydrodynamic interactions
-        
-    Returns
-    -------
-    lub_neighbor_fn, prec_lub_neighbor_fn, ff_neighbor_fn, pot_neighbor_fn
-
-    """ 
-
-    # For Lubrication Hydrodynamic Forces Calculation
-    lub_neighbor_fn = partition.neighbor_list(displacement,  
-                                              jnp.array([Lx, Ly, Lz]),
-                                              r_cutoff=4.,  # Spatial cutoff for 2 particles to be neighbor
-                                              dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
-                                              capacity_multiplier=1,
-                                              format=partition.NeighborListFormat.OrderedSparse,
-                                              disable_cell_list=True)
-    # For Precondition of Lubrication Hydrodynamic Forces Calculation
-    prec_lub_neighbor_fn = partition.neighbor_list(displacement,
-                                                   # Box size
-                                                   jnp.array([Lx, Ly, Lz]),
-                                                   r_cutoff=2.1,  # Spatial cutoff for 2 particles to be neighbor
-                                                   dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
-                                                   capacity_multiplier=1,
-                                                   format=partition.NeighborListFormat.OrderedSparse,
-                                                   disable_cell_list=True)
-
-    # For Far-Field Real Space Hydrodynamic Forces Calculation
-    ff_neighbor_fn = partition.neighbor_list(displacement,  
-                                             # Box size
-                                             jnp.array([Lx, Ly, Lz]),
-                                             r_cutoff=ewald_cut,  # Spatial cutoff for 2 particles to be neighbor
-                                             dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
-                                             capacity_multiplier=1,
-                                             format=partition.NeighborListFormat.OrderedSparse,
-                                             disable_cell_list=True)
-    # For Interparticle Potential Forces Calculation
-    pot_neighbor_fn = partition.neighbor_list(displacement,
-                                              # Box size
-                                              jnp.array([Lx, Ly, Lz]),
-                                              r_cutoff=U_cut,  # Spatial cutoff for 2 particles to be neighbor
-                                              dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
-                                              capacity_multiplier=1,
-                                              format=partition.NeighborListFormat.OrderedSparse,
-                                              disable_cell_list=True)
-    return lub_neighbor_fn, prec_lub_neighbor_fn, ff_neighbor_fn, pot_neighbor_fn
-
 def initialize_single_neighborlist(
         space_cut: float, 
         Lx: float, 
         Ly: float, 
         Lz: float, 
-        displacement: float) -> tuple:
+        displacement: DisplacementFn) -> partition.NeighborListFns:
     
     """Initialize a single neighborlists, given a box and a distance cutoff. Note that creation of neighborlists 
     is perfomed using code from jax_md. At the moment, the code does not use cell list, as it produces artifact.
@@ -451,7 +383,7 @@ def initialize_single_neighborlist(
 
 @jit
 def check_overlap(
-        dist: float) -> tuple:
+        dist: ArrayLike) -> tuple:
     
     """Check overlaps between particles and returns number of overlaps + number of particles.
     Note that the radius of a particle is set to 1.
@@ -501,11 +433,11 @@ def generate_random_array(
 
 @partial(jit, static_argnums=[6, 16])
 def precompute(
-        positions: float, 
-        gaussian_grid_spacing: float, 
-        nl_ff: int, 
-        nl_lub: int, 
-        displacements_vector_matrix: float, 
+        positions: ArrayLike, 
+        gaussian_grid_spacing: ArrayLike, 
+        nl_ff: ArrayLike, 
+        nl_lub: ArrayLike, 
+        displacements_vector_matrix: ArrayLike, 
         tilt_factor: float,
         N: int, 
         Lx: float, 
@@ -516,17 +448,17 @@ def precompute(
         Nz: int,
         prefac: float, 
         expfac: float, 
-        quadW: float,
+        quadW: ArrayLike,
         gaussP: int, 
         gaussPd2: int,
         ewald_n: int, 
         ewald_dr: float, 
         ewald_cut: float, 
-        ewaldC: float,
+        ewaldC: ArrayLike,
         ResTable_min: float, 
         ResTable_dr: float, 
-        ResTable_dist: float, 
-        ResTable_vals: float) -> tuple:
+        ResTable_dist: ArrayLike, 
+        ResTable_vals: ArrayLike) -> tuple:
     
     """Compute all the necessary quantities needed to update the particle position at a given timestep.
 
@@ -761,9 +693,9 @@ def precompute(
                                     
 @partial(jit, static_argnums=[3])
 def precomputeBD(
-        positions: float, 
-        nl: int, 
-        displacements_vector_matrix: float, 
+        positions: ArrayLike, 
+        nl: ArrayLike, 
+        displacements_vector_matrix: ArrayLike, 
         N: int, 
         Lx: float, 
         Ly: float, 

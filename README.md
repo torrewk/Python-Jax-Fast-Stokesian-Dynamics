@@ -15,7 +15,7 @@ git clone https://github.com/UtrechtUniversity/ibridges-servers-uu.git
 
 ## Go into the directory of the project and type the command:
 ```bash
-python3.10 -m venv .venv
+python3 -m venv .venv
 ```
 
 
