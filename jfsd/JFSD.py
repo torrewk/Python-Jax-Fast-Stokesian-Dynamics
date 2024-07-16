@@ -5,7 +5,7 @@ from jfsd import main, utils
 print('This software performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box')
 print()
 
-HIs_flag = int(input('First, insert 0 for Brownian Dynamics, or 1 for Stokesian Dynamics and press enter: '))
+HIs_flag = int(input('First, insert 0 for Brownian Dynamics, 1 for Rotne-Prager-Yamakawa, or 2 for Stokesian Dynamics and press enter: '))
 
 Nsteps = int(input('Insert number of simulation timesteps to perform and press enter: '))
 
@@ -28,6 +28,8 @@ U_cutoff = float(input('Insert value of space cutoff for pair-interactions (in u
 
 shear_rate_0 = float(input('Insert value of shear rate amplitude and press enter: '))
 shear_freq = float(input('Insert value of shear rate frequency and press enter: '))
+alpha_fric = float(input('Insert value of friction coeff. and press enter: '))
+h0_fric = float(input('Insert value of friction range and press enter: '))
 
 stresslet_flag = int(input('Insert 1 for storing the stresslet, or 0 for not storing it, and press enter: '))
 velocity_flag = int(input('Insert 1 for storing the velocity, or 0 for not storing it, and press enter: '))
@@ -110,4 +112,5 @@ main.main(
         orientation_flag,
         constant_applied_forces,
         constant_applied_torques,
-        HIs_flag)
+        HIs_flag,
+        0,alpha_fric,h0_fric)

@@ -1,12 +1,12 @@
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, Array
 from jax.typing import ArrayLike
 
 def lanczos_alg(
     matrix_vector_product: ArrayLike,
     dim: int,
     order: int,
-    init_vec: ArrayLike) -> tuple:
+    init_vec: ArrayLike) -> tuple[Array,Array]:
 
     """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^t) * x
     M  is the input matrix (N x N),
@@ -31,12 +31,11 @@ def lanczos_alg(
     """ 
 
     def update(
-            args: tuple, 
-            i: int) -> tuple:
-        """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^t) * x
-        M  is the input matrix (N x N),
-        T is a tridiagonal matrix (n x n), 
-        V is the transformation matrix (N x n) 
+            args: tuple[ArrayLike,ArrayLike,ArrayLike], 
+            i: int) -> tuple[tuple[ArrayLike,ArrayLike,ArrayLike],
+                             tuple[ArrayLike,ArrayLike,ArrayLike]]:
+        """Perform one iteration of the Lanczos decomposition. This results in the increase
+        of the dimensione of the Krylov subspace by one.
         
         Parameters
         ----------

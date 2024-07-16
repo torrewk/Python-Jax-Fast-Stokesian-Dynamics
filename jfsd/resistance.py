@@ -1,8 +1,7 @@
 import os
 from functools import partial
-
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, Array
 from jax.config import config
 from jax.typing import ArrayLike
 from jfsd import jaxmd_space as space
@@ -17,7 +16,7 @@ def RFU_Precondition(
         R: ArrayLike,
         N: int,
         n_pairs_lub_prec: int,
-        nl_lub_prec: ArrayLike) -> tuple:
+        nl_lub_prec: ArrayLike) -> tuple[Array,Array]:
     
     """Construct the lubrication resistance matrix R_FU
     for particle pairs very close (distance <= 2.1 * radius). This is used as 
@@ -329,9 +328,9 @@ def ComputeLubricationFU(
         velocities: ArrayLike,
         indices_i_lub: ArrayLike,
         indices_j_lub: ArrayLike,
-        ResFunctions: tuple,
+        ResFunctions: tuple[ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike],
         r_lub: ArrayLike,
-        N: int) -> ArrayLike:
+        N: int) -> Array:
     
     """Compute matrix-vector product of lubrication R_FU resistance matrix with particle velocities.
 
@@ -432,9 +431,9 @@ def ComputeLubricationFU(
 def compute_RFE(
         N: int, 
         shear_rate: float, 
-        r_lub: float, 
-        indices_i_lub: int, 
-        indices_j_lub: int, 
+        r_lub: ArrayLike, 
+        indices_i_lub: ArrayLike, 
+        indices_j_lub: ArrayLike, 
         XG11: ArrayLike, 
         XG12: ArrayLike, 
         YG11: ArrayLike, 
@@ -443,7 +442,7 @@ def compute_RFE(
         YH12: ArrayLike, 
         XG21: ArrayLike, 
         YG21: ArrayLike, 
-        YH21: ArrayLike) -> ArrayLike:
+        YH21: ArrayLike) -> Array:
     
     """Compute matrix-vector product of lubrication R_FE resistance matrix with particle rate of strain.
     These simulations are constructed so that, if there is strain,
@@ -552,7 +551,7 @@ def compute_RSE(
         YM12: ArrayLike, 
         ZM11: ArrayLike, 
         ZM12: ArrayLike, 
-        stresslet: ArrayLike) -> ArrayLike:
+        stresslet: ArrayLike) -> Array:
     
     """Compute matrix-vector product of lubrication R_SE resistance matrix with particle rate of strain.
     These simulations are constructed so that, if there is strain,
@@ -752,9 +751,9 @@ def compute_RSU(
         velocities: ArrayLike,
         indices_i_lub: ArrayLike,
         indices_j_lub: ArrayLike,
-        ResFunctions: tuple,
+        ResFunctions: tuple[ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike,ArrayLike],
         r_lub: ArrayLike,
-        N: int) -> ArrayLike:
+        N: int) -> Array:
     
     """Compute matrix-vector product of lubrication R_SU resistance matrix with particle velocities.
 

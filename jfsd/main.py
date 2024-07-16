@@ -8,11 +8,11 @@ from jfsd import jaxmd_space as space
 from jfsd import jaxmd_partition as partition
 
 import numpy as np
-from jax import jit, random
+from jax import jit, random, Array
 from jax.config import config
 from jax.typing import ArrayLike
 
-from jfsd import appliedForces, ewaldTables, resistance, shear, thermal, utils, solver
+from jfsd import appliedForces, ewaldTables, resistance, shear, thermal, utils, solver, mobility
 
 config.update("jax_enable_x64", False) #disable double precision
 np.set_printoptions(precision=8, suppress=True)
@@ -43,9 +43,12 @@ def main(
     stresslet_flag: bool,
     velocity_flag: bool,
     orient_flag: bool,
-    constant_applied_forces: float,
-    constant_applied_torques: float,
-    HIs_flag: int) -> tuple:
+    constant_applied_forces: ArrayLike,
+    constant_applied_torques: ArrayLike,
+    HIs_flag: int,
+    thermal_test_flag: int,
+    alpha_friction: float,
+    ho_friction: float) -> tuple[Array,Array,Array,list[float]]:
     
     """Integrate the particles equation of motions forward in time.
 
@@ -111,10 +114,16 @@ def main(
         Array of external torques (N,3)
     HIs_flag:
         Flag used to set level of hydrodynamic interaction.
+    thermal_test_flag:
+        Flag used to test thermal fluctuation calculation (1 for far-field real space, 2 for lubrication)
+    alpha_friction:
+        strength of hydrodynamic friction
+    h0_friction:
+        range of hydrodynamic friction
 
     Returns
     -------
-        trajectory, stresslet_history, velocities
+        trajectory, stresslet_history, velocities, test_result
 
     """
 
@@ -124,7 +133,7 @@ def main(
         positions: ArrayLike,
         displacements_vector_matrix: ArrayLike,
         net_vel: ArrayLike,
-        dt: float) -> tuple:    
+        dt: float) -> tuple[Array,Array]:    
                            
         """Update particle positions and neighbor lists
         
@@ -371,7 +380,7 @@ def main(
         # define rhs array of the linear system Ax=b (with A the saddle point matrix)
         saddle_b = jnp.zeros(17*N, float)
 
-        if(HIs_flag>0):
+        if(HIs_flag>1):
             # precompute quantities for far-field and near-field hydrodynamic calculation
             (all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
              r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
@@ -380,7 +389,7 @@ def main(
                                                                                   prefac, expfac, quadW,
                                                                                   int(gaussP), gaussPd2,
                                                                                   ewald_n, ewald_dr, ewald_cut, ewaldC1,
-                                                                                  ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals)
+                                                                                  ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals,alpha_friction,ho_friction)
 
             # set projector needed to compute thermal fluctuations given by lubrication
             diagonal_zeroes_for_brownian = thermal.Number_of_neigh(
@@ -396,6 +405,15 @@ def main(
             # perform Cholesky factorization and obtain lower triangle Cholesky factor of R_FU^nf
             R_fu_prec_lower_triang = utils.chol_fac(R_fu_prec_lower_triang)
 
+        elif(HIs_flag==1):
+            # precompute quantities for far-field and near-field hydrodynamic calculation
+            (all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
+             r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
+             indices_i_lub, indices_j_lub) = utils.precomputeRPY(positions, gaussian_grid_spacing, nl_ff, nl_lub, displacements_vector_matrix, xy,
+                                                                                  N, Lx, Ly, Lz, Nx, Ny, Nz,
+                                                                                  prefac, expfac, quadW,
+                                                                                  int(gaussP), gaussPd2,
+                                                                                  ewald_n, ewald_dr, ewald_cut, ewaldC1)
         else:
             # precompute quantities for Brownian dynamics calculation
             (r_lub, indices_i_lub, indices_j_lub) = utils.precomputeBD(positions, nl_lub, displacements_vector_matrix, N, Lx, Ly, Lz)
@@ -405,7 +423,7 @@ def main(
             dt, step, shear_rate_0, shear_freq, phase=0)
         
         # if temperature is not zero (and full hydrodynamics are switched on), compute Brownian Drift
-        if((T > 0) and (HIs_flag>0)):
+        if((T > 0) and (HIs_flag>1)):
 
             # get array of random variables
             key_RFD, random_array = utils.generate_random_array(
@@ -430,7 +448,7 @@ def main(
                                                  prefac, expfac, quadW,
                                                  gaussP, gaussPd2,
                                                  ewald_n, ewald_dr, ewald_cut, ewaldC1,
-                                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals)
+                                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals,alpha_friction,ho_friction)
             saddle_x, exitcode_gmres = solver.solverSD(
                 N,HIs_flag,
                 saddle_b,  # rhs vector of the linear system
@@ -475,7 +493,7 @@ def main(
                                                  prefac, expfac, quadW,
                                                  gaussP, gaussPd2,
                                                  ewald_n, ewald_dr, ewald_cut, ewaldC1,
-                                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals)
+                                                 ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals,alpha_friction,ho_friction)
             saddle_x, exitcode_gmres = solver.solverSD(
                 N, HIs_flag,
                 saddle_b,  # rhs vector of the linear system
@@ -522,7 +540,7 @@ def main(
                                                   U_cutoff,HIs_flag)
         
         # add (-) the ambient rate of strain to the right-hand side (if full hydrodynamics are switched on)
-        if((shear_rate_0 != 0) and (HIs_flag>0)):
+        if((shear_rate_0 != 0) and (HIs_flag>1)):
             saddle_b = saddle_b.at[(6*N+1):(11*N):5].add(-shear_rate)
 
             # compute near field shear contribution R_FE and add it to the rhs of the system
@@ -534,6 +552,7 @@ def main(
             # generate random numbers for the various contributions of thermal noise
             key_nf, random_array_nf = utils.generate_random_array(
                 key_nf, (6*N))
+            
             if(HIs_flag>0):
                 key_ffwave, random_array_wave = utils.generate_random_array(
                     key_ffwave, (3 * 2 * len(normal_indices_x) + 3 * len(nyquist_indices_x)))
@@ -541,7 +560,7 @@ def main(
                     key_ffreal, (11*N))
 
                 # compute far-field (wave space contribution) slip velocity and set in rhs of linear system
-                ws_linvel, ws_angvel_strain = thermal.compute_wave_space_slipvelocity(N, m_self, int(Nx), int(Ny), int(Nz), int(gaussP), T, dt, gridh,
+                ws_linvel, ws_angvel_strain = thermal.compute_wave_space_slipvelocity(N, int(Nx), int(Ny), int(Nz), int(gaussP), T, dt, gridh,
                                                                                   normal_indices_x, normal_indices_y, normal_indices_z,
                                                                                   normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z,
                                                                                   nyquist_indices_x, nyquist_indices_y, nyquist_indices_z,
@@ -562,9 +581,9 @@ def main(
                 saddle_b = saddle_b.at[:11*N].add(thermal.convert_to_generalized(
                     N, ws_linvel, rs_linvel, ws_angvel_strain, rs_angvel_strain))
 
-                # compute lubrication contribution only if there is more than 1 particle
+                # compute lubrication contribution only if there is more than 1 particle (and full SD is switched on)
                 stepnormnf = 0.
-                if(N > 1):  
+                if((N > 1) and (HIs_flag>1)):  
                     # compute near-field random forces and set in rhs of linear system
                     buffer, stepnormnf, diag_nf = thermal.compute_nearfield_brownianforce(N, T, dt,
                                                                                       random_array_nf,
@@ -593,7 +612,7 @@ def main(
                                                                                           n_iter_Lanczos_nf
                                                                                           )
                     saddle_b = saddle_b.at[11*N:].add(-buffer)
-                
+
                 # check that thermal fluctuation calculation went well
                 if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.0001))):
                     raise ValueError(
@@ -604,12 +623,12 @@ def main(
                         f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!")
 
             else:
-                # compute far-field (wave space contribution) slip velocity and set in rhs of linear system
+                #compute random force for Brownian Dynamics 
                 random_velocity = thermal.compute_BD_randomforce(N, T, dt,random_array_nf)
                 general_velocity += random_velocity
 
         
-        if(HIs_flag>0):
+        if(HIs_flag>1):
             # solve the system Ax=b, where x contains the unknown particle velocities (relative to the background flow) and stresslet
             saddle_x, exitcode_gmres = solver.solverSD(
                 N, HIs_flag,
@@ -662,7 +681,25 @@ def main(
             gaussian_grid_spacing = utils.Precompute_grid_distancing(
                 gaussP, gridh[0], xy, positions, N, Nx, Ny, Nz, Lx, Ly, Lz)
 
+        elif(HIs_flag==1):
+            #add random velocity to total velocity in RPY
+            general_velocity += saddle_b[:6*N]
+            #add potential force contribution to total velocity in RPY
+            general_velocity += mobility.Mobility(N,Nx,Ny,Nz,
+                                                  gaussP,gridk,m_self,
+                                                  all_indices_x,all_indices_y,all_indices_z,
+                                                  gaussian_grid_spacing1,gaussian_grid_spacing2,
+                                                  r,indices_i,indices_j,f1,f2,g1,g2,h1,h2,h3,
+                                                  -saddle_b[11*N:])
+            # update positions and neighborlists
+            (positions, displacements_vector_matrix) = update_positions(shear_rate,positions, 
+                                                                           displacements_vector_matrix,
+                                                                           general_velocity,
+                                                                           dt)
+            nbrs_ff= update_nlist(positions, nbrs_ff)
+            nl_ff = np.array(nbrs_ff.idx)  # extract lists in sparse format
         else:
+            #add potential force contribution to total velocity (thermal contribution is already included)
             general_velocity += - saddle_b[11*N:]
             # update positions
             (positions, displacements_vector_matrix) = update_positions(shear_rate,positions, 
@@ -718,9 +755,35 @@ def main(
             # overlaps, overlaps2 = utils.check_overlap(
             #     displacements_vector_matrix)
             # print('Step= ', step, ' Overlaps are ', jnp.sum(overlaps)-N)
+            print('Step= ', step)
                 
     end_time = time.time()
     print('Time for ', Nsteps, ' steps is ', end_time-start_time-compilation_time2,
           'or ', Nsteps/(end_time-start_time-compilation_time2), ' steps per second')
 
-    return trajectory, stresslet_history, velocities
+    #perform thermal test if needed
+    test_result = 0.    
+    if((T>0) and (thermal_test_flag==1)):
+        ff , nf = thermal.compute_exact_thermals(
+            N,m_self,
+            T,dt,
+            random_array_nf,
+            random_array_real,
+            r,
+            indices_i,
+            indices_j,
+            f1,f2,g1,g2,h1,h2,h3,
+            r_lub,
+            indices_i_lub,
+            indices_j_lub,
+            ResFunction[0], ResFunction[1], ResFunction[
+                2], ResFunction[3], ResFunction[4], ResFunction[5],
+            ResFunction[6], ResFunction[7], ResFunction[
+                8], ResFunction[9], ResFunction[10])
+        
+        test_result = [jnp.linalg.norm(buffer-nf) / jnp.linalg.norm(nf),jnp.linalg.norm(thermal.convert_to_generalized(N, 0, rs_linvel, 0, rs_angvel_strain)-ff)/jnp.linalg.norm(ff)]
+                        
+            
+            
+
+    return trajectory, stresslet_history, velocities, test_result

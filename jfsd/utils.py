@@ -1,9 +1,9 @@
 import math
 import random
+import numpy as np
 from functools import partial
 import jax.numpy as jnp
-import numpy as np
-from jax import jit
+from jax import jit, dtypes, Array
 from jax import random as jrandom
 from jfsd import jaxmd_partition as partition
 from jfsd import jaxmd_space as space
@@ -15,7 +15,7 @@ DisplacementFn = Callable[[Any, Any], Any]
 
 @jit
 def chol_fac(
-        A: ArrayLike) -> ArrayLike:
+        A: ArrayLike) -> Array:
     
     """Perform a Cholesky factorization of the input matrix. 
 
@@ -75,7 +75,7 @@ def Check_max_shear(
         Ny: int, 
         Nz: int, 
         max_strain: float, 
-        error: float) -> tuple:
+        error: float) -> tuple[float,float]:
     
     """Check maximum eigenvalue of A'*A to scale support, P, for spreading on deformed grids (Fiore and Swan, J. Chem. Phys., 2018).
 
@@ -124,7 +124,7 @@ def Compute_k_gridpoint_number(
         kmax: float, 
         Lx: float, 
         Ly: float, 
-        Lz: float) -> tuple:
+        Lz: float) -> tuple[int,int,int]:
     
     """Perform a Cholesky factorization of the input matrix. 
 
@@ -203,7 +203,7 @@ def Precompute_grid_distancing(
         Nz: int,
         Lx: float, 
         Ly: float, 
-        Lz: float) -> ArrayLike:
+        Lz: float) -> Array:
     
     """Given a support size for Gaussian spread,
     compute distances in a (gaussP x gaussP x gaussP) grid 
@@ -263,7 +263,7 @@ def Precompute_grid_distancing(
 def CreateRandomConfiguration(
         L: float, 
         N: int, 
-        seed: int) -> ArrayLike:
+        seed: int) -> Array:
     
     """Create a random configuration of non-overlapping sphere. 
     NOTE: this function is not optimized and should be used only for configuration with
@@ -287,7 +287,7 @@ def CreateRandomConfiguration(
     def distance_periodic(
             p1: ArrayLike, 
             p2: ArrayLike, 
-            L: float) -> ArrayLike:
+            L: float) -> Array:
         
         """Compute (squared) distance between two particles in a periodic box. 
 
@@ -383,7 +383,7 @@ def initialize_single_neighborlist(
 
 @jit
 def check_overlap(
-        dist: ArrayLike) -> tuple:
+        dist: ArrayLike) -> tuple[int,float]:
     
     """Check overlaps between particles and returns number of overlaps + number of particles.
     Note that the radius of a particle is set to 1.
@@ -409,8 +409,8 @@ def check_overlap(
 
 @partial(jit, static_argnums=[1])
 def generate_random_array(
-        key: int, 
-        size: int) -> tuple:
+        key: dtypes.prng_key, 
+        size: int) -> tuple[dtypes.prng_key,Array]:
     
     """Generate array of random number using JAX.
 
@@ -458,8 +458,14 @@ def precompute(
         ResTable_min: float, 
         ResTable_dr: float, 
         ResTable_dist: ArrayLike, 
-        ResTable_vals: ArrayLike) -> tuple:
-    
+        ResTable_vals: ArrayLike,
+        alpha: float,
+        h0: float) -> tuple[Array,Array,Array,Array,Array,Array,Array,Array
+                            ,Array,Array,Array,Array,Array,Array,Array,
+                            Array,Array,Array,
+                            tuple[Array,Array,Array,Array,Array,Array,Array,Array,
+                                  Array,Array,Array,Array,Array,Array,Array,Array,
+                                  Array,Array,Array,Array,Array,Array,Array]]:
     """Compute all the necessary quantities needed to update the particle position at a given timestep.
 
     Parameters
@@ -516,7 +522,10 @@ def precompute(
         Resistance table array of distances
     ResTable_vals:
         Resistance table containing resistance scalar functions values
-    
+    alpha_friction:
+        strength of hydrodynamic friction
+    h0_friction:
+        range of hydrodynamic friction
         
     Returns
     -------
@@ -686,10 +695,193 @@ def precompute(
 
     ResFunc = jnp.array([XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12, YB21,
                          XG11, XG12, YG11, YG12, YH11, YH12, XM11, XM12, YM11, YM12, ZM11, ZM12])
+    
+    # If particles are not smooth, add o(1/surf_dist) terms to tangential modes of lubrication
+    # This mimics the presence of asperities at the particle surface.
+    # See https://arxiv.org/pdf/2203.06300 for more detail
+    alpha = jnp.array([alpha,alpha,alpha,alpha,alpha]) # set the friction coeff. for the 6 modes augmented
+    surf_dist = dist_lub - 2.
+    surf_dist_sqr = surf_dist * surf_dist
+    h02 = h0 * h0
+    h03 = h0 * h02
+    buffer = jnp.where(surf_dist <= h0, 2.0 / h03 * surf_dist_sqr - 3.0 / h02 * surf_dist + 1.0 / surf_dist, 0.)
+    
+    ResFunc = ResFunc.at[2,:].add(alpha[0]*buffer)
+    ResFunc = ResFunc.at[3,:].add(-alpha[1]*buffer)
+    ResFunc = ResFunc.at[4,:].add(-alpha[2]*buffer)
+    ResFunc = ResFunc.at[5,:].add(alpha[3]*buffer)
+    ResFunc = ResFunc.at[8,:].add(alpha[4]*buffer)
+    ResFunc = ResFunc.at[9,:].add(alpha[5]*buffer)
 
     return ((all_indices_x), (all_indices_y), (all_indices_z), gaussian_grid_spacing1, gaussian_grid_spacing2,
             r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
             r_lub, indices_i_lub, indices_j_lub,ResFunc)
+
+@partial(jit, static_argnums=[6, 16])
+def precomputeRPY(
+        positions: ArrayLike, 
+        gaussian_grid_spacing: ArrayLike, 
+        nl_ff: ArrayLike, 
+        nl_lub: ArrayLike, 
+        displacements_vector_matrix: ArrayLike, 
+        tilt_factor: float,
+        N: int, 
+        Lx: float, 
+        Ly: float, 
+        Lz: float, 
+        Nx: int, 
+        Ny: int, 
+        Nz: int,
+        prefac: float, 
+        expfac: float, 
+        quadW: ArrayLike,
+        gaussP: int, 
+        gaussPd2: int,
+        ewald_n: int, 
+        ewald_dr: float, 
+        ewald_cut: float, 
+        ewaldC: ArrayLike) -> tuple[Array,Array,Array,Array,Array,
+                                           Array,Array,Array,
+                                           Array,Array,Array,Array,Array,Array,Array,
+                                           Array,Array]:
+    
+    """Compute all the necessary quantities needed to update the particle position at a given timestep.
+
+    Parameters
+    ----------
+    positions:
+        Array of current particles positions (N,3)
+    gaussian_grid_spacing:
+        Distances from support center to each gridpoint in the gaussian support  
+    nl_ff:
+        Far-field neighborlist indices
+    nl_lub:
+        Near-field neighborlist indices
+    displacements_vector_matrix:
+        Matrix of current displacements between particles, with each element a vector
+    tilt_factor:
+        Current box tilt factor
+    N:
+        Number of particles
+    Lx:
+        Box size in x direction
+    Ly:
+        Box size in y direction
+    Lz:
+        Box size in z direction
+    Nx:
+        Number of grid points in x direction
+    Ny:
+        Number of grid points in y direction
+    Nz:
+        Number of grid points in z direction
+    prefac:
+        Prefactor needed for FFT
+    expfac:
+        Exponential factor needed for FFT
+    quadW:
+        Product of wave grid discretization parameter in each direction (grid_dx*grid_dy*grid_dz)
+    gaussP:
+        Gaussian support size for wave space calculation 
+    gaussPd2:
+        Integer part of Gaussian support size divide by 2
+    ewald_n:
+        Number of entries in Ewald table, for each mobility function
+    ewald_dr:
+        Ewald table discretization parameter
+    ewald_cut:
+        Ewald space cut-off for real-space far-field hydrodynamic interactions
+    ewaldC:
+        Ewald table containing mobility scalar functions values
+        
+    Returns
+    -------
+    all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
+     r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
+     indices_i_lub, indices_j_lub
+
+    """ 
+
+    ###Wave Space calculation quantities
+
+    #Compute fractional coordinates
+    pos = positions + jnp.array([Lx, Ly, Lz])/2
+    pos = pos.at[:, 0].add(-tilt_factor*pos.at[:, 1].get())
+    pos = pos / jnp.array([Lx, Ly, Lz]) * jnp.array([Nx, Ny, Nz])
+    ###convert positions in the box in indices in the grid
+    # pos = (positions+np.array([Lx, Ly, Lz])/2)/np.array([Lx, Ly, Lz]) * np.array([Nx, Ny, Nz])
+    intpos = (jnp.array(pos, int))  # integer positions
+    intpos = jnp.where(pos-intpos > 0.5, intpos+1, intpos)
+
+    # actual values to put in the grid
+    gaussian_grid_spacing1 = prefac * jnp.exp(-expfac * gaussian_grid_spacing)
+    gaussian_grid_spacing2 = jnp.swapaxes(jnp.swapaxes(
+        jnp.swapaxes(gaussian_grid_spacing1*quadW, 3, 2), 2, 1), 1, 0)
+
+    #Starting indices on the grid from particle positions
+    start_index_x = (intpos.at[:, 0].get()-(gaussPd2)) % Nx
+    start_index_y = (intpos.at[:, 1].get()-(gaussPd2)) % Ny
+    start_index_z = (intpos.at[:, 2].get()-(gaussPd2)) % Nz
+    #All indices on the grids from particle positions, ordered such that x is the 'slowest' index to change and z the 'fastest'
+    all_indices_x = jnp.repeat(jnp.repeat(jnp.repeat(start_index_x, gaussP), gaussP), gaussP) + jnp.resize(
+        jnp.repeat(jnp.repeat(jnp.arange(gaussP), gaussP), gaussP), gaussP*gaussP*gaussP*N)
+    all_indices_y = jnp.repeat(jnp.repeat(jnp.repeat(start_index_y, gaussP), gaussP), gaussP) + jnp.resize(
+        jnp.resize(jnp.repeat(jnp.arange(gaussP), gaussP), gaussP*gaussP*gaussP), gaussP*gaussP*gaussP*N)
+    all_indices_z = jnp.repeat(jnp.repeat(jnp.repeat(start_index_z, gaussP), gaussP), gaussP) + jnp.resize(
+        jnp.resize(jnp.resize(jnp.arange(gaussP), gaussP*gaussP), gaussP*gaussP*gaussP), gaussP*gaussP*gaussP*N)
+    all_indices_x = all_indices_x % Nx
+    all_indices_y = all_indices_y % Ny
+    all_indices_z = all_indices_z % Nz
+
+    ###################################################################################################################
+    #Real Space (far-field) calculation quantities
+    indices_i = nl_ff[0, :]  # Pair indices (i<j always)
+    indices_j = nl_ff[1, :]
+    # array of vectors from particles i to j (size = npairs)
+    R = displacements_vector_matrix.at[indices_i, indices_j].get()
+    dist = space.distance(R)  # distances between particles i and j
+    r = -R / dist.at[:, None].get()  # unit vector from particle j to i
+
+    # Interpolate scalar mobility functions values from ewald table
+    r_ind = (ewald_n * (dist - ewald_dr) /
+             (ewald_cut - ewald_dr))  # index in ewald table
+    r_ind = r_ind.astype(int)  # truncate decimal part
+    offset1 = 2 * r_ind  # even indices
+    offset2 = 2 * r_ind + 1  # odd indices
+
+    tewaldC1m = ewaldC.at[offset1].get()  # UF and UC
+    tewaldC1p = ewaldC.at[offset1+2].get()
+    tewaldC2m = ewaldC.at[offset2].get()  # DC
+    tewaldC2p = ewaldC.at[offset2+2].get()
+
+    fac_ff = dist / ewald_dr - r_ind - 1.0  # interpolation factor
+
+    f1 = tewaldC1m.at[:, 0].get() + (tewaldC1p.at[:, 0].get() -
+                                     tewaldC1m.at[:, 0].get()) * fac_ff
+    f2 = tewaldC1m.at[:, 1].get() + (tewaldC1p.at[:, 1].get() -
+                                     tewaldC1m.at[:, 1].get()) * fac_ff
+
+    g1 = tewaldC1m.at[:, 2].get() + (tewaldC1p.at[:, 2].get() -
+                                     tewaldC1m.at[:, 2].get()) * fac_ff
+    g2 = tewaldC1m.at[:, 3].get() + (tewaldC1p.at[:, 3].get() -
+                                     tewaldC1m.at[:, 3].get()) * fac_ff
+
+    h1 = tewaldC2m.at[:, 0].get() + (tewaldC2p.at[:, 0].get() -
+                                     tewaldC2m.at[:, 0].get()) * fac_ff
+    h2 = tewaldC2m.at[:, 1].get() + (tewaldC2p.at[:, 1].get() -
+                                     tewaldC2m.at[:, 1].get()) * fac_ff
+    h3 = tewaldC2m.at[:, 2].get() + (tewaldC2p.at[:, 2].get() -
+                                     tewaldC2m.at[:, 2].get()) * fac_ff
+
+    ###################################################################################################################
+    #Lubrication calculation quantities
+    indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
+    indices_j_lub = nl_lub[1, :]
+    # array of vectors from particle i to j (size = npairs)
+
+    return ((all_indices_x), (all_indices_y), (all_indices_z), gaussian_grid_spacing1, gaussian_grid_spacing2,
+            r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
+            indices_i_lub, indices_j_lub)
                                     
 @partial(jit, static_argnums=[3])
 def precomputeBD(
@@ -699,7 +891,7 @@ def precomputeBD(
         N: int, 
         Lx: float, 
         Ly: float, 
-        Lz: float) -> tuple:
+        Lz: float) -> tuple[Array,Array,Array]:
     
     """Compute all the necessary quantities needed to update the particle position at a given timestep, for Brownian Dynamics.
 

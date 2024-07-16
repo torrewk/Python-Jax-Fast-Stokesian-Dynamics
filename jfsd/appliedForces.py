@@ -2,7 +2,7 @@ import os
 from functools import partial
 from jax.typing import ArrayLike
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, Array
 from jax.config import config
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
@@ -20,7 +20,7 @@ def sumAppliedForces(
         indices_j: ArrayLike, 
         dist: ArrayLike, 
         Ucutoff: float,
-        HIs_flag: int) -> ArrayLike:
+        HIs_flag: int) -> Array:
     
     """Sum all applied forces/torques for each particle. Take into account:
         external forces/torques,
@@ -44,7 +44,7 @@ def sumAppliedForces(
     indices_j:
         Indices of second particle in neighbor list pairs 
     dist:
-        Radial distances between particles
+        Array of distance vector between particles
     Ucutoff:
         Cutoff (max) distance for pair-interactions
     HIs_flag:
@@ -60,7 +60,7 @@ def sumAppliedForces(
             U: float, 
             indices_i: ArrayLike, 
             indices_j: ArrayLike, 
-            dist: ArrayLike) -> ArrayLike:
+            dist: ArrayLike) -> Array:
         
         """Compute pair interactions using a "high exponent" Lennard-Jones potential (attractions+repulsions)
     
@@ -122,7 +122,7 @@ def sumAppliedForces(
             U: float, 
             indices_i: ArrayLike, 
             indices_j: ArrayLike, 
-            dist: ArrayLike) -> ArrayLike:
+            dist: ArrayLike) -> Array:
         
         """Compute pair interactions using an Asakura-Osawa potential (attractions)
     
@@ -184,7 +184,7 @@ def sumAppliedForces(
     def compute_hs_forces(
             indices_i: ArrayLike, 
             indices_j: ArrayLike, 
-            dist: ArrayLike) -> ArrayLike:
+            dist: ArrayLike) -> Array:
         """Compute hard-sphere pair interactions using an asymmetric harmonic potential (repulsion)
     
         Parameters
@@ -256,3 +256,6 @@ def sumAppliedForces(
 
 
     return saddle_b
+
+
+

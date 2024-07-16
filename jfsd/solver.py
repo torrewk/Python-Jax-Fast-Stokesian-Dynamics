@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax.scipy as jscipy
 from functools import partial
 from jax.typing import ArrayLike
-from jax import jit
+from jax import jit, Array
 from jfsd import mobility, resistance
 
 @partial(jit, static_argnums=[0,6,7,8,9])
@@ -17,7 +17,7 @@ def solverSD(
     Ny: int,
     Nz: int,
     gaussP: int,
-    m_self: ArrayLike) -> tuple:                               
+    m_self: ArrayLike) -> tuple[Array,int]:                               
 
     """Solve the linear system Ax=b
         A contains the saddle point matrix,
@@ -59,7 +59,7 @@ def solverSD(
     """   
         
     def compute_saddleSD(
-            x: ArrayLike) -> ArrayLike:
+            x: ArrayLike) -> Array:
         
         """Construct the saddle point operator A,
             which acts on x and returns A*x (without using A in matrix representation)
@@ -99,7 +99,7 @@ def solverSD(
         return Ax
     
     def compute_precondSD(
-            x: ArrayLike) -> ArrayLike:
+            x: ArrayLike) -> Array:
         
         """Construct precondition operator P that approximate the action of A^(-1)
         

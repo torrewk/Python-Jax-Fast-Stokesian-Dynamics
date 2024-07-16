@@ -1,19 +1,21 @@
 import os
 import jax.numpy as jnp
 import numpy as np
-from jax import jit
+import scipy
+from jax import jit, Array
 from jax.config import config
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
-config.update("jax_enable_x64", False) #disable double precision
 from functools import partial
 from jax.typing import ArrayLike
 from jfsd import lanczos
-
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
+config.update("jax_enable_x64", False) #disable double precision
 
 def Random_force_on_grid_indexing(
         Nx: int,
         Ny: int,
-        Nz: int) -> tuple:
+        Nz: int) -> tuple[int,int,int,
+                          int,int,int,
+                          int,int,int]:
     
     """Compute indexing for wave space grid, 
     relevant for wave space calculation of thermal fluctuations. 
@@ -91,7 +93,7 @@ def Random_force_on_grid_indexing(
 def Number_of_neigh(
         N: int, 
         indices_i_lub: ArrayLike, 
-        indices_j_lub: ArrayLike) -> ArrayLike:
+        indices_j_lub: ArrayLike) -> Array:
     
     """Count number of neighbors for each particle
     and use result to construct projector needed for thermal fluctuation calculations. 
@@ -135,7 +137,7 @@ def compute_real_space_slipvelocity(
         g2: ArrayLike,
         h1: ArrayLike,
         h2: ArrayLike,
-        h3: ArrayLike) -> tuple:
+        h3: ArrayLike) -> tuple[Array,float,Array]:
     
     """Compute real space far-field thermal fluctuation. Here, the square root
     of the mobility operator is performed using Lanczos decomposition.
@@ -526,10 +528,9 @@ def compute_real_space_slipvelocity(
     # return lin_vel, ang_vel_and_strain, stepnorm, (jnp.linalg.eigh(trid))[0]
     return lin_vel, ang_vel_and_strain, stepnorm, trid
 
-@partial(jit, static_argnums=[0,2,3,4,5])
+@partial(jit, static_argnums=[0,1,2,3,4])
 def compute_wave_space_slipvelocity(
         N: int,
-        m_self: ArrayLike,
         Nx: int,
         Ny: int,
         Nz: int,
@@ -552,7 +553,7 @@ def compute_wave_space_slipvelocity(
         all_indices_y: ArrayLike,
         all_indices_z: ArrayLike,
         gaussian_grid_spacing1: ArrayLike,
-        gaussian_grid_spacing2: ArrayLike) -> tuple:
+        gaussian_grid_spacing2: ArrayLike) -> tuple[Array,Array]:
     
     """Compute wave space far-field thermal fluctuation.
 
@@ -560,8 +561,6 @@ def compute_wave_space_slipvelocity(
     ----------
     N:
         Number of particles
-    m_self:
-        Mobility self contribution
     Nx:
         Number of grid points in x direction
     Ny:
@@ -806,7 +805,7 @@ def compute_nearfield_brownianforce(
         diagonal_elements_for_brownian: ArrayLike,
         R_fu_prec_lower_triang: ArrayLike,
         diagonal_zeroes_for_brownian: ArrayLike,
-        n_iter_Lanczos_nf: int) -> tuple:
+        n_iter_Lanczos_nf: int) -> tuple[Array,float,Array]:
     
     """Compute near-field thermal fluctuation. Here, the square root
     of the resistance lubrication operator is performed using Lanczos decomposition.
@@ -1103,7 +1102,7 @@ def compute_BD_randomforce(
         N: int,
         kT: float,
         dt: float,
-        random_array: ArrayLike) -> ArrayLike:
+        random_array: ArrayLike) -> Array:
     
     """Compute thermal fluctuation for Brownian Dynamics.
 
@@ -1142,11 +1141,11 @@ def compute_BD_randomforce(
 
 @partial(jit, static_argnums=[0])
 def convert_to_generalized(
-        N, 
-        ws_lin_vel, 
-        rs_lin_vel, 
-        ws_ang_vel_strain,
-        rs_ang_vel_strain):
+        N: int, 
+        ws_lin_vel: ArrayLike, 
+        rs_lin_vel: ArrayLike, 
+        ws_ang_vel_strain: ArrayLike,
+        rs_ang_vel_strain: ArrayLike) -> Array:
     
     """Combine linear/angular velocities and rate of strain into a generalized velocity vector.
 
@@ -1199,3 +1198,474 @@ def convert_to_generalized(
         ang_vel_and_strain.at[7::8].get())
     
     return generalized_velocities
+
+def compute_exact_thermals(
+        N: int,
+        m_self: ArrayLike,
+        kT: float,
+        dt: float,
+        random_array_nf: ArrayLike,
+        random_array_real: ArrayLike,
+        r: ArrayLike,
+        indices_i: ArrayLike,
+        indices_j: ArrayLike,
+        f1,f2,g1,g2,h1,h2,h3: ArrayLike,
+        r_lub: ArrayLike,
+        indices_i_lub: ArrayLike,
+        indices_j_lub: ArrayLike,
+        XA11,XA12,YA11,YA12,YB11,YB12,XC11,XC12,YC11,YC12,YB21: ArrayLike) -> tuple[Array,Array]:
+    
+    """Compute square root of real-space granmobility and lubrication resistance using scipy functions
+    in order to test the correctness of the square roots (of these operators) obtained from Lanczos decomposition. 
+
+    Parameters
+    ----------
+    N:
+        Number of Particles
+    m_self:
+        Mobility self contribution
+    kT:
+        Thermal energy
+    dt:
+        Time step 
+    random_array_nf:
+        Array of random numbers with the proper variance, for thermal lubrication
+    random_array_real:
+        Array of random numbers with the proper variance, for thermal far-field real space
+    r:
+        Units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i:
+        Indices of first particle in far-field neighbor list pairs 
+    indices_j:
+        Indices of second particle in far-field neighbor list pairs 
+    f1,f2,g1,g2,h1,h2,h3:
+        Mobility scalar functions evaluated for the current particle configuration
+    r_lub:
+        Units vectors connecting each pair of particles in the near-field neighbor list
+    indices_i_lub:
+        Indices of first particle in near-field neighbor list pairs 
+    indices_j_lub:
+        Indices of second particle in near-field neighbor list pairs 
+    XA11,XA12,YA11,YA12,YB11,YB12,XC11,XC12,YC11,YC12,YB21:
+        Resistance scalar functions evaluated for the current particle configuration
+    
+    Returns
+    -------
+    generalized_velocities
+
+    """
+    @jit
+    def convert_to_generalized(
+            M12psi: ArrayLike) -> Array:
+        """Combine linear/angular velocities and rate of strain into a generalized velocity vector.
+        
+        Parameters
+        ----------
+        M12psi: 
+            Velocity Linear+Angular/Strain 
+            
+        Returns
+        -------
+        generalized_velocities
+        """
+        #combine w_lin_velocities, w_ang_vel_and_strain
+        lin_vel = M12psi.at[:3*N].get()
+        ang_vel_and_strain = M12psi.at[3*N:].get()
+        # Convert to Generalized Velocities+strain 
+        generalized_velocities = jnp.zeros(11*N) #First 6N entries for U and last 5N for strain rates
+
+        generalized_velocities = generalized_velocities.at[0:6*N:6].set(
+            lin_vel.at[0::3].get())
+        generalized_velocities = generalized_velocities.at[1:6*N:6].set(
+            lin_vel.at[1::3].get())
+        generalized_velocities = generalized_velocities.at[2:6*N:6].set(
+            lin_vel.at[2::3].get())
+        generalized_velocities = generalized_velocities.at[3:6*N:6].set(
+            ang_vel_and_strain.at[0::8].get())
+        generalized_velocities = generalized_velocities.at[4:6*N:6].set(
+            ang_vel_and_strain.at[1::8].get())
+        generalized_velocities = generalized_velocities.at[5:6*N:6].set(
+            ang_vel_and_strain.at[2::8].get())
+        generalized_velocities = generalized_velocities.at[(6*N+0)::5].set(
+            ang_vel_and_strain.at[3::8].get())
+        generalized_velocities = generalized_velocities.at[(6*N+1)::5].set(
+            ang_vel_and_strain.at[4::8].get())
+        generalized_velocities = generalized_velocities.at[(6*N+2)::5].set(
+            ang_vel_and_strain.at[5::8].get())
+        generalized_velocities = generalized_velocities.at[(6*N+3)::5].set(
+            ang_vel_and_strain.at[6::8].get())
+        generalized_velocities = generalized_velocities.at[(6*N+4)::5].set(
+            ang_vel_and_strain.at[7::8].get())
+        
+        return generalized_velocities
+    @jit
+    def helper_reshape(
+            Mpsi: ArrayLike) -> Array:
+        """Reshape input array.
+        
+        Parameters
+        ----------
+        Mpsi: 
+            Input array
+            
+        Returns
+        -------
+        generalized_velocities
+        """
+        lin_vel = Mpsi[0]
+        ang_vel_and_strain = Mpsi[1]
+        reshaped_array = jnp.zeros(11*N)
+        reshaped_array = reshaped_array.at[:3*N].set(jnp.reshape(lin_vel,3*N))
+        reshaped_array = reshaped_array.at[3*N:].set(jnp.reshape(ang_vel_and_strain,8*N))
+        return reshaped_array
+    
+    @jit
+    def ComputeLubricationFU(velocities):
+
+        vel_i = (jnp.reshape(velocities,(N,6))).at[indices_i_lub].get()
+        vel_j = (jnp.reshape(velocities,(N,6))).at[indices_j_lub].get()
+        
+        # Dot product of r and U, i.e. axisymmetric projection
+        rdui = r_lub.at[:,0].get()*vel_i.at[:,0].get()+r_lub.at[:,1].get()*vel_i.at[:,1].get()+r_lub.at[:,2].get()*vel_i.at[:,2].get()
+        rduj = r_lub.at[:,0].get()*vel_j.at[:,0].get()+r_lub.at[:,1].get()*vel_j.at[:,1].get()+r_lub.at[:,2].get()*vel_j.at[:,2].get()
+        rdwi = r_lub.at[:,0].get()*vel_i.at[:,3].get()+r_lub.at[:,1].get()*vel_i.at[:,4].get()+r_lub.at[:,2].get()*vel_i.at[:,5].get()
+        rdwj = r_lub.at[:,0].get()*vel_j.at[:,3].get()+r_lub.at[:,1].get()*vel_j.at[:,4].get()+r_lub.at[:,2].get()*vel_j.at[:,5].get()
+
+        # Cross product of U and r, i.e. eps_ijk*r_k*U_j = Px dot U, (eps_ijk is the Levi-Civita symbol)
+        epsrdui = jnp.array([r_lub.at[:,2].get() * vel_i.at[:,1].get() - r_lub.at[:,1].get() * vel_i.at[:,2].get(),
+                            -r_lub.at[:,2].get() * vel_i.at[:,0].get() + r_lub.at[:,0].get() * vel_i.at[:,2].get(),
+                            r_lub.at[:,1].get() * vel_i.at[:,0].get() - r_lub.at[:,0].get() * vel_i.at[:,1].get()])
+        
+        epsrdwi = jnp.array([r_lub.at[:,2].get() * vel_i.at[:,4].get() - r_lub.at[:,1].get() * vel_i.at[:,5].get(), 
+                            -r_lub.at[:,2].get() * vel_i.at[:,3].get() + r_lub.at[:,0].get() * vel_i.at[:,5].get(), 
+                            r_lub.at[:,1].get() * vel_i.at[:,3].get() - r_lub.at[:,0].get() * vel_i.at[:,4].get()])
+        
+        epsrduj = jnp.array([r_lub.at[:,2].get() * vel_j.at[:,1].get() - r_lub.at[:,1].get() * vel_j.at[:,2].get(), 
+                            -r_lub.at[:,2].get() * vel_j.at[:,0].get() + r_lub.at[:,0].get() * vel_j.at[:,2].get(), 
+                            r_lub.at[:,1].get() * vel_j.at[:,0].get() - r_lub.at[:,0].get() * vel_j.at[:,1].get()])
+        
+        epsrdwj = jnp.array([r_lub.at[:,2].get() * vel_j.at[:,4].get() - r_lub.at[:,1].get() * vel_j.at[:,5].get(), 
+                            -r_lub.at[:,2].get() * vel_j.at[:,3].get() + r_lub.at[:,0].get() * vel_j.at[:,5].get(), 
+                            r_lub.at[:,1].get() * vel_j.at[:,3].get() - r_lub.at[:,0].get() * vel_j.at[:,4].get()])
+        
+        forces = jnp.zeros((N,6),float)
+        
+        # Compute the contributions to the force for particles i (Fi = A11*Ui + A12*Uj + BT11*Wi + BT12*Wj)
+        f = ((XA11 - YA11).at[:,None].get() * rdui.at[:,None].get() * r_lub + YA11.at[:,None].get() * vel_i.at[:,:3].get() 
+        + (XA12 - YA12).at[:,None].get() * rduj.at[:,None].get() * r_lub + YA12.at[:,None].get() * vel_j.at[:,:3].get() + YB11.at[:,None].get() * (-epsrdwi.T) + YB21.at[:,None].get() * (-epsrdwj.T))
+        forces = forces.at[indices_i_lub, :3].add(f)
+        # Compute the contributions to the force for particles j (Fj = A11*Uj + A12*Ui + BT11*Wj + BT12*Wi)
+        f = ((XA11 - YA11).at[:,None].get() * rduj.at[:,None].get() * r_lub + YA11.at[:,None].get() * vel_j.at[:,:3].get() 
+        + (XA12 - YA12).at[:,None].get() * rdui.at[:,None].get() * r_lub + YA12.at[:,None].get() * vel_i.at[:,:3].get() + YB11.at[:,None].get() * (epsrdwj.T) + YB21.at[:,None].get() * (epsrdwi.T))
+        forces = forces.at[indices_j_lub, :3].add(f)
+        # Compute the contributions to the torque for particles i (Li = B11*Ui + B12*Uj + C11*Wi + C12*Wj)
+        l = (YB11.at[:,None].get() * epsrdui.T + YB12.at[:,None].get() * epsrduj.T 
+        + (XC11 - YC11).at[:,None].get() * rdwi.at[:,None].get() * r_lub + YC11.at[:,None].get() * vel_i.at[:,3:].get() 
+        + (XC12 - YC12).at[:,None].get() * rdwj.at[:,None].get() * r_lub + YC12.at[:,None].get() * vel_j.at[:,3:].get())
+        forces = forces.at[indices_i_lub, 3:].add(l)
+        # Compute the contributions to the torque for particles j (Lj = B11*Uj + B12*Ui + C11*Wj + C12*Wi)
+        l = (-YB11.at[:,None].get() * epsrduj.T - YB12.at[:,None].get() * epsrdui.T 
+        + (XC11 - YC11).at[:,None].get() * rdwj.at[:,None].get() * r_lub + YC11.at[:,None].get() * vel_j.at[:,3:].get() 
+        + (XC12 - YC12).at[:,None].get() * rdwi.at[:,None].get() * r_lub + YC12.at[:,None].get() * vel_i.at[:,3:].get())           
+        forces = forces.at[indices_j_lub, 3:].add(l)
+        
+        return jnp.ravel(forces)
+    
+    @jit
+    def helper_Mpsi(random_array_real):
+        
+        #input is already in the format: [Forces, Torque+Stresslet] (not in the generalized format [Force+Torque,Stresslet] like in the saddle point solver)
+        forces = random_array_real.at[:3*N].get()
+        
+        couplets = jnp.zeros(8*N)
+        couplets = couplets.at[::8].set(random_array_real.at[(3*N+3)::8].get())  # C[0] = S[0]
+        couplets = couplets.at[1::8].set(
+            random_array_real.at[(3*N+4)::8].get()+random_array_real.at[(3*N+2)::8].get()*0.5)  # C[1] = S[1] + L[2]/2
+        couplets = couplets.at[2::8].set(
+            random_array_real.at[(3*N+5)::8].get()-random_array_real.at[(3*N+1)::8].get()*0.5)  # C[2] = S[2] - L[1]/2
+        couplets = couplets.at[3::8].set(
+            random_array_real.at[(3*N+6)::8].get()+random_array_real.at[(3*N+0)::8].get()*0.5)  # C[3] = S[3] + L[0]/2
+        couplets = couplets.at[4::8].set(random_array_real.at[(3*N+7)::8].get())  # C[4] = S[4]
+        couplets = couplets.at[5::8].set(
+            random_array_real.at[(3*N+4)::8].get()-random_array_real.at[(3*N+2)::8].get()*0.5)  # C[5] = S[1] - L[2]/2
+        couplets = couplets.at[6::8].set(
+            random_array_real.at[(3*N+5)::8].get()+random_array_real.at[(3*N+1)::8].get()*0.5)  # C[6] = S[2] + L[1]/2
+        couplets = couplets.at[7::8].set(
+            random_array_real.at[(3*N+6)::8].get()-random_array_real.at[(3*N+0)::8].get()*0.5)  # C[7] = S[3] - L[0]/2
+        
+        
+        # Allocate arrays for Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
+        r_lin_velocities = jnp.zeros((N, 3),float)
+        r_velocity_gradient = jnp.zeros((N, 8),float)
+        
+        # SELF CONTRIBUTIONS
+        r_lin_velocities = r_lin_velocities.at[:, 0].set(
+            m_self.at[0].get() * forces.at[0::3].get())
+        r_lin_velocities = r_lin_velocities.at[:, 1].set(
+            m_self.at[0].get() * forces.at[1::3].get())
+        r_lin_velocities = r_lin_velocities.at[:, 2].set(
+            m_self.at[0].get() * forces.at[2::3].get())
+        
+        r_velocity_gradient = r_velocity_gradient.at[:, 0].set(
+            m_self.at[1].get()*(couplets.at[0::8].get() - 4 * couplets.at[0::8].get()))
+        r_velocity_gradient = r_velocity_gradient.at[:, 5].set(
+            m_self.at[1].get()*(couplets.at[1::8].get() - 4 * couplets.at[5::8].get()))
+        r_velocity_gradient = r_velocity_gradient.at[:, 6].set(
+            m_self.at[1].get()*(couplets.at[2::8].get() - 4 * couplets.at[6::8].get()))
+        r_velocity_gradient = r_velocity_gradient.at[:, 7].set(
+            m_self.at[1].get()*(couplets.at[3::8].get() - 4 * couplets.at[7::8].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[:, 4].set(
+            m_self.at[1].get()*(couplets.at[4::8].get() - 4 * couplets.at[4::8].get()))
+        r_velocity_gradient = r_velocity_gradient.at[:, 1].set(
+            m_self.at[1].get()*(couplets.at[5::8].get() - 4 * couplets.at[1::8].get()))
+        r_velocity_gradient = r_velocity_gradient.at[:, 2].set(
+            m_self.at[1].get()*(couplets.at[6::8].get() - 4 * couplets.at[2::8].get()))
+        r_velocity_gradient = r_velocity_gradient.at[:, 3].set(
+            m_self.at[1].get()*(couplets.at[7::8].get() - 4 * couplets.at[3::8].get()))
+        
+        # # Geometric quantities
+        rdotf_j =   (r.at[:,0].get() * forces.at[3*indices_j + 0].get() + r.at[:,1].get() * forces.at[3*indices_j + 1].get() + r.at[:,2].get() * forces.at[3*indices_j + 2].get())
+        mrdotf_i = -(r.at[:,0].get() * forces.at[3*indices_i + 0].get() + r.at[:,1].get() * forces.at[3*indices_i + 1].get() + r.at[:,2].get() * forces.at[3*indices_i + 2].get())
+        
+        Cj_dotr = jnp.array( [couplets.at[8*indices_j + 0].get() * r.at[:,0].get() + couplets.at[8*indices_j + 1].get() * r.at[:,1].get() + couplets.at[8*indices_j + 2].get() * r.at[:,2].get(),
+                              couplets.at[8*indices_j + 5].get() * r.at[:,0].get() + couplets.at[8*indices_j + 4].get() * r.at[:,1].get() + couplets.at[8*indices_j + 3].get() * r.at[:,2].get(),
+                              couplets.at[8*indices_j + 6].get() * r.at[:,0].get() + couplets.at[8*indices_j + 7].get() * r.at[:,1].get() -(couplets.at[8*indices_j + 0].get() + couplets.at[8*indices_j + 4].get()) * r.at[:,2].get()])
+        
+        Ci_dotmr=jnp.array( [-couplets.at[8*indices_i + 0].get() * r.at[:,0].get() - couplets.at[8*indices_i + 1].get() * r.at[:,1].get() - couplets.at[8*indices_i + 2].get() * r.at[:,2].get(),
+                              -couplets.at[8*indices_i + 5].get() * r.at[:,0].get() - couplets.at[8*indices_i + 4].get() * r.at[:,1].get() - couplets.at[8*indices_i + 3].get() * r.at[:,2].get(),
+                              -couplets.at[8*indices_i + 6].get() * r.at[:,0].get() - couplets.at[8*indices_i + 7].get() * r.at[:,1].get() +(couplets.at[8*indices_i + 0].get() + couplets.at[8*indices_i + 4].get()) * r.at[:,2].get()])
+
+
+        rdotC_j = jnp.array([couplets.at[8*indices_j + 0].get() * r.at[:,0].get() + couplets.at[8*indices_j + 5].get() * r.at[:,1].get() + couplets.at[8*indices_j + 6].get() * r.at[:,2].get(),
+                              couplets.at[8*indices_j + 1].get() * r.at[:,0].get() + couplets.at[8*indices_j + 4].get() * r.at[:,1].get() + couplets.at[8*indices_j + 7].get() * r.at[:,2].get(),
+                              couplets.at[8*indices_j + 2].get() * r.at[:,0].get() + couplets.at[8*indices_j + 3].get() * r.at[:,1].get() -(couplets.at[8*indices_j + 0].get() + couplets.at[8*indices_j + 4].get()) * r.at[:,2].get()])
+        
+        mrdotC_i=jnp.array([-couplets.at[8*indices_i + 0].get() * r.at[:,0].get() - couplets.at[8*indices_i + 5].get() * r.at[:,1].get() - couplets.at[8*indices_i + 6].get() * r.at[:,2].get(),
+                              -couplets.at[8*indices_i + 1].get() * r.at[:,0].get() - couplets.at[8*indices_i + 4].get() * r.at[:,1].get() - couplets.at[8*indices_i + 7].get() * r.at[:,2].get(),
+                              -couplets.at[8*indices_i + 2].get() * r.at[:,0].get() - couplets.at[8*indices_i + 3].get() * r.at[:,1].get() +(couplets.at[8*indices_i + 0].get() + couplets.at[8*indices_i + 4].get()) * r.at[:,2].get()])
+                    
+        rdotC_jj_dotr   =  (r.at[:,0].get()*Cj_dotr.at[0,:].get()  + r.at[:,1].get()*Cj_dotr.at[1,:].get()  + r.at[:,2].get()*Cj_dotr.at[2,:].get())
+        mrdotC_ii_dotmr = -(r.at[:,0].get()*Ci_dotmr.at[0,:].get() + r.at[:,1].get()*Ci_dotmr.at[1,:].get() + r.at[:,2].get()*Ci_dotmr.at[2,:].get())
+        
+        
+        # Compute Velocity for particles i
+        r_lin_velocities = r_lin_velocities.at[indices_i, 0].add(f1 * forces.at[3*indices_j].get() + (f2 - f1) * rdotf_j * r.at[:,0].get())
+        r_lin_velocities = r_lin_velocities.at[indices_i, 1].add(f1 * forces.at[3*indices_j+1].get() + (f2 - f1) * rdotf_j * r.at[:,1].get())
+        r_lin_velocities = r_lin_velocities.at[indices_i, 2].add(f1 * forces.at[3*indices_j+2].get() + (f2 - f1) * rdotf_j * r.at[:,2].get())
+        r_lin_velocities = r_lin_velocities.at[indices_i, 0].add(g1 * (Cj_dotr.at[0,:].get() - rdotC_jj_dotr * r.at[:,0].get()) + g2 * (rdotC_j.at[0,:].get() - 4.*rdotC_jj_dotr * r.at[:,0].get()))
+        r_lin_velocities = r_lin_velocities.at[indices_i, 1].add(g1 * (Cj_dotr.at[1,:].get() - rdotC_jj_dotr * r.at[:,1].get()) + g2 * (rdotC_j.at[1,:].get() - 4.*rdotC_jj_dotr * r.at[:,1].get()))
+        r_lin_velocities = r_lin_velocities.at[indices_i, 2].add(g1 * (Cj_dotr.at[2,:].get() - rdotC_jj_dotr * r.at[:,2].get()) + g2 * (rdotC_j.at[2,:].get() - 4.*rdotC_jj_dotr * r.at[:,2].get()))
+        # Compute Velocity for particles j
+        r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(f1 * forces.at[3*indices_i].get() - (f2 - f1) * mrdotf_i * r.at[:,0].get())
+        r_lin_velocities = r_lin_velocities.at[indices_j, 1].add(f1 * forces.at[3*indices_i+1].get() - (f2 - f1) * mrdotf_i * r.at[:,1].get())
+        r_lin_velocities = r_lin_velocities.at[indices_j, 2].add(f1 * forces.at[3*indices_i+2].get() - (f2 - f1) * mrdotf_i * r.at[:,2].get())
+        r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(g1 * (Ci_dotmr.at[0,:].get() + mrdotC_ii_dotmr * r.at[:,0].get()) + g2 * (mrdotC_i.at[0,:].get() + 4.*mrdotC_ii_dotmr * r.at[:,0].get()))
+        r_lin_velocities = r_lin_velocities.at[indices_j, 1].add(g1 * (Ci_dotmr.at[1,:].get() + mrdotC_ii_dotmr * r.at[:,1].get()) + g2 * (mrdotC_i.at[1,:].get() + 4.*mrdotC_ii_dotmr * r.at[:,1].get()))
+        r_lin_velocities = r_lin_velocities.at[indices_j, 2].add(g1 * (Ci_dotmr.at[2,:].get() + mrdotC_ii_dotmr * r.at[:,2].get()) + g2 * (mrdotC_i.at[2,:].get() + 4.*mrdotC_ii_dotmr * r.at[:,2].get()))
+        
+        
+        # Compute Velocity Gradient for particles i and j
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 0].add(
+            (-1) * g1 * (r.at[:,0].get() * forces.at[3*indices_j+0].get() - rdotf_j * r.at[:,0].get()*r.at[:,0].get())
+            +(-1)*g2 * (rdotf_j + forces.at[3*indices_j+0].get()*r.at[:,0].get() - 4.*rdotf_j * r.at[:,0].get()*r.at[:,0].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 0].add(
+            (-1) * g1 * (-r.at[:,0].get() * forces.at[3*indices_i+0].get() - mrdotf_i * r.at[:,0].get()*r.at[:,0].get()) 
+            +(-1)*g2 * (mrdotf_i - forces.at[3*indices_i+0].get()*r.at[:,0].get() - 4.*mrdotf_i * r.at[:,0].get()*r.at[:,0].get()))
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 0].add(
+            h1 * (couplets.at[8*indices_j+0].get() - 4. * couplets.at[8*indices_j+0].get()) 
+            + h2 * (r.at[:,0].get()*Cj_dotr.at[0,:].get() - rdotC_jj_dotr * r.at[:,0].get()*r.at[:,0].get()) 
+            + h3 * (rdotC_jj_dotr + Cj_dotr.at[0,:].get()*r.at[:,0].get() + r.at[:,0].get()*rdotC_j.at[0,:].get() + rdotC_j.at[0,:].get()*r.at[:,0].get() 
+                                                                    - 6.*rdotC_jj_dotr*r.at[:,0].get()*r.at[:,0].get() - couplets.at[8*indices_j+0].get()))
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 0].add(
+            h1 * (couplets.at[8*indices_i+0].get() - 4. * couplets.at[8*indices_i+0].get()) 
+            + h2 * (-r.at[:,0].get()*Ci_dotmr.at[0,:].get() - mrdotC_ii_dotmr * r.at[:,0].get()*r.at[:,0].get())
+            + h3 * (mrdotC_ii_dotmr - Ci_dotmr.at[0,:].get()*r.at[:,0].get() - r.at[:,0].get()*mrdotC_i.at[0,:].get() - mrdotC_i.at[0,:].get()*r.at[:,0].get() 
+                                                                    - 6.*mrdotC_ii_dotmr*r.at[:,0].get()*r.at[:,0].get() - couplets.at[8*indices_i+0].get()))
+
+
+
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 1].add(
+            (-1) * g1 * (r.at[:,1].get() * forces.at[3*indices_j+0].get() - rdotf_j * r.at[:,1].get()*r.at[:,0].get()) 
+            + (-1)*g2 * (forces.at[3*indices_j+1].get()*r.at[:,0].get() - 4.*rdotf_j * r.at[:,1].get()*r.at[:,0].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 1].add(
+            (-1) * g1 * (-r.at[:,1].get() * forces.at[3*indices_i+0].get() - mrdotf_i * r.at[:,1].get()*r.at[:,0].get()) 
+            + (-1)*g2 * (-forces.at[3*indices_i+1].get()*r.at[:,0].get() - 4.*mrdotf_i * r.at[:,1].get()*r.at[:,0].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 1].add(
+            h1 * (couplets.at[8*indices_j+5].get() - 4. * couplets.at[8*indices_j+1].get()) 
+            + h2 * (r.at[:,1].get()*Cj_dotr.at[0,:].get() - rdotC_jj_dotr * r.at[:,1].get()*r.at[:,0].get())
+            + h3 * (Cj_dotr.at[1,:].get()*r.at[:,0].get() + r.at[:,1].get()*rdotC_j.at[0,:].get() + rdotC_j.at[1,:].get()*r.at[:,0].get()
+                                                - 6.*rdotC_jj_dotr*r.at[:,1].get()*r.at[:,0].get() - couplets.at[8*indices_j+1].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 1].add(
+            h1 * (couplets.at[8*indices_i+5].get() - 4. * couplets.at[8*indices_i+1].get())
+            + h2 * (-r.at[:,1].get()*Ci_dotmr.at[0,:].get() - mrdotC_ii_dotmr * r.at[:,1].get()*r.at[:,0].get())
+            + h3 * (-Ci_dotmr.at[1,:].get()*r.at[:,0].get() - r.at[:,1].get()*mrdotC_i.at[0,:].get() - mrdotC_i.at[1,:].get()*r.at[:,0].get()
+                                                    - 6.*mrdotC_ii_dotmr*r.at[:,1].get()*r.at[:,0].get() - couplets.at[8*indices_i+1].get()))
+
+
+
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 2].add(
+                  (-1) * g1 * (r.at[:,2].get() * forces.at[3*indices_j+0].get() - rdotf_j * r.at[:,2].get()*r.at[:,0].get()) 
+                  + (-1)*g2 * (forces.at[3*indices_j+2].get()*r.at[:,0].get() - 4.*rdotf_j * r.at[:,2].get()*r.at[:,0].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 2].add(
+                  (-1) * g1 * (-r.at[:,2].get() * forces.at[3*indices_i+0].get() - mrdotf_i * r.at[:,2].get()*r.at[:,0].get()) 
+                  + (-1)*g2 * (-forces.at[3*indices_i+2].get()*r.at[:,0].get() - 4.*mrdotf_i * r.at[:,2].get()*r.at[:,0].get()))
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 2].add(
+            h1 * (couplets.at[8*indices_j+6].get() - 4. * couplets.at[8*indices_j+2].get())
+            + h2 * (r.at[:,2].get()*Cj_dotr.at[0,:].get() - rdotC_jj_dotr * r.at[:,2].get()*r.at[:,0].get())
+            + h3 * (Cj_dotr.at[2,:].get()*r.at[:,0].get() + r.at[:,2].get()*rdotC_j.at[0,:].get() + rdotC_j.at[2,:].get()*r.at[:,0].get()
+                    - 6.*rdotC_jj_dotr*r.at[:,2].get()*r.at[:,0].get() - couplets.at[8*indices_j+2].get()))
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 2].add(
+            h1 * (couplets.at[8*indices_i+6].get() - 4. * couplets.at[8*indices_i+2].get())
+            + h2 * (r.at[:,2].get()*Ci_dotmr.at[0,:].get()*(-1) - mrdotC_ii_dotmr * r.at[:,2].get()*r.at[:,0].get())
+            + h3 * (-Ci_dotmr.at[2,:].get()*r.at[:,0].get() - r.at[:,2].get()*mrdotC_i.at[0,:].get() - mrdotC_i.at[2,:].get()*r.at[:,0].get()
+                    - 6.*mrdotC_ii_dotmr*r.at[:,2].get()*r.at[:,0].get() - couplets.at[8*indices_i+2].get()))
+       
+    
+    
+    
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 3].add(
+                (-1) * g1 * (r.at[:,2].get() * forces.at[3*indices_j+1].get() - rdotf_j * r.at[:,2].get()*r.at[:,1].get())
+                + (-1)*g2 * (forces.at[3*indices_j+2].get()*r.at[:,1].get() - 4.*rdotf_j * r.at[:,2].get()*r.at[:,1].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 3].add(
+                (-1) * g1 * (-r.at[:,2].get() * forces.at[3*indices_i+1].get() - mrdotf_i * r.at[:,2].get()*r.at[:,1].get())
+                + (-1)*g2 * (-forces.at[3*indices_i+2].get()*r.at[:,1].get() - 4.*mrdotf_i * r.at[:,2].get()*r.at[:,1].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 3].add(
+            h1 * (couplets.at[8*indices_j+7].get() - 4. * couplets.at[8*indices_j+3].get())
+            + h2 * (r.at[:,2].get()*Cj_dotr.at[1,:].get() - rdotC_jj_dotr * r.at[:,2].get()*r.at[:,1].get())
+            + h3 * (Cj_dotr.at[2,:].get()*r.at[:,1].get() + r.at[:,2].get()*rdotC_j.at[1,:].get() + rdotC_j.at[2,:].get()*r.at[:,1].get()
+                    - 6.*rdotC_jj_dotr*r.at[:,2].get()*r.at[:,1].get() - couplets.at[8*indices_j+3].get()))
+
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 3].add(
+            h1 * (couplets.at[8*indices_i+7].get() - 4. * couplets.at[8*indices_i+3].get())
+            + h2 * (-r.at[:,2].get()*Ci_dotmr.at[1,:].get() - mrdotC_ii_dotmr * r.at[:,2].get()*r.at[:,1].get()) 
+            + h3 * (-Ci_dotmr.at[2,:].get()*r.at[:,1].get() - r.at[:,2].get()*mrdotC_i.at[1,:].get() - mrdotC_i.at[2,:].get()*r.at[:,1].get()
+                    - 6.*mrdotC_ii_dotmr*r.at[:,2].get()*r.at[:,1].get() - couplets.at[8*indices_i+3].get()))
+
+
+
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 4].add(
+                (-1) * g1 * (r.at[:,1].get() * forces.at[3*indices_j+1].get() - rdotf_j * r.at[:,1].get()*r.at[:,1].get())
+                + (-1)*g2 * (rdotf_j + forces.at[3*indices_j+1].get()*r.at[:,1].get() - 4.*rdotf_j * r.at[:,1].get()*r.at[:,1].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 4].add(
+                (-1) * g1 * (-r.at[:,1].get() * forces.at[3*indices_i+1].get() - mrdotf_i * r.at[:,1].get()*r.at[:,1].get())
+                + (-1)*g2 * (mrdotf_i - forces.at[3*indices_i+1].get()*r.at[:,1].get() - 4.*mrdotf_i * r.at[:,1].get()*r.at[:,1].get()))
+         
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 4].add(
+            h1 * (couplets.at[8*indices_j+4].get() - 4. * couplets.at[8*indices_j+4].get())
+            + h2 * (r.at[:,1].get()*Cj_dotr.at[1,:].get() - rdotC_jj_dotr * r.at[:,1].get()*r.at[:,1].get()) 
+            + h3 * (rdotC_jj_dotr + Cj_dotr.at[1,:].get()*r.at[:,1].get() + r.at[:,1].get()*rdotC_j.at[1,:].get() + rdotC_j.at[1,:].get()*r.at[:,1].get()
+                    - 6.*rdotC_jj_dotr*r.at[:,1].get()*r.at[:,1].get() - couplets.at[8*indices_j+4].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 4].add(
+            h1 * (couplets.at[8*indices_i+4].get() - 4. * couplets.at[8*indices_i+4].get())
+            + h2 * (-r.at[:,1].get()*Ci_dotmr.at[1,:].get() - mrdotC_ii_dotmr * r.at[:,1].get()*r.at[:,1].get())
+            + h3 * (mrdotC_ii_dotmr - Ci_dotmr.at[1,:].get()*r.at[:,1].get() - r.at[:,1].get()*mrdotC_i.at[1,:].get() - mrdotC_i.at[1,:].get()*r.at[:,1].get()
+                    - 6.*mrdotC_ii_dotmr*r.at[:,1].get()*r.at[:,1].get() - couplets.at[8*indices_i+4].get()))
+
+
+
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 5].add(
+                (-1) * g1 * (r.at[:,0].get() * forces.at[3*indices_j+1].get() - rdotf_j * r.at[:,0].get()*r.at[:,1].get())
+                + (-1)*g2 * (forces.at[3*indices_j+0].get()*r.at[:,1].get() - 4.*rdotf_j * r.at[:,0].get()*r.at[:,1].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 5].add(
+                (-1) * g1 * (-r.at[:,0].get() * forces.at[3*indices_i+1].get() - mrdotf_i * r.at[:,0].get()*r.at[:,1].get())
+                + (-1)*g2 * (-forces.at[3*indices_i+0].get()*r.at[:,1].get() - 4.*mrdotf_i * r.at[:,0].get()*r.at[:,1].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 5].add(
+            h1 * (couplets.at[8*indices_j+1].get() - 4. * couplets.at[8*indices_j+5].get())
+            + h2 * (r.at[:,0].get()*Cj_dotr.at[1,:].get() - rdotC_jj_dotr * r.at[:,0].get()*r.at[:,1].get())
+            + h3 * (Cj_dotr.at[0,:].get()*r.at[:,1].get() + r.at[:,0].get()*rdotC_j.at[1,:].get() + rdotC_j.at[0,:].get()*r.at[:,1].get()
+                    - 6.*rdotC_jj_dotr*r.at[:,0].get()*r.at[:,1].get() - couplets.at[8*indices_j+5].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 5].add(
+            h1 * (couplets.at[8*indices_i+1].get() - 4. * couplets.at[8*indices_i+5].get())
+            + h2 * (-r.at[:,0].get()*Ci_dotmr.at[1,:].get() - mrdotC_ii_dotmr * r.at[:,0].get()*r.at[:,1].get())
+            + h3 * (-Ci_dotmr.at[0,:].get()*r.at[:,1].get() - r.at[:,0].get()*mrdotC_i.at[1,:].get() - mrdotC_i.at[0,:].get()*r.at[:,1].get()
+                    - 6.*mrdotC_ii_dotmr*r.at[:,0].get()*r.at[:,1].get() - couplets.at[8*indices_i+5].get()))
+
+
+
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 6].add(
+                  (-1) * g1 * (r.at[:,0].get() * forces.at[3*indices_j+2].get() - rdotf_j * r.at[:,0].get()*r.at[:,2].get())
+                  + (-1)*g2 * (forces.at[3*indices_j+0].get()*r.at[:,2].get() - 4.*rdotf_j * r.at[:,0].get()*r.at[:,2].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 6].add(
+                  (-1) * g1 * (-r.at[:,0].get() * forces.at[3*indices_i+2].get() - mrdotf_i * r.at[:,0].get()*r.at[:,2].get())
+                  + (-1)*g2 * (-forces.at[3*indices_i+0].get()*r.at[:,2].get() - 4.*mrdotf_i * r.at[:,0].get()*r.at[:,2].get()))
+         
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 6].add(
+            h1 * (couplets.at[8*indices_j+2].get() - 4. * couplets.at[8*indices_j+6].get())
+            + h2 * (r.at[:,0].get()*Cj_dotr.at[2,:].get() - rdotC_jj_dotr * r.at[:,0].get()*r.at[:,2].get())
+            + h3 * (Cj_dotr.at[0,:].get()*r.at[:,2].get() + r.at[:,0].get()*rdotC_j.at[2,:].get() + rdotC_j.at[0,:].get()*r.at[:,2].get()
+                    - 6.*rdotC_jj_dotr*r.at[:,0].get()*r.at[:,2].get() - couplets.at[8*indices_j+6].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 6].add(
+            h1 * (couplets.at[8*indices_i+2].get() - 4. * couplets.at[8*indices_i+6].get())
+            + h2 * (-r.at[:,0].get()*Ci_dotmr.at[2,:].get() - mrdotC_ii_dotmr * r.at[:,0].get()*r.at[:,2].get())
+            + h3 * (-Ci_dotmr.at[0,:].get()*r.at[:,2].get() - r.at[:,0].get()*mrdotC_i.at[2,:].get() - mrdotC_i.at[0,:].get()*r.at[:,2].get()
+                    - 6.*mrdotC_ii_dotmr*r.at[:,0].get()*r.at[:,2].get() - couplets.at[8*indices_i+6].get()))
+        
+        
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 7].add(
+                (-1) * g1 * (r.at[:,1].get() * forces.at[3*indices_j+2].get() - rdotf_j * r.at[:,1].get()*r.at[:,2].get())
+                + (-1)*g2 * (forces.at[3*indices_j+1].get()*r.at[:,2].get() - 4.*rdotf_j * r.at[:,1].get()*r.at[:,2].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 7].add(
+                (-1) * g1 * (-r.at[:,1].get() * forces.at[3*indices_i+2].get() - mrdotf_i * r.at[:,1].get()*r.at[:,2].get())
+                + (-1)*g2 * (-forces.at[3*indices_i+1].get()*r.at[:,2].get() - 4.*mrdotf_i * r.at[:,1].get()*r.at[:,2].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_i, 7].add(
+            h1 * (couplets.at[8*indices_j+3].get() - 4. * couplets.at[8*indices_j+7].get())
+            + h2 * (r.at[:,1].get()*Cj_dotr.at[2,:].get() - rdotC_jj_dotr * r.at[:,1].get()*r.at[:,2].get())
+            + h3 * (Cj_dotr.at[1,:].get()*r.at[:,2].get() + r.at[:,1].get()*rdotC_j.at[2,:].get() + rdotC_j.at[1,:].get()*r.at[:,2].get()
+                    - 6.*rdotC_jj_dotr*r.at[:,1].get()*r.at[:,2].get() - couplets.at[8*indices_j+7].get()))
+        
+        r_velocity_gradient = r_velocity_gradient.at[indices_j, 7].add(
+            h1 * (couplets.at[8*indices_i+3].get() - 4. * couplets.at[8*indices_i+7].get())
+            + h2 * (-r.at[:,1].get()*Ci_dotmr.at[2,:].get() - mrdotC_ii_dotmr * r.at[:,1].get()*r.at[:,2].get())
+            + h3 * (-Ci_dotmr.at[1,:].get()*r.at[:,2].get() - r.at[:,1].get()*mrdotC_i.at[2,:].get() - mrdotC_i.at[1,:].get()*r.at[:,2].get()
+                    - 6.*mrdotC_ii_dotmr*r.at[:,1].get()*r.at[:,2].get() - couplets.at[8*indices_i+7].get()))
+        
+        # # Convert to angular velocities and rate of strain
+        r_ang_vel_and_strain = jnp.zeros((N, 8))
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 0].set((r_velocity_gradient.at[:, 3].get()-r_velocity_gradient.at[:, 7].get()) * 0.5)
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 1].set((r_velocity_gradient.at[:, 6].get()-r_velocity_gradient.at[:, 2].get()) * 0.5)
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 2].set((r_velocity_gradient.at[:, 1].get()-r_velocity_gradient.at[:, 5].get()) * 0.5)
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 3].set(2*r_velocity_gradient.at[:, 0].get()+r_velocity_gradient.at[:, 4].get())
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 4].set(r_velocity_gradient.at[:, 1].get()+r_velocity_gradient.at[:, 5].get())
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 5].set(r_velocity_gradient.at[:, 2].get()+r_velocity_gradient.at[:, 6].get())
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 6].set(r_velocity_gradient.at[:, 3].get()+r_velocity_gradient.at[:, 7].get())
+        r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 7].set(r_velocity_gradient.at[:, 0].get()+2*r_velocity_gradient.at[:, 4].get())            
+        
+        return r_lin_velocities, r_ang_vel_and_strain
+    
+    
+    #obtain matrix form of linear operator Mpsi, by computing Mpsi(e_i) with e_i basis vectors (1,0,...,0), (0,1,0,...) ...
+    random_array_nf = (2*random_array_nf-1)*jnp.sqrt(3.)
+    R_FU_Matrix = np.zeros((6*N,6*N))
+    basis_vectors = np.eye(6*N, dtype = float)
+    for iii in range(6*N):
+        Rei = ComputeLubricationFU(basis_vectors[iii,:])
+        R_FU_Matrix[:,iii] =  Rei
+    sqrt_R_FU = scipy.linalg.sqrtm(R_FU_Matrix) #EXTEMELY NOT EFFICIENT! need to be replaced with faster method
+    R_FU12psi_correct = jnp.dot(sqrt_R_FU,random_array_nf*np.sqrt(2. * kT / dt))
+    
+    random_array_real = (2*random_array_real-1)*jnp.sqrt(3.)
+    Matrix_M = np.zeros((11*N,11*N)); basis_vectors = np.eye(11*N, dtype = float)
+    for iii in range(11*N):
+        a = helper_Mpsi(basis_vectors[iii,:]); Mei = helper_reshape(a); Matrix_M[:,iii] =  Mei
+    sqrt_M = scipy.linalg.sqrtm(Matrix_M); 
+    M12psi_debug = jnp.dot(sqrt_M,random_array_real* jnp.sqrt(2.0*kT/dt))
+    
+    return convert_to_generalized(M12psi_debug), R_FU12psi_correct
