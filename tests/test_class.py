@@ -13,7 +13,9 @@ def jax_has_gpu():
 class TestClass:
     
     def test_deterministic_hydro(self):
-        """Physical unit test for deterministic (shearless) part of hydrodynamic calculations. Test sedimentation of three spheres against known results.
+        """Physical unit test for deterministic (shearless) part of hydrodynamic calculations. 
+        
+        Test sedimentation of three spheres against known results.
 
         """
             
@@ -44,7 +46,9 @@ class TestClass:
         assert (error < 0.02)
 
     def test_external_shear(self):
-        """Physical unit test for deterministic shear part of hydrodynamic calculations. Test pair of particle in simple shear against analytical result.
+        """Physical unit test for deterministic shear part of hydrodynamic calculations. 
+        
+        Test pair of particle in simple shear against analytical result.
 
         """
         
@@ -75,9 +79,11 @@ class TestClass:
         assert (error < 0.17)
 
     def test_thermal_1body(self):
-        """Physical unit test for non-deterministic part of hydrodynamic calculations. Test Brownian motion of a single particle, in periodic boundary conditions.
-        Thus, the particle will interact with its periodic images, generating deviation from the simple diffusion of a particle in an unbounded solvent. This test mostly probes the 
-        wave-space far-field calculation of thermal motion. 
+        """Physical unit test for non-deterministic part of hydrodynamic calculations. 
+        
+        Test Brownian motion of a single particle, in periodic boundary conditions.
+        Thus, the particle will interact with its periodic images, generating deviation from the simple diffusion of a particle in an unbounded solvent. 
+        This test mostly probes the wave-space far-field calculation of thermal motion. 
 
         """
         
@@ -113,8 +119,10 @@ class TestClass:
         assert (np.max(error) < 0.2)  # reference tolerance
         
     def test_thermal_realspace(self):
-        """Physical unit test for non-deterministic part of hydrodynamic calculations. Compare square root of resistance/mobility obtained 
-        using Lanczsos decomposition, with the square roots computed using scipy. This test probes lubrication and real-space far-field calculation of thermal motion.
+        """Physical unit test for non-deterministic part of hydrodynamic calculations. 
+        
+        Compare square root of resistance/mobility obtained using Lanczsos decomposition, with the square roots computed using scipy. 
+        This test probes lubrication and real-space far-field calculation of thermal motion.
 
         """
         

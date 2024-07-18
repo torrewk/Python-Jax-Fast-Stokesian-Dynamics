@@ -18,23 +18,22 @@ def RFU_Precondition(
         n_pairs_lub_prec: int,
         nl_lub_prec: ArrayLike) -> tuple[Array,Array]:
     
-    """Construct the lubrication resistance matrix R_FU
-    for particle pairs very close (distance <= 2.1 * radius). This is used as 
-    part of the full precondition matrix used in the saddle point problem. 
+    """Construct the lubrication resistance matrix R_FU for particle pairs very close (d <= 2.1*radius). 
+    
+    This is used as part of the full precondition matrix used in the saddle point problem. 
     
     Parameters
     ----------
-    ichol_relaxer:
+    ichol_relaxer: (float)
         Relaxation factor for Cholesky decomposition
-    R:
-        Vector of particle distances
-    N:
+    R: (float)
+        Array (n_pair_nf_prec,3) of distance vectors between particles in neighbor list
+    N: (int)
         Number of particles
-    n_pairs_lub_prec:
+    n_pairs_lub_prec: (int)
         Number of particle pairs to include in the lubrication matrix
-    nl_lub_prec:
-        Near-field precondition neighborlist indices
-        
+    nl_lub_prec: (int)
+        Array (2,n_pairs_nf) containing near-field precondition neighborlist indices
     Returns
     -------
     R_fu_precondition, diagonal_elements_for_brownian
@@ -336,17 +335,17 @@ def ComputeLubricationFU(
 
     Parameters
     ----------
-    velocities:
-        Input particle linear/angular velocities
-    indices_i_lub:
-        Indices of first particle in near-field neighbor list pairs 
-    indices_j_lub:
-        Indices of second particle in near-field neighbor list pairs 
-    ResFunctions:
-        Resistance scalar functions evaluated for the current particle configuration
-    r_lub:
-        Units vectors connecting each pair of particles in the near-field neighbor list
-    N:
+    velocities: (float)
+        Array (,6*N) containing input particle linear/angular velocities
+    indices_i_lub: (int)
+        Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs 
+    indices_j_lub: (int)
+        Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs 
+    ResFunctions: (float)
+        Array (11,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    r_lub: (float)
+        Array (n_pair_nf,3) containing units vectors connecting each pair of particles in the near-field neighbor list
+    N: (int)
         Number of particles
         
     Returns
@@ -445,6 +444,7 @@ def compute_RFE(
         YH21: ArrayLike) -> Array:
     
     """Compute matrix-vector product of lubrication R_FE resistance matrix with particle rate of strain.
+    
     These simulations are constructed so that, if there is strain,
 	x is the flow direction
 	y is the gradient direction
@@ -456,34 +456,34 @@ def compute_RFE(
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    shear_rate:
+    shear_rate: (float)
         Shear rate at current step
-    r_lub:
-        Units vectors connecting each pair of particles in the near-field neighbor list
-    indices_i_lub:
-        Indices of first particle in near-field neighbor list pairs 
-    indices_j_lub:
-        Indices of second particle in near-field neighbor list pairs 
-    XG11:
-        Resistance scalar functions evaluated for the current particle configuration
-    XG12:
-        Resistance scalar functions evaluated for the current particle configuration
-    YG11:
-        Resistance scalar functions evaluated for the current particle configuration
-    YG12:
-        Resistance scalar functions evaluated for the current particle configuration
-    YH11:
-        Resistance scalar functions evaluated for the current particle configuration
-    YH12:
-        Resistance scalar functions evaluated for the current particle configuration
-    XG21:
-        Resistance scalar functions evaluated for the current particle configuration
-    YG21:
-        Resistance scalar functions evaluated for the current particle configuration
-    YH21:
-        Resistance scalar functions evaluated for the current particle configuration
+    r_lub: (float)
+        Array (n_pair_nf,3) containing units vectors connecting each pair of particles in the near-field neighbor list
+    indices_i_lub: (int)
+        Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs 
+    indices_j_lub: (int)
+        Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs 
+    XG11: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    XG12: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YG11: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YG12: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YH11: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YH12: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    XG21: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YG21: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YH21: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
         
     Returns
     -------
@@ -554,6 +554,7 @@ def compute_RSE(
         stresslet: ArrayLike) -> Array:
     
     """Compute matrix-vector product of lubrication R_SE resistance matrix with particle rate of strain.
+    
     These simulations are constructed so that, if there is strain,
 	x is the flow direction
 	y is the gradient direction
@@ -565,30 +566,30 @@ def compute_RSE(
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    shear_rate:
+    shear_rate: (float)
         Shear rate at current step
-    r_lub:
-        Units vectors connecting each pair of particles in the near-field neighbor list
-    indices_i_lub:
-        Indices of first particle in near-field neighbor list pairs 
-    indices_j_lub:
-        Indices of second particle in near-field neighbor list pairs 
-    XM11:
-        Resistance scalar functions evaluated for the current particle configuration
-    XM12:
-        Resistance scalar functions evaluated for the current particle configuration
-    YM11:
-        Resistance scalar functions evaluated for the current particle configuration
-    YM12:
-        Resistance scalar functions evaluated for the current particle configuration
-    ZM11:
-        Resistance scalar functions evaluated for the current particle configuration
-    ZM12:
-        Resistance scalar functions evaluated for the current particle configuration
-    stresslet:
-        Input stresslet
+    r_lub: (float)
+        Array (n_pair_nf,3) containing units vectors connecting each pair of particles in the near-field neighbor list
+    indices_i_lub: (int)
+        Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs 
+    indices_j_lub: (int)
+        Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs 
+    XM11: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    XM12: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YM11: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    YM12: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    ZM11: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    ZM12: (float)
+        Array (,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    stresslet: (float)
+        Array (,5*N) containing stresslet
         
     Returns
     -------
@@ -759,19 +760,19 @@ def compute_RSU(
 
     Parameters
     ----------
-    stresslet:
-        Input particle stresslet
-    velocities:
-        Input particle linear/angular velocities
-    indices_i_lub:
-        Indices of first particle in near-field neighbor list pairs 
-    indices_j_lub:
-        Indices of second particle in near-field neighbor list pairs 
-    ResFunctions:
-        Resistance scalar functions evaluated for the current particle configuration
-    r_lub:
-        Units vectors connecting each pair of particles in the near-field neighbor list
-    N:
+    stresslet: (float)
+        Array (,5*N) containing particle stresslet
+    velocities: (float)
+        Array (,6*N) containing particle linear/angular velocities
+    indices_i_lub: (int)
+        Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs 
+    indices_j_lub: (int)
+        Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs 
+    ResFunctions: (float)
+        Array (6,n_pair_nf) containing resistance scalar functions evaluated for the current particle configuration
+    r_lub: (float)
+        Array (n_pair_nf,3) containing units vectors connecting each pair of particles in the near-field neighbor list
+    N: (int)
         Number of particles
 
     Returns

@@ -22,32 +22,34 @@ def sumAppliedForces(
         Ucutoff: float,
         HIs_flag: int) -> Array:
     
-    """Sum all applied forces/torques for each particle. Take into account:
+    """Sum all applied forces/torques for each particle. 
+    
+    Take into account:
         external forces/torques,
         hard-sphere repulsions,
         short-range attractions
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    AppliedForce:
-        Applied (external) forces, e.g. buoyancy
-    AppliedTorques:
-        Applied (external) torques
-    saddle_b:
-        Right-hand side vector of saddle point system Ax=b
-    U:
+    AppliedForce: (float)
+        Array (N,3) of applied (external) forces, e.g. buoyancy 
+    AppliedTorques: (float)
+        Array (N,3) of applied (external) torques
+    saddle_b: (float)
+        Right-hand side vector (17*N) of saddle point system Ax=b
+    U: (float)
         Energy of a single colloidal bond
-    indices_i:
-        Indices of first particle in neighbor list pairs 
-    indices_j:
-        Indices of second particle in neighbor list pairs 
-    dist:
-        Array of distance vector between particles
-    Ucutoff:
+    indices_i: (int)
+        Array (n_pair) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (n_pair) of indices of second particle in neighbor list pairs 
+    dist: (float)
+        Array (n_pair,3) of distance vectors between particles in neighbor list
+    Ucutoff: (float)
         Cutoff (max) distance for pair-interactions
-    HIs_flag:
+    HIs_flag: (int)
         Flag used to set level of hydrodynamic interaction. 0 for BD, 1 for SD.
         
     Returns
@@ -66,14 +68,14 @@ def sumAppliedForces(
     
         Parameters
         ----------
-        U:
+        U: (float)
             Energy of a single colloidal bond
-        indices_i:
-            Indices of first particle in neighbor list pairs 
-        indices_j:
-            Indices of second particle in neighbor list pairs 
-        dist:
-            Radial distances between particles
+        indices_i: (int)
+            Array (n_pair) of indices of first particle in neighbor list pairs
+        indices_j: (int)
+            Array (n_pair) of indices of second particle in neighbor list pairs
+        dist: (float)
+            Array (n_pair,3) of distance vectors between particles in neighbor list
             
         Returns
         -------
@@ -124,18 +126,18 @@ def sumAppliedForces(
             indices_j: ArrayLike, 
             dist: ArrayLike) -> Array:
         
-        """Compute pair interactions using an Asakura-Osawa potential (attractions)
+        """Compute attractive pair interactions using an Asakura-Osawa potential.
     
         Parameters
         ----------
-        U:
+        U: (float)
             Energy of a single colloidal bond
-        indices_i:
-            Indices of first particle in neighbor list pairs 
-        indices_j:
-            Indices of second particle in neighbor list pairs 
-        dist:
-            Radial distances between particles
+        indices_i: (int)
+            Array (n_pair) of indices of first particle in neighbor list pairs
+        indices_j: (int)
+            Array (n_pair) of indices of second particle in neighbor list pairs
+        dist: (float)
+            Array (n_pair,3) of distance vectors between particles in neighbor list
             
         Returns
         -------
@@ -185,20 +187,20 @@ def sumAppliedForces(
             indices_i: ArrayLike, 
             indices_j: ArrayLike, 
             dist: ArrayLike) -> Array:
-        """Compute hard-sphere pair interactions using an asymmetric harmonic potential (repulsion)
+        """Compute repulsive hard-sphere pair interactions using an asymmetric harmonic potential.
     
         Parameters
         ----------
-        indices_i:
-            Indices of first particle in neighbor list pairs 
-        indices_j:
-            Indices of second particle in neighbor list pairs 
-        dist:
-            Radial distances between particles
+        indices_i: (int)
+            Array (n_pair) of indices of first particle in neighbor list pairs
+        indices_j: (int)
+            Array (n_pair) of indices of second particle in neighbor list pairs
+        dist: (float)
+            Array (n_pair,3) of distance vectors between particles in neighbor list
             
         Returns
         -------
-        Fp
+        Fp 
     
         """
         Fp = jnp.zeros((N, N, 3))

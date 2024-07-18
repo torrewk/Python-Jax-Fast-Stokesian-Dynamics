@@ -8,21 +8,20 @@ def lanczos_alg(
     order: int,
     init_vec: ArrayLike) -> tuple[Array,Array]:
 
-    """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^t) * x
-    M  is the input matrix (N x N),
-    T is a tridiagonal matrix (n x n), 
-    V is the transformation matrix (N x n) 
+    """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^t) * x.
+    
+    Where T is a tridiagonal matrix (order x order) and V is a transformation matrix (dim x order). 
     
     Parameters
     ----------
-    matrix_vector_product:
-        Input M*x
-    dim:
+    matrix_vector_product: (float)
+        Array (,dim) containing input matrix-vector produc M(x)
+    dim: (int)
         Dimension of matrix M
-    order:
-        Order of the decompostion, and therefore dimension of matrix T
-    init_vec:
-        Input vector x
+    order: (int)
+        Order of the decomposition and dimension of the spanned Krylov subspace
+    init_vec: (float)
+        Array (,dim) containing input vector x
 
     Returns
     -------
@@ -34,14 +33,15 @@ def lanczos_alg(
             args: tuple[ArrayLike,ArrayLike,ArrayLike], 
             i: int) -> tuple[tuple[ArrayLike,ArrayLike,ArrayLike],
                              tuple[ArrayLike,ArrayLike,ArrayLike]]:
-        """Perform one iteration of the Lanczos decomposition. This results in the increase
-        of the dimensione of the Krylov subspace by one.
+        """Perform one iteration of the Lanczos decomposition. 
+        
+        This results in the increase of the dimensione of the Krylov subspace by one.
         
         Parameters
         ----------
-        args:
-            Contains beta, the vectors forming V and T at the current step
-        i:
+        args: (float)
+            Tuple containing beta, array (dim,order) V and array T (order,order), at the current step
+        i: (int)
             Iteration index
 
         Returns

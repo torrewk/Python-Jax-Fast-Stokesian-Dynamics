@@ -14,17 +14,17 @@ def update_box_tilt_factor(
     
     Parameters
     ----------
-    dt:
+    dt: (float)
         Timestep value
-    shear_rate_0:
+    shear_rate_0: (float)
         Shear rate amplitude
-    tilt_factor:
+    tilt_factor: (float)
         Box tilt factor before the update
-    step:
+    step: (int)
         Current time step
-    omega:
+    omega: (float)
         Angular frequerncy of applied oscillatory shear
-    phase:
+    phase: (float)
         Phase of applied oscillatory shear
         
     Returns
@@ -50,15 +50,15 @@ def update_shear_rate(
     
     Parameters
     ----------
-    dt:
+    dt: (float)
         Timestep value
-    step:
+    step: int
         Current time step
-    shear_rate_0:
+    shear_rate_0: (float)
         Shear rate amplitude
-    omega:
+    omega: (float)
         Angular frequerncy of applied oscillatory shear
-    phase:
+    phase: (float)
         Phase of applied oscillatory shear
 
     Returns
@@ -84,27 +84,27 @@ def compute_sheared_grid(
         eta: float,
         xisq: float) -> Array:
     
-    """Compute wave vectors on a given grid, these are then needed for FFT  
+    """Compute wave vectors on a given grid, needed for FFT.  
     
     Parameters
     ----------
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    tilt_factor:
+    tilt_factor: (float)
         Current box tilt factor
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
-    eta:
+    eta: (float)
         Gaussian splitting parameter
-    xisq:
+    xisq: (float)
         Squared Ewald split parameter
     
     Returns

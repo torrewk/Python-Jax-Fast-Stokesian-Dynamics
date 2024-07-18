@@ -17,16 +17,17 @@ def Random_force_on_grid_indexing(
                           int,int,int,
                           int,int,int]:
     
-    """Compute indexing for wave space grid, 
-    relevant for wave space calculation of thermal fluctuations. 
+    """Compute indexing for wave space grid.
+    
+    Relevant for wave space calculation of thermal fluctuations. 
     
     Parameters
     ----------
-    Nx:
+    Nx: (int)
         Number of grid points in x direction 
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
 
     Returns
@@ -95,17 +96,19 @@ def Number_of_neigh(
         indices_i_lub: ArrayLike, 
         indices_j_lub: ArrayLike) -> Array:
     
-    """Count number of neighbors for each particle
-    and use result to construct projector needed for thermal fluctuation calculations. 
+    """Count number of neighbors for each particle.
+    
+    
+    Use result to construct projector needed for thermal fluctuation calculations. 
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    indices_i_lub:
-        Indices of first particle in near-field neighbor list pairs 
-    indices_j_lub:
-        Indices of second particle in near-field neighbor list pairs 
+    indices_i_lub: (int)
+        Array (n_pair_nf) of indices of first particle in neighbor list pairs  
+    indices_j_lub: (int)
+        Array (n_pair_nf) of indices of second particle in neighbor list pairs  
         
     Returns
     -------
@@ -139,43 +142,44 @@ def compute_real_space_slipvelocity(
         h2: ArrayLike,
         h3: ArrayLike) -> tuple[Array,float,Array]:
     
-    """Compute real space far-field thermal fluctuation. Here, the square root
-    of the mobility operator is performed using Lanczos decomposition.
+    """Compute real space far-field thermal fluctuation. 
+    
+    Here, the square root of the mobility operator is performed using Lanczos decomposition.
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    m_self:
-        Mobility self contribution
-    kT:
+    m_self: (float)
+        Array (,2) containing mobility self contributions
+    kT: (float)
         Thermal energy
-    dt:
+    dt: (float)
         Time step
-    n_iter_Lanczos_ff:
+    n_iter_Lanczos_ff: (int)
         Number of Lanczos iteration to perform
-    random_array_real:
-        Array of random numbers with the proper variance
-    r:
-        Units vectors connecting each pair of particles in the far-field neighbor list
-    indices_i:
-        Indices of first particle in far-field neighbor list pairs 
-    indices_j:
-        Indices of second particle in far-field neighbor list pairs 
-    f1:
-        Mobility scalar function 1
-    f2:
-        Mobility scalar function 2
-    g1:
-        Mobility scalar function 3
-    g2:
-        Mobility scalar function 4
-    h1:
-        Mobility scalar function 5
-    h2:
-        Mobility scalar function 6
-    h3:
-        Mobility scalar function 7        
+    random_array_real: (float)
+        Array (,11*N) of random numbers with the proper variance
+    r: (float)
+        Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i: (int)
+        Array (n_pair_ff) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (n_pair_ff) of indices of second particle in neighbor list pairs 
+    f1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    f2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h3: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration      
     Returns
     -------
     lin_vel, ang_vel_and_strain, stepnorm, trid
@@ -559,54 +563,54 @@ def compute_wave_space_slipvelocity(
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation 
-    kT:
+    kT: (float)
         Thermal energy
-    dt:
+    dt: (float)
         Time step
-    gridh:
-        Wave space grid discrete spacing
-    normal_indices_x:
+    gridh: (float)
+        Array (,3) containing wave space grid discrete spacing
+    normal_indices_x: (int)
         Indexing for wave space grid, x component
-    normal_indices_y:
+    normal_indices_y: (int)
         Indexing for wave space grid, y component
-    normal_indices_z:
+    normal_indices_z: (int)
         Indexing for wave space grid, z component
-    normal_conj_indices_x:
+    normal_conj_indices_x: (int)
         Indexing for wave space grid, x component, of conjugate points
-    normal_conj_indices_y:
+    normal_conj_indices_y: (int)
         Indexing for wave space grid, y component, of conjugate points
-    normal_conj_indices_z:
+    normal_conj_indices_z: (int)
         Indexing for wave space grid, z component, of conjugate points
-    nyquist_indices_x:
+    nyquist_indices_x: (int)
         Indexing for wave space grid, x component, of nyquist points
-    nyquist_indices_y:
+    nyquist_indices_y: (int)
         Indexing for wave space grid, y component, of nyquist points
-    nyquist_indices_z:
+    nyquist_indices_z: (int)
         Indexing for wave space grid, z component, of nyquist points
-    gridk:
-        Wave number values in the grid
-    random_array_wave:
-        Array of random numbers with the proper variance
-    all_indices_x:
-        All indices (x) of wave grid points for each particle
-    all_indices_y:
-        All indices (y) of wave grid points for each particle
-    all_indices_z:
-        All indices (z) of wave grid points for each particle
-    gaussian_grid_spacing1:
-        Scaled distances from support center to each gridpoint, for FFT  
-    gaussian_grid_spacing2:
-        Scaled distances from support center to each gridpoint, for inverse FFT   
+    gridk: (float)
+        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+    random_array_wave: (float)
+        Array (3 * 2 * len(normal_indices_x) + 3 * len(nyquist_indices_x))) of random numbers with the proper variance
+    all_indices_x: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_y: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_z: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+    gaussian_grid_spacing1: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
+    gaussian_grid_spacing2: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT) 
     
     Returns
     -------
@@ -807,54 +811,55 @@ def compute_nearfield_brownianforce(
         diagonal_zeroes_for_brownian: ArrayLike,
         n_iter_Lanczos_nf: int) -> tuple[Array,float,Array]:
     
-    """Compute near-field thermal fluctuation. Here, the square root
-    of the resistance lubrication operator is performed using Lanczos decomposition.
+    """Compute near-field thermal fluctuation. 
+    
+    Here, the square root of the resistance lubrication operator is performed using Lanczos decomposition.
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    kT:
+    kT: (float)
         Thermal energy
-    dt:
+    dt: (float)
         Time step
-    random_array:
-        Array of random numbers with the proper variance
-    r_lub:
-        Units vectors connecting each pair of particles in the near-field neighbor list
-    indices_i_lub:
-        Indices of first particle in near-field neighbor list pairs 
-    indices_j_lub:
-        Indices of second particle in near-field neighbor list pairs 
-    XA11:
-        Resistance scalar function evaluated for the current particle configuration
-    XA12:
-        Resistance scalar function evaluated for the current particle configuration
-    YA11:
-        Resistance scalar function evaluated for the current particle configuration
-    YA12:
-        Resistance scalar function evaluated for the current particle configuration
-    YB11:
-        Resistance scalar function evaluated for the current particle configuration
-    YB12:
-        Resistance scalar function evaluated for the current particle configuration
-    XC11:
-        Resistance scalar function evaluated for the current particle configuration
-    XC12:
-        Resistance scalar function evaluated for the current particle configuration
-    YC11:
-        Resistance scalar function evaluated for the current particle configuration
-    YC12:
-        Resistance scalar function evaluated for the current particle configuration
-    YB21:
-        Resistance scalar function evaluated for the current particle configuration
-    diagonal_elements_for_brownian:
+    random_array: (float)
+        Array (,6*N) of random numbers with the proper variance
+    r_lub: (float)
+        Array (n_pair_nf,3) containing units vectors connecting each pair of particles in the near-field neighbor list
+    indices_i_lub: (int)
+        Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs 
+    indices_j_lub: (int)
+        Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs 
+    XA11: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    XA12: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    YA11: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    YA12: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    YB11: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    YB12: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    XC11: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    XC12: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    YC11: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    YC12: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    YB21: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
+    diagonal_elements_for_brownian: (float)
         Elements needed to precondition large eigenvalues of lubrication matrix
-    R_fu_prec_lower_triang:
+    R_fu_prec_lower_triang: (float)
         Lower triangular Cholesky factor of lubrication resistance matrix R_FU
-    diagonal_zeroes_for_brownian:
+    diagonal_zeroes_for_brownian: (int)
         Elements needed to apply near-field thermal noise only on particles in lubrication cutoff
-    n_iter_Lanczos_nf:
+    n_iter_Lanczos_nf: (int)
         Number of Lanczos iteration to perform
         
     Returns
@@ -1108,14 +1113,14 @@ def compute_BD_randomforce(
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    kT:
+    kT: (float)
         Thermal energy
-    dt:
+    dt: (float)
         Time step
-    random_array:
-        Array of random numbers with the proper variance
+    random_array: (float)
+        Array (,6*N) of random numbers with the proper variance
     
     Returns
     -------
@@ -1151,16 +1156,16 @@ def convert_to_generalized(
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    ws_lin_vel:
-        wave-space linear velocity
-    rs_lin_vel:
-        real-space linear velocity
-    ws_ang_vel_strain:
-        wave-space angular velocity and rate of strain
-    ws_ang_vel_strain:
-        real-space angular velocity and rate of strain
+    ws_lin_vel: (float)
+        Array (,3*N) containing wave-space linear velocity
+    rs_lin_vel: (float)
+        Array (,3*N) containing real-space linear velocity
+    ws_ang_vel_strain: (float)
+        Array (,8*N) containing wave-space angular velocity and rate of strain
+    ws_ang_vel_strain: (float)
+        Array (,8*N) containing real-space angular velocity and rate of strain
         
     Returns
     -------
@@ -1215,39 +1220,41 @@ def compute_exact_thermals(
         indices_j_lub: ArrayLike,
         XA11,XA12,YA11,YA12,YB11,YB12,XC11,XC12,YC11,YC12,YB21: ArrayLike) -> tuple[Array,Array]:
     
-    """Compute square root of real-space granmobility and lubrication resistance using scipy functions
-    in order to test the correctness of the square roots (of these operators) obtained from Lanczos decomposition. 
+    """Compute square root of real-space granmobility and lubrication resistance using scipy functions.
+    
+    
+    These are then used to test the correctness of the square roots (of these operators) obtained from Lanczos decomposition. 
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of Particles
-    m_self:
-        Mobility self contribution
-    kT:
+    m_self: (float)
+        Array (,2) containing mobility self contributions
+    kT: (float)
         Thermal energy
-    dt:
+    dt: (float)
         Time step 
-    random_array_nf:
-        Array of random numbers with the proper variance, for thermal lubrication
-    random_array_real:
-        Array of random numbers with the proper variance, for thermal far-field real space
-    r:
-        Units vectors connecting each pair of particles in the far-field neighbor list
-    indices_i:
-        Indices of first particle in far-field neighbor list pairs 
-    indices_j:
-        Indices of second particle in far-field neighbor list pairs 
-    f1,f2,g1,g2,h1,h2,h3:
-        Mobility scalar functions evaluated for the current particle configuration
-    r_lub:
-        Units vectors connecting each pair of particles in the near-field neighbor list
-    indices_i_lub:
-        Indices of first particle in near-field neighbor list pairs 
-    indices_j_lub:
-        Indices of second particle in near-field neighbor list pairs 
-    XA11,XA12,YA11,YA12,YB11,YB12,XC11,XC12,YC11,YC12,YB21:
-        Resistance scalar functions evaluated for the current particle configuration
+    random_array_nf: (float)
+        Array (,6*N) of random numbers with the proper variance, for thermal lubrication
+    random_array_real: (float)
+        Array (,11*N) of random numbers with the proper variance, for thermal far-field real space
+    r: (float)
+        Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i: (int)
+        Array (n_pair_ff) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (n_pair_ff) of indices of second particle in neighbor list pairs 
+    f1,f2,g1,g2,h1,h2,h3: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration 
+    r_lub: (float)
+        Array (n_pair_nf,3) containing units vectors connecting each pair of particles in the near-field neighbor list
+    indices_i_lub: (int)
+        Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs 
+    indices_j_lub: (int)
+        Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs 
+    XA11,XA12,YA11,YA12,YB11,YB12,XC11,XC12,YC11,YC12,YB21: (float)
+        Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
     
     Returns
     -------

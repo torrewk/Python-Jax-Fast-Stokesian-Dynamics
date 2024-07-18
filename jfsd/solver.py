@@ -19,38 +19,41 @@ def solverSD(
     gaussP: int,
     m_self: ArrayLike) -> tuple[Array,int]:                               
 
-    """Solve the linear system Ax=b
+    """Solve the linear system Ax=b.
+    
+    With:
         A contains the saddle point matrix,
         b contains applied_forces, thermal_noise, R_SU and strain terms
         x contains particle linear/angular velocities and stresslet
     
         With HIs_flag = 0 --> the solver is not called, as the system is already diagonalized 
-        With HIs_flag = 1 --> A is a 17x17 matrix reproducing hydrodynamic interaction at the SD level   
+        With HIs_flag = 1 --> the solver is not called, as the system is already diagonalized 
+        With HIs_flag = 2 --> A is a 17x17 matrix reproducing hydrodynamic interaction at the SD level   
     
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    HIs_flag:
+    HIs_flag: (int)
         Flag used to set level of hydrodynamic interaction.
-    rhs:
-        Right-hand side vector of the linear system Ax=b
-    gridk:
-        Array (Nx,Ny,Nz,4) of wave vectors and scaling factors for far-field wavespace calculation
-    RFU_pre_low_tri:
-        Lower triangular Cholesky factor of R_FU (built only from particle pairs very close)
-    precomputed:
-        Quantities needed to iteratively solve the linear system, computed only once
-    Nx:
+    rhs: (float)
+        Array (17*N) containing right-hand side vector of the linear system Ax=b
+    gridk: (float)
+        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+    RFU_pre_low_tri: (float)
+        Array (6*N,6*N) containing lower triangular Cholesky factor of R_FU (built only from particle pairs very close)
+    precomputed: (float)
+        Tuples containing quantities needed to iteratively solve the linear system, computed only once
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation 
-    m_self:
-        Mobility self contribution
+    m_self: (float)
+        Array (,2) containing mobility self contributions
 
     Returns
     -------
@@ -61,13 +64,14 @@ def solverSD(
     def compute_saddleSD(
             x: ArrayLike) -> Array:
         
-        """Construct the saddle point operator A,
-            which acts on x and returns A*x (without using A in matrix representation)
+        """Construct the saddle point operator A.
+        
+        This acts on x and returns A*x (without using A in matrix representation).
     
         Parameters
         ----------
-        x:
-            Unknown particle linear/angular velocities and stresslet
+        x: (float)
+            Array (,17*N) containing unknown particle linear/angular velocities, stresslets and hydrodynamic forces
             
         Returns
         -------
@@ -106,7 +110,7 @@ def solverSD(
         Parameters
         ----------
         x:
-            Unknown particle linear/angular velocities and stresslet
+            Array (17*N)
 
         Returns
         -------

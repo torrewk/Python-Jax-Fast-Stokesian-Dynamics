@@ -56,70 +56,70 @@ def main(
 
     Parameters
     ----------
-    Nsteps:
+    Nsteps: (int)
         Number of timesteps
-    writing_period:
+    writing_period: (int)
         Period for writing to file
-    dt:
+    dt: (float)
         Timestep
-    Lx:
+    Lx: (float)
         Box size (x-direction)
-    Ly:
+    Ly: (float)
         Box size (y-direction)
-    Lz:
+    Lz: (float)
         Box size (z-direction)
-    N:
+    N: (int)
         Number of particles
-    max_strain:
+    max_strain: (float)
         Max strain applied to the box
-    T:
+    T: (float)
         Thermal energy
-    a:
+    a: (float)
         Particle radius
-    xi:
+    xi: (float)
         Ewald split parameter
-    error:
+    error: (float)
         Tolerance error
-    U:
+    U: (float)
         Interaction strength
-    buoyancy_flag:
+    buoyancy_flag: (int)
         Set to 1 to have gravity acting on colloids
-    U_cutoff:
+    U_cutoff: (float)
         Distance cutoff for interacting particles
-    positions:
+    positions: (float)
         Array of particles initial positions (N,3)
-    seed_RFD:
+    seed_RFD: (int)
         Seed for Brownian Drift calculation
-    seed_ffwave:
+    seed_ffwave: (int)
         Seed for wave space part of far-field velocity slip
-    seed_ffreal:
+    seed_ffreal: (int)
         Seed for real space part of far-field velocity slip
-    seed_nf:
+    seed_nf: (int)
         Seed for near-field random forces
-    shear_rate_0:
+    shear_rate_0: (float)
         Axisymmetric shear rate amplitude
-    shear_freq:
+    shear_freq: (float)
         Frequency of shear, set to zero to have simple shear
-    output:
+    output: (str)
         File name for output
-    stresslet_flag:
+    stresslet_flag: (int)
         To have stresslet in the output
-    velocity_flag:
+    velocity_flag: (int)
         To have velocities in the output/var/log/nvidia-installer.log
-    orient_flag:
+    orient_flag: (int)
         To have particle orientations in the output
-    constant_applied_forces:
+    constant_applied_forces: (float)
         Array of external forces (N,3)
-    constant_applied_torques:
+    constant_applied_torques: (float)
         Array of external torques (N,3)
-    HIs_flag:
+    HIs_flag: (int)
         Flag used to set level of hydrodynamic interaction.
-    thermal_test_flag:
+    thermal_test_flag: (int)
         Flag used to test thermal fluctuation calculation (1 for far-field real space, 2 for lubrication)
-    alpha_friction:
-        strength of hydrodynamic friction
-    h0_friction:
-        range of hydrodynamic friction
+    alpha_friction: (float)
+        Strength of hydrodynamic friction
+    h0_friction: (float)
+        Range of hydrodynamic friction
 
     Returns
     -------

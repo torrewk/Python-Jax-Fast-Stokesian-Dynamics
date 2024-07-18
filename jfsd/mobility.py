@@ -33,57 +33,56 @@ def GeneralizedMobility(
         h3: ArrayLike,
         generalized_forces: ArrayLike) -> Array:
     
-    """Construct the saddle point operator A,
-        which acts on x and returns A*x (without using A in matrix representation)
+    """Compute the matrix-vector product of the grandmobility matrix with a generalized force vector (and stresslet).
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation 
-    gridk:
-        Wave number values in the grid
-    m_self:
-        Mobility self contribution
-    all_indices_x:
-        All indices (x) of wave grid points for each particle
-    all_indices_y:
-        All indices (y) of wave grid points for each particle
-    all_indices_z:
-        All indices (z) of wave grid points for each particle
-    gaussian_grid_spacing1:
-        Scaled distances from support center to each gridpoint, for FFT  
-    gaussian_grid_spacing2:
-        Scaled distances from support center to each gridpoint, for inverse FFT  
-    r:
-        Units vectors connecting each pair of particles in the far-field neighbor list
-    indices_i:
-        Indices of first particle in far-field neighbor list pairs 
-    indices_j:
-        Indices of second particle in far-field neighbor list pairs 
-    f1:
-        Mobility scalar function 1
-    f2:
-        Mobility scalar function 2
-    g1:
-        Mobility scalar function 3
-    g2:
-        Mobility scalar function 4
-    h1:
-        Mobility scalar function 5
-    h2:
-        Mobility scalar function 6
-    h3:
-        Mobility scalar function 7
-    generalized_forces:
-        Input generalized forces (force/torque/stresslet)
+    gridk: (float)
+        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+    m_self: (float)
+        Array (,2) containing mobility self contributions
+    all_indices_x: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_y: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_z: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+    gaussian_grid_spacing1: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
+    gaussian_grid_spacing2: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT) 
+    r: (float)
+        Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i: (int)
+        Array (,n_pair_ff) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (,n_pair_ff) of indices of second particle in neighbor list pairs 
+    f1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    f2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h3: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    generalized_forces: (float)
+        Array (,11*N) containing input generalized forces (force/torque/stresslet)
         
     Returns
     -------
@@ -93,13 +92,15 @@ def GeneralizedMobility(
     
     # Helper function
     def swap_real_imag(
-            cplx_arr: ArrayLike) -> ArrayLike:
-        """Take a comple number as input and return a complex number with real part equal to (minus) 
-        the imaginary part of the input and an imaginary part equal to the real part of the input. 
+            cplx_arr: ArrayLike) -> Array:
+        """Perform an operation on a complex number.
+        
+        Take a complex number as input and return a complex number with real part equal to (minus) the imaginary part of the input,
+        and an imaginary part equal to the real part of the input. 
 
         Parameters
         ----------
-        cplx_arr:
+        cplx_arr: (complex)
             Array of complex values
             
         Returns
@@ -666,58 +667,59 @@ def Mobility(
         h3: ArrayLike,
         generalized_forces: ArrayLike) -> Array:
     
-    """Construct the saddle point operator A,
-        which acts on x and returns A*x (without using A in matrix representation)
+    """
+    Compute the matrix-vector product of the mobility matrix with a generalized force vector.
 
     Parameters
     ----------
-    N:
+
+    N: (int)
         Number of particles
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation 
-    gridk:
-        Wave number values in the grid
-    m_self:
-        Mobility self contribution
-    all_indices_x:
-        All indices (x) of wave grid points for each particle
-    all_indices_y:
-        All indices (y) of wave grid points for each particle
-    all_indices_z:
-        All indices (z) of wave grid points for each particle
-    gaussian_grid_spacing1:
-        Scaled distances from support center to each gridpoint, for FFT  
-    gaussian_grid_spacing2:
-        Scaled distances from support center to each gridpoint, for inverse FFT  
-    r:
-        Units vectors connecting each pair of particles in the far-field neighbor list
-    indices_i:
-        Indices of first particle in far-field neighbor list pairs 
-    indices_j:
-        Indices of second particle in far-field neighbor list pairs 
-    f1:
-        Mobility scalar function 1
-    f2:
-        Mobility scalar function 2
-    g1:
-        Mobility scalar function 3
-    g2:
-        Mobility scalar function 4
-    h1:
-        Mobility scalar function 5
-    h2:
-        Mobility scalar function 6
-    h3:
-        Mobility scalar function 7
-    generalized_forces:
-        Input generalized forces (force/torque/stresslet)
-        
+    gridk: (float)
+        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+    m_self: (float)
+        Array (,2) containing mobility self contributions
+    all_indices_x: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_y: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_z: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+    gaussian_grid_spacing1: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
+    gaussian_grid_spacing2: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT) 
+    r: (float)
+        Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i: (int)
+        Array (n_pair_ff) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (n_pair_ff) of indices of second particle in neighbor list pairs 
+    f1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    f2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h3: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    generalized_forces: (float)
+        Array (,6*N) containing input generalized forces (force/torque)
+    
     Returns
     -------
     generalized_velocities (linear/angular velocities) 
@@ -725,7 +727,23 @@ def Mobility(
     """
     
     # Helper function
-    def swap_real_imag(cplx_arr):
+    def swap_real_imag(
+            cplx_arr: ArrayLike) -> Array:
+        """Perform an operation on a complex number.
+        
+        Take a complex number as input and return a complex number with real part equal to (minus) the imaginary part of the input,
+        and an imaginary part equal to the real part of the input. 
+
+        Parameters
+        ----------
+        cplx_arr: (complex)
+            Array of complex values
+            
+        Returns
+        -------
+        -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
+
+        """
         return -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
 
     # Get forces,torques,couplets from generalized forces (3*N vector: f1x,f1y,f1z, ... , fNx,fNy,fNz and same for torque, while couplet is 5N) 

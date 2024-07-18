@@ -8,18 +8,18 @@ def Compute_real_space_ewald_table(
         a: float,
         xi: float) -> ArrayLike:
 
-        """Construct the table containing mobility scalar functions values
-        as functions of discrete distance. These will be used to linearly interpolate
-        obtaining values for any distance. Due to high complexity of the mobility functions,
-        calculations are performed in 'extended' precision and then truncate to single precision.
+        """Construct the table containing mobility scalar functions values as functions of discrete distance. 
+        
+        These will be used to linearly interpolate obtaining values for any distance. 
+        Due to high complexity of the mobility functions, calculations are performed in 'extended' precision and then truncate to single precision.
         
         Parameters
         ----------
-        nR:
+        nR: (int)
             Number of entries in tabulation, for each scalar mobility function
-        a:
+        a: (float)
             Particle radius
-        xi: 
+        xi: (float) 
             Ewald splitting parameter
             
             

@@ -21,8 +21,8 @@ def chol_fac(
 
     Parameters
     ----------
-    A:
-        input matrix to decompose
+    A: (float)
+        Array (6N,6N) containing lubrication resistance matrix to factorize
         
     Returns
     -------
@@ -39,19 +39,19 @@ def Check_ewald_cut(
         Lz: float, 
         error: float):
     
-    """Check that Ewald cutoff is small enough to avoid interaction with the particles images (in real space part of calculation).
+    """Check that Ewald cutoff is small enough to avoid interaction with the particles images during real-space part of calculation.
 
     Parameters
     ----------
-    ewald_cut:
+    ewald_cut: (float)
         Ewald space cut-off for real-space far-field hydrodynamic interactions
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
-    error:
+    error: (float)
         Tolerance error
         
     Returns
@@ -81,19 +81,19 @@ def Check_max_shear(
 
     Parameters
     ----------
-    gridh:
-        Wave space grid discrete spacing
-    xisq:
+    gridh: (float)
+        Array (,3) containing wave space grid discrete spacing
+    xisq: (float)
         Squared Ewald split parameter
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    max_strain:
+    max_strain: (float)
         Max strain applied to the box
-    error:
+    error: (float)
         Tolerance error
         
     Returns
@@ -130,13 +130,13 @@ def Compute_k_gridpoint_number(
 
     Parameters
     ----------
-    kmax:
+    kmax: (int)
         Max wave number 
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
         
     Returns
@@ -205,33 +205,31 @@ def Precompute_grid_distancing(
         Ly: float, 
         Lz: float) -> Array:
     
-    """Given a support size for Gaussian spread,
-    compute distances in a (gaussP x gaussP x gaussP) grid 
-    with gauss P shifted by 1 unit if it is odd or even
+    """Given a support size for Gaussian spread, compute distances in a (gaussP x gaussP x gaussP) grid with gauss P shifted by 1 unit if it is odd or even.
 
     Parameters
     ----------
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation
-    gridh:
-        Wave space grid discrete spacing
-    tilt_factor:
+    gridh: (float)
+        Array (,3) containing wave space grid discrete spacing
+    tilt_factor: (float)
         Current box tilt factor
-    positions:
-        Array of current particles positions (N,3)
-    N:
+    positions: (float)
+        Array (N,3) of current particles positions 
+    N: (int)
         Number of particles
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
         
     Returns
@@ -266,16 +264,17 @@ def CreateRandomConfiguration(
         seed: int) -> Array:
     
     """Create a random configuration of non-overlapping sphere. 
+    
     NOTE: this function is not optimized and should be used only for configuration with
     small number of particles (<1000) and small volume fraction (<25%). 
 
     Parameters
     ----------
-    L:
+    L: (float)
         Box size requested
-    N:
+    N: (int)
         Number of particles requested
-    seed:
+    seed: (int)
         Seed for random number generator
         
     Returns
@@ -347,21 +346,23 @@ def initialize_single_neighborlist(
         Lz: float, 
         displacement: DisplacementFn) -> partition.NeighborListFns:
     
-    """Initialize a single neighborlists, given a box and a distance cutoff. Note that creation of neighborlists 
-    is perfomed using code from jax_md. At the moment, the code does not use cell list, as it produces artifact.
+    """Initialize a single neighborlists, given a box and a distance cutoff. 
+    
+    Note that creation of neighborlists is perfomed using code from jax_md. 
+    At the moment, the code does not use cell list, as it produces artifact.
     In future, the creation of neighborlists will be handled entirely by JFSD, leveraging cell lists.
 
     Parameters
     ----------
-    space_cut:
+    space_cut: (float)
         Cutoff (max) distance for particles to be considered neighbors
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
-    displacement:
+    displacement: (DisplacementFn)
         Displacement metric 
     
     Returns
@@ -386,12 +387,15 @@ def check_overlap(
         dist: ArrayLike) -> tuple[int,float]:
     
     """Check overlaps between particles and returns number of overlaps + number of particles.
-    Note that the radius of a particle is set to 1.
+    
+    The radius of a particle is set to 1. 
+    Note that this function should be used only for debugging,
+    as the memory cost scales quadratically with the number of particles N.
 
     Parameters
     ----------
-    dist:
-        Radial distances between particles
+    dist: (float)
+        Array (N*N,3) of distance vectors between particles in neighbor list
         
     Returns
     -------
@@ -416,9 +420,9 @@ def generate_random_array(
 
     Parameters
     ----------
-    key:
+    key: (prng_key)
         Current key of random number generator
-    size:
+    size: (int)
         Size of random array to generate
         
     Returns
@@ -470,61 +474,61 @@ def precompute(
 
     Parameters
     ----------
-    positions:
-        Array of current particles positions (N,3)
-    gaussian_grid_spacing:
-        Distances from support center to each gridpoint in the gaussian support  
-    nl_ff:
-        Far-field neighborlist indices
-    nl_lub:
-        Near-field neighborlist indices
-    displacements_vector_matrix:
-        Matrix of current displacements between particles, with each element a vector
-    tilt_factor:
+    positions: (float)
+        Array (N,3) of current particles positions
+    gaussian_grid_spacing: (float)
+        Array (,gaussP*gaussP*gaussP) containing distances from support center to each gridpoint in the gaussian support  
+    nl_ff: (int)
+        Array (2,n_pairs_ff) containing far-field neighborlist indices
+    nl_lub: (int)
+        Array (2,n_pairs_nf) containing near-field neighborlist indices
+    displacements_vector_matrix: (float)
+        Array (N,N,3) of current displacements between particles, with each element a vector
+    tilt_factor: (float)
         Current box tilt factor
-    N:
+    N: (int)
         Number of particles
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    prefac:
+    prefac: (float)
         Prefactor needed for FFT
-    expfac:
+    expfac: (float)
         Exponential factor needed for FFT
-    quadW:
+    quadW: (float)
         Product of wave grid discretization parameter in each direction (grid_dx*grid_dy*grid_dz)
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation 
-    gaussPd2:
+    gaussPd2: (int)
         Integer part of Gaussian support size divide by 2
-    ewald_n:
+    ewald_n: (int)
         Number of entries in Ewald table, for each mobility function
-    ewald_dr:
+    ewald_dr: (float)
         Ewald table discretization parameter
-    ewald_cut:
+    ewald_cut: (float)
         Ewald space cut-off for real-space far-field hydrodynamic interactions
-    ewaldC:
-        Ewald table containing mobility scalar functions values
-    ResTable_min:
+    ewaldC: (float)
+        Array (,ewald_n*7) containing tabulated mobility scalar functions values
+    ResTable_min: (float)
         Minimum distance resolved for lubrication interactions
-    ResTable_dr:
+    ResTable_dr: (float)
         Resistance table discretization parameter
-    ResTable_dist:
-        Resistance table array of distances
-    ResTable_vals:
-        Resistance table containing resistance scalar functions values
-    alpha_friction:
+    ResTable_dist: (float)
+        Array (,1000) containing tabulated distances for resistance functions
+    ResTable_vals: (float)
+        Array (,1000*22) containing tabulated resistance scalar functions values
+    alpha_friction: (float)
         strength of hydrodynamic friction
-    h0_friction:
+    h0_friction: (float)
         range of hydrodynamic friction
         
     Returns
@@ -749,50 +753,50 @@ def precomputeRPY(
 
     Parameters
     ----------
-    positions:
-        Array of current particles positions (N,3)
-    gaussian_grid_spacing:
-        Distances from support center to each gridpoint in the gaussian support  
-    nl_ff:
-        Far-field neighborlist indices
-    nl_lub:
-        Near-field neighborlist indices
-    displacements_vector_matrix:
-        Matrix of current displacements between particles, with each element a vector
-    tilt_factor:
+    positions: (float)
+        Array (N,3) of current particles positions 
+    gaussian_grid_spacing: (float)
+        Array (,gaussP*gaussP*gaussP) containing distances from support center to each gridpoint in the gaussian support 
+    nl_ff: (int)
+        Array (2,n_pairs_ff) containing far-field neighborlist indices
+    nl_lub: (int)
+        Array (2,n_pairs_nf) containing near-field neighborlist indices
+    displacements_vector_matrix: (float)
+        Array (N,N,3) of current displacements between particles, with each element a vector
+    tilt_factor: (float)
         Current box tilt factor
-    N:
+    N: (int)
         Number of particles
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    prefac:
+    prefac: (float)
         Prefactor needed for FFT
-    expfac:
+    expfac: (float)
         Exponential factor needed for FFT
-    quadW:
+    quadW: (float)
         Product of wave grid discretization parameter in each direction (grid_dx*grid_dy*grid_dz)
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation 
-    gaussPd2:
+    gaussPd2: (int)
         Integer part of Gaussian support size divide by 2
-    ewald_n:
+    ewald_n: (int)
         Number of entries in Ewald table, for each mobility function
-    ewald_dr:
+    ewald_dr: (float)
         Ewald table discretization parameter
-    ewald_cut:
+    ewald_cut: (float)
         Ewald space cut-off for real-space far-field hydrodynamic interactions
-    ewaldC:
-        Ewald table containing mobility scalar functions values
+    ewaldC: (float)
+        Array (,ewald_n*7) containing tabulated mobility scalar functions values
         
     Returns
     -------
@@ -897,19 +901,19 @@ def precomputeBD(
 
     Parameters
     ----------
-    positions:
-        Array of current particles positions (N,3)
-    nl:
+    positions: (float)
+        Array (N,3) of current particles positions
+    nl: (int)
         Neighborlist indices
-    displacements_vector_matrix:
-        Matrix of current displacements between particles, with each element a vector
-    N:
+    displacements_vector_matrix: (float)
+        Array (N,N,3) of current displacements between particles, with each element a vector
+    N: (int)
         Number of particles
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
     
     Returns
