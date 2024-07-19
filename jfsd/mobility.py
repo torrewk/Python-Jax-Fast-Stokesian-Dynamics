@@ -1,9 +1,10 @@
 import os
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
 from functools import partial
-from jax import jit
+from jax import jit, Array
 import jax.numpy as jnp
 from jax.config import config
+from jax.typing import ArrayLike
 config.update("jax_enable_x64", False) #disable double precision
 
 @partial(jit, static_argnums=[0,1,2,3,4])
@@ -13,76 +14,75 @@ def GeneralizedMobility(
         Ny: int,
         Nz: int,
         gaussP: int,
-        gridk: float,
-        m_self: float,
-        all_indices_x: int,
-        all_indices_y: int,
-        all_indices_z: int,
-        gaussian_grid_spacing1: float,
-        gaussian_grid_spacing2: float,
-        r: float,
-        indices_i: int,
-        indices_j: int,
-        f1: float,
-        f2: float,
-        g1: float,
-        g2: float,
-        h1: float,
-        h2: float,
-        h3: float,
-        generalized_forces: float) -> tuple:
+        gridk: ArrayLike,
+        m_self: ArrayLike,
+        all_indices_x: ArrayLike,
+        all_indices_y: ArrayLike,
+        all_indices_z: ArrayLike,
+        gaussian_grid_spacing1: ArrayLike,
+        gaussian_grid_spacing2: ArrayLike,
+        r: ArrayLike,
+        indices_i: ArrayLike,
+        indices_j: ArrayLike,
+        f1: ArrayLike,
+        f2: ArrayLike,
+        g1: ArrayLike,
+        g2: ArrayLike,
+        h1: ArrayLike,
+        h2: ArrayLike,
+        h3: ArrayLike,
+        generalized_forces: ArrayLike) -> Array:
     
-    """Construct the saddle point operator A,
-        which acts on x and returns A*x (without using A in matrix representation)
+    """Compute the matrix-vector product of the grandmobility matrix with a generalized force vector (and stresslet).
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    gaussP:
+    gaussP: (int)
         Gaussian support size for wave space calculation 
-    gridk:
-        Wave number values in the grid
-    m_self:
-        Mobility self contribution
-    all_indices_x:
-        All indices (x) of wave grid points for each particle
-    all_indices_y:
-        All indices (y) of wave grid points for each particle
-    all_indices_z:
-        All indices (z) of wave grid points for each particle
-    gaussian_grid_spacing1:
-        Scaled distances from support center to each gridpoint, for FFT  
-    gaussian_grid_spacing2:
-        Scaled distances from support center to each gridpoint, for inverse FFT  
-    r:
-        Units vectors connecting each pair of particles in the far-field neighbor list
-    indices_i:
-        Indices of first particle in far-field neighbor list pairs 
-    indices_j:
-        Indices of second particle in far-field neighbor list pairs 
-    f1:
-        Mobility scalar function 1
-    f2:
-        Mobility scalar function 2
-    g1:
-        Mobility scalar function 3
-    g2:
-        Mobility scalar function 4
-    h1:
-        Mobility scalar function 5
-    h2:
-        Mobility scalar function 6
-    h3:
-        Mobility scalar function 7
-    generalized_forces:
-        Input generalized forces (force/torque/stresslet)
+    gridk: (float)
+        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+    m_self: (float)
+        Array (,2) containing mobility self contributions
+    all_indices_x: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_y: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_z: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+    gaussian_grid_spacing1: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
+    gaussian_grid_spacing2: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT) 
+    r: (float)
+        Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i: (int)
+        Array (,n_pair_ff) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (,n_pair_ff) of indices of second particle in neighbor list pairs 
+    f1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    f2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h3: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    generalized_forces: (float)
+        Array (,11*N) containing input generalized forces (force/torque/stresslet)
         
     Returns
     -------
@@ -91,7 +91,23 @@ def GeneralizedMobility(
     """
     
     # Helper function
-    def swap_real_imag(cplx_arr):
+    def swap_real_imag(
+            cplx_arr: ArrayLike) -> Array:
+        """Perform an operation on a complex number.
+        
+        Take a complex number as input and return a complex number with real part equal to (minus) the imaginary part of the input,
+        and an imaginary part equal to the real part of the input. 
+
+        Parameters
+        ----------
+        cplx_arr: (complex)
+            Array of complex values
+            
+        Returns
+        -------
+        -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
+
+        """
         return -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
 
     # Get forces,torques,couplets from generalized forces (3*N vector: f1x,f1y,f1z, ... , fNx,fNy,fNz and same for torque, while couplet is 5N) 
@@ -622,5 +638,301 @@ def GeneralizedMobility(
     gridYZ = jnp.zeros((Nx, Ny, Nz))
     gridZX = jnp.zeros((Nx, Ny, Nz))
     gridZY = jnp.zeros((Nx, Ny, Nz))
+    
+    return generalized_velocities
+
+@partial(jit, static_argnums=[0,1,2,3,4])
+def Mobility(
+        N: int,
+        Nx: int,
+        Ny: int,
+        Nz: int,
+        gaussP: int,
+        gridk: ArrayLike,
+        m_self: ArrayLike,
+        all_indices_x: ArrayLike,
+        all_indices_y: ArrayLike,
+        all_indices_z: ArrayLike,
+        gaussian_grid_spacing1: ArrayLike,
+        gaussian_grid_spacing2: ArrayLike,
+        r: ArrayLike,
+        indices_i: ArrayLike,
+        indices_j: ArrayLike,
+        f1: ArrayLike,
+        f2: ArrayLike,
+        g1: ArrayLike,
+        g2: ArrayLike,
+        h1: ArrayLike,
+        h2: ArrayLike,
+        h3: ArrayLike,
+        generalized_forces: ArrayLike) -> Array:
+    
+    """
+    Compute the matrix-vector product of the mobility matrix with a generalized force vector.
+
+    Parameters
+    ----------
+
+    N: (int)
+        Number of particles
+    Nx: (int)
+        Number of grid points in x direction
+    Ny: (int)
+        Number of grid points in y direction
+    Nz: (int)
+        Number of grid points in z direction
+    gaussP: (int)
+        Gaussian support size for wave space calculation 
+    gridk: (float)
+        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+    m_self: (float)
+        Array (,2) containing mobility self contributions
+    all_indices_x: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_y: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+    all_indices_z: (int)
+        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+    gaussian_grid_spacing1: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
+    gaussian_grid_spacing2: (float)
+        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT) 
+    r: (float)
+        Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i: (int)
+        Array (n_pair_ff) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (n_pair_ff) of indices of second particle in neighbor list pairs 
+    f1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    f2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    g2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h1: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h2: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    h3: (float)
+        Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+    generalized_forces: (float)
+        Array (,6*N) containing input generalized forces (force/torque)
+    
+    Returns
+    -------
+    generalized_velocities (linear/angular velocities) 
+
+    """
+    
+    # Helper function
+    def swap_real_imag(
+            cplx_arr: ArrayLike) -> Array:
+        """Perform an operation on a complex number.
+        
+        Take a complex number as input and return a complex number with real part equal to (minus) the imaginary part of the input,
+        and an imaginary part equal to the real part of the input. 
+
+        Parameters
+        ----------
+        cplx_arr: (complex)
+            Array of complex values
+            
+        Returns
+        -------
+        -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
+
+        """
+        return -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
+
+    # Get forces,torques,couplets from generalized forces (3*N vector: f1x,f1y,f1z, ... , fNx,fNy,fNz and same for torque, while couplet is 5N) 
+    forces = jnp.zeros(3*N)
+    forces = forces.at[0::3].set(generalized_forces.at[0:(6*N):6].get())
+    forces = forces.at[1::3].set(generalized_forces.at[1:(6*N):6].get())
+    forces = forces.at[2::3].set(generalized_forces.at[2:(6*N):6].get())
+    torques = jnp.zeros(3*N)
+    torques = torques.at[0::3].set(generalized_forces.at[3:(6*N):6].get())
+    torques = torques.at[1::3].set(generalized_forces.at[4:(6*N):6].get())
+    torques = torques.at[2::3].set(generalized_forces.at[5:(6*N):6].get())
+
+    ######################################## WAVE SPACE CONTRIBUTION #########################################################################
+    
+    #Create Grids for current iteration
+    gridX = jnp.zeros((Nx, Ny, Nz))
+    gridY = jnp.zeros((Nx, Ny, Nz))
+    gridZ = jnp.zeros((Nx, Ny, Nz))
+    
+    gridX = gridX.at[all_indices_x, all_indices_y, all_indices_z].add(jnp.ravel((jnp.swapaxes(jnp.swapaxes(jnp.swapaxes(gaussian_grid_spacing1*jnp.resize(forces.at[0::3].get(), (gaussP,gaussP,gaussP,N) ),3,2),2,1),1,0))))
+    gridY = gridY.at[all_indices_x, all_indices_y, all_indices_z].add(jnp.ravel((jnp.swapaxes(jnp.swapaxes(jnp.swapaxes(gaussian_grid_spacing1*jnp.resize(forces.at[1::3].get(), (gaussP,gaussP,gaussP,N) ),3,2),2,1),1,0))))            
+    gridZ = gridZ.at[all_indices_x, all_indices_y, all_indices_z].add(jnp.ravel((jnp.swapaxes(jnp.swapaxes(jnp.swapaxes(gaussian_grid_spacing1*jnp.resize(forces.at[2::3].get(), (gaussP,gaussP,gaussP,N) ),3,2),2,1),1,0))))
+    
+    # Apply FFT
+    gridX = jnp.fft.fftn(gridX)
+    gridY = jnp.fft.fftn(gridY)
+    gridZ = jnp.fft.fftn(gridZ)
+    
+    gridk_sqr = (gridk.at[:, :, :, 0].get()*gridk.at[:, :, :, 0].get()+gridk.at[:, :, :, 1].get()
+                 * gridk.at[:, :, :, 1].get()+gridk.at[:, :, :, 2].get()*gridk.at[:, :, :, 2].get())
+    gridk_mod = jnp.sqrt(gridk_sqr)
+    
+    kdF = jnp.where(gridk_mod > 0, (gridk.at[:, :, :, 0].get()*gridX +
+                    gridk.at[:, :, :, 1].get()*gridY+gridk.at[:, :, :, 2].get()*gridZ)/gridk_sqr, 0)
+
+    # UF part
+    B = jnp.where(gridk_mod > 0, gridk.at[:, :, :, 3].get()*(jnp.sin(gridk_mod)/gridk_mod)*(
+        jnp.sin(gridk_mod)/gridk_mod), 0)  # scaling factor
+    gridX = B * (gridX - gridk.at[:, :, :, 0].get() * kdF)
+    gridY = B * (gridY - gridk.at[:, :, :, 1].get() * kdF)
+    gridZ = B * (gridZ - gridk.at[:, :, :, 2].get() * kdF)
+ 
+    # Inverse FFT
+    gridX = jnp.real(jnp.fft.ifftn(gridX,norm='forward'))
+    gridY = jnp.real(jnp.fft.ifftn(gridY,norm='forward'))
+    gridZ = jnp.real(jnp.fft.ifftn(gridZ,norm='forward'))
+    
+    # Compute Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
+    w_lin_velocities = jnp.zeros((N, 3),float)
+    w_velocity_gradient = jnp.zeros((N, 8),float)
+     
+    w_lin_velocities = w_lin_velocities.at[:, 0].add(
+        jnp.sum(gaussian_grid_spacing2 * jnp.reshape(
+            gridX.at[all_indices_x, all_indices_y, all_indices_z].get(),(N,gaussP,gaussP,gaussP)),axis=(1,2,3)))
+    w_lin_velocities = w_lin_velocities.at[:, 1].add(
+        jnp.sum(gaussian_grid_spacing2 * jnp.reshape(
+            gridY.at[all_indices_x, all_indices_y, all_indices_z].get(),(N,gaussP,gaussP,gaussP)),axis=(1,2,3))) 
+    w_lin_velocities = w_lin_velocities.at[:, 2].add(
+        jnp.sum(gaussian_grid_spacing2 * jnp.reshape(
+            gridZ.at[all_indices_x, all_indices_y, all_indices_z].get(),(N,gaussP,gaussP,gaussP)),axis=(1,2,3)))              
+    
+    ######################################## REAL SPACE CONTRIBUTION #########################################################################
+    
+    # Allocate arrays for Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
+    r_lin_velocities = jnp.zeros((N, 3),float)
+    r_velocity_gradient = jnp.zeros((N, 8),float)
+    
+    # SELF CONTRIBUTIONS
+    r_lin_velocities = r_lin_velocities.at[:, 0].set(
+        m_self.at[0].get() * forces.at[0::3].get())
+    r_lin_velocities = r_lin_velocities.at[:, 1].set(
+        m_self.at[0].get() * forces.at[1::3].get())
+    r_lin_velocities = r_lin_velocities.at[:, 2].set(
+        m_self.at[0].get() * forces.at[2::3].get())
+    
+    # # Pair contributions
+
+    # # Geometric quantities
+    rdotf_j =   (r.at[:,0].get() * forces.at[3*indices_j + 0].get() + r.at[:,1].get() * forces.at[3*indices_j + 1].get() + r.at[:,2].get() * forces.at[3*indices_j + 2].get())
+    mrdotf_i = -(r.at[:,0].get() * forces.at[3*indices_i + 0].get() + r.at[:,1].get() * forces.at[3*indices_i + 1].get() + r.at[:,2].get() * forces.at[3*indices_i + 2].get())
+    
+    # Compute Velocity for particles i
+    r_lin_velocities = r_lin_velocities.at[indices_i, 0].add(f1 * forces.at[3*indices_j].get() + (f2 - f1) * rdotf_j * r.at[:,0].get())
+    r_lin_velocities = r_lin_velocities.at[indices_i, 1].add(f1 * forces.at[3*indices_j+1].get() + (f2 - f1) * rdotf_j * r.at[:,1].get())
+    r_lin_velocities = r_lin_velocities.at[indices_i, 2].add(f1 * forces.at[3*indices_j+2].get() + (f2 - f1) * rdotf_j * r.at[:,2].get())
+    # Compute Velocity for particles j
+    r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(f1 * forces.at[3*indices_i].get() - (f2 - f1) * mrdotf_i * r.at[:,0].get())
+    r_lin_velocities = r_lin_velocities.at[indices_j, 1].add(f1 * forces.at[3*indices_i+1].get() - (f2 - f1) * mrdotf_i * r.at[:,1].get())
+    r_lin_velocities = r_lin_velocities.at[indices_j, 2].add(f1 * forces.at[3*indices_i+2].get() - (f2 - f1) * mrdotf_i * r.at[:,2].get())
+    
+    # Compute Velocity Gradient for particles i and j
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 0].add(
+        (-1) * g1 * (r.at[:,0].get() * forces.at[3*indices_j+0].get() - rdotf_j * r.at[:,0].get()*r.at[:,0].get())
+        +(-1)*g2 * (rdotf_j + forces.at[3*indices_j+0].get()*r.at[:,0].get() - 4.*rdotf_j * r.at[:,0].get()*r.at[:,0].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 0].add(
+        (-1) * g1 * (-r.at[:,0].get() * forces.at[3*indices_i+0].get() - mrdotf_i * r.at[:,0].get()*r.at[:,0].get()) 
+        +(-1)*g2 * (mrdotf_i - forces.at[3*indices_i+0].get()*r.at[:,0].get() - 4.*mrdotf_i * r.at[:,0].get()*r.at[:,0].get()))
+    
+
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 1].add(
+        (-1) * g1 * (r.at[:,1].get() * forces.at[3*indices_j+0].get() - rdotf_j * r.at[:,1].get()*r.at[:,0].get()) 
+        + (-1)*g2 * (forces.at[3*indices_j+1].get()*r.at[:,0].get() - 4.*rdotf_j * r.at[:,1].get()*r.at[:,0].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 1].add(
+        (-1) * g1 * (-r.at[:,1].get() * forces.at[3*indices_i+0].get() - mrdotf_i * r.at[:,1].get()*r.at[:,0].get()) 
+        + (-1)*g2 * (-forces.at[3*indices_i+1].get()*r.at[:,0].get() - 4.*mrdotf_i * r.at[:,1].get()*r.at[:,0].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 2].add(
+              (-1) * g1 * (r.at[:,2].get() * forces.at[3*indices_j+0].get() - rdotf_j * r.at[:,2].get()*r.at[:,0].get()) 
+              + (-1)*g2 * (forces.at[3*indices_j+2].get()*r.at[:,0].get() - 4.*rdotf_j * r.at[:,2].get()*r.at[:,0].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 2].add(
+              (-1) * g1 * (-r.at[:,2].get() * forces.at[3*indices_i+0].get() - mrdotf_i * r.at[:,2].get()*r.at[:,0].get()) 
+              + (-1)*g2 * (-forces.at[3*indices_i+2].get()*r.at[:,0].get() - 4.*mrdotf_i * r.at[:,2].get()*r.at[:,0].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 3].add(
+            (-1) * g1 * (r.at[:,2].get() * forces.at[3*indices_j+1].get() - rdotf_j * r.at[:,2].get()*r.at[:,1].get())
+            + (-1)*g2 * (forces.at[3*indices_j+2].get()*r.at[:,1].get() - 4.*rdotf_j * r.at[:,2].get()*r.at[:,1].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 3].add(
+            (-1) * g1 * (-r.at[:,2].get() * forces.at[3*indices_i+1].get() - mrdotf_i * r.at[:,2].get()*r.at[:,1].get())
+            + (-1)*g2 * (-forces.at[3*indices_i+2].get()*r.at[:,1].get() - 4.*mrdotf_i * r.at[:,2].get()*r.at[:,1].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 4].add(
+            (-1) * g1 * (r.at[:,1].get() * forces.at[3*indices_j+1].get() - rdotf_j * r.at[:,1].get()*r.at[:,1].get())
+            + (-1)*g2 * (rdotf_j + forces.at[3*indices_j+1].get()*r.at[:,1].get() - 4.*rdotf_j * r.at[:,1].get()*r.at[:,1].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 4].add(
+            (-1) * g1 * (-r.at[:,1].get() * forces.at[3*indices_i+1].get() - mrdotf_i * r.at[:,1].get()*r.at[:,1].get())
+            + (-1)*g2 * (mrdotf_i - forces.at[3*indices_i+1].get()*r.at[:,1].get() - 4.*mrdotf_i * r.at[:,1].get()*r.at[:,1].get()))
+     
+
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 5].add(
+            (-1) * g1 * (r.at[:,0].get() * forces.at[3*indices_j+1].get() - rdotf_j * r.at[:,0].get()*r.at[:,1].get())
+            + (-1)*g2 * (forces.at[3*indices_j+0].get()*r.at[:,1].get() - 4.*rdotf_j * r.at[:,0].get()*r.at[:,1].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 5].add(
+            (-1) * g1 * (-r.at[:,0].get() * forces.at[3*indices_i+1].get() - mrdotf_i * r.at[:,0].get()*r.at[:,1].get())
+            + (-1)*g2 * (-forces.at[3*indices_i+0].get()*r.at[:,1].get() - 4.*mrdotf_i * r.at[:,0].get()*r.at[:,1].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 6].add(
+              (-1) * g1 * (r.at[:,0].get() * forces.at[3*indices_j+2].get() - rdotf_j * r.at[:,0].get()*r.at[:,2].get())
+              + (-1)*g2 * (forces.at[3*indices_j+0].get()*r.at[:,2].get() - 4.*rdotf_j * r.at[:,0].get()*r.at[:,2].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 6].add(
+              (-1) * g1 * (-r.at[:,0].get() * forces.at[3*indices_i+2].get() - mrdotf_i * r.at[:,0].get()*r.at[:,2].get())
+              + (-1)*g2 * (-forces.at[3*indices_i+0].get()*r.at[:,2].get() - 4.*mrdotf_i * r.at[:,0].get()*r.at[:,2].get()))
+     
+    r_velocity_gradient = r_velocity_gradient.at[indices_i, 7].add(
+            (-1) * g1 * (r.at[:,1].get() * forces.at[3*indices_j+2].get() - rdotf_j * r.at[:,1].get()*r.at[:,2].get())
+            + (-1)*g2 * (forces.at[3*indices_j+1].get()*r.at[:,2].get() - 4.*rdotf_j * r.at[:,1].get()*r.at[:,2].get()))
+    
+    r_velocity_gradient = r_velocity_gradient.at[indices_j, 7].add(
+            (-1) * g1 * (-r.at[:,1].get() * forces.at[3*indices_i+2].get() - mrdotf_i * r.at[:,1].get()*r.at[:,2].get())
+            + (-1)*g2 * (-forces.at[3*indices_i+1].get()*r.at[:,2].get() - 4.*mrdotf_i * r.at[:,1].get()*r.at[:,2].get()))
+    
+    ##########################################################################################################################################
+    ##########################################################################################################################################
+
+    # Add wave and real space part together
+    lin_vel = w_lin_velocities + r_lin_velocities
+    velocity_gradient = w_velocity_gradient + r_velocity_gradient
+
+    # # Convert to angular velocities and rate of strain
+    ang_vel_and_strain = jnp.zeros((N, 3))
+    ang_vel_and_strain = ang_vel_and_strain.at[:, 0].set((velocity_gradient.at[:, 3].get()-velocity_gradient.at[:, 7].get()) * 0.5)
+    ang_vel_and_strain = ang_vel_and_strain.at[:, 1].set((velocity_gradient.at[:, 6].get()-velocity_gradient.at[:, 2].get()) * 0.5)
+    ang_vel_and_strain = ang_vel_and_strain.at[:, 2].set((velocity_gradient.at[:, 1].get()-velocity_gradient.at[:, 5].get()) * 0.5)
+
+    # Convert to Generalized Velocities 
+    generalized_velocities = jnp.zeros(6*N) #First 6N entries for U (linear and angular velocities)
+
+    generalized_velocities = generalized_velocities.at[0:6*N:6].set(
+        lin_vel.at[:, 0].get())
+    generalized_velocities = generalized_velocities.at[1:6*N:6].set(
+        lin_vel.at[:, 1].get())
+    generalized_velocities = generalized_velocities.at[2:6*N:6].set(
+        lin_vel.at[:, 2].get())
+    generalized_velocities = generalized_velocities.at[3:6*N:6].set(
+        ang_vel_and_strain.at[:, 0].get())
+    generalized_velocities = generalized_velocities.at[4:6*N:6].set(
+        ang_vel_and_strain.at[:, 1].get())
+    generalized_velocities = generalized_velocities.at[5:6*N:6].set(
+        ang_vel_and_strain.at[:, 2].get())
+
+    #Clean Grids for next iteration
+    gridX = jnp.zeros((Nx, Ny, Nz))
+    gridY = jnp.zeros((Nx, Ny, Nz))
+    gridZ = jnp.zeros((Nx, Ny, Nz))
     
     return generalized_velocities

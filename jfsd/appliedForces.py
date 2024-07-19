@@ -1,8 +1,8 @@
 import os
 from functools import partial
-
+from jax.typing import ArrayLike
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, Array
 from jax.config import config
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
@@ -12,40 +12,45 @@ config.update("jax_enable_x64", False) # disable double precision
 @partial(jit, static_argnums=[0])
 def sumAppliedForces(
         N: int, 
-        AppliedForce: float, 
-        AppliedTorques: float, 
-        saddle_b: float, 
+        AppliedForce: ArrayLike, 
+        AppliedTorques: ArrayLike, 
+        saddle_b: ArrayLike, 
         U: float, 
-        indices_i: int, 
-        indices_j: int, 
-        dist: float, 
-        Ucutoff: float) -> tuple:
+        indices_i: ArrayLike, 
+        indices_j: ArrayLike, 
+        dist: ArrayLike, 
+        Ucutoff: float,
+        HIs_flag: int) -> Array:
     
-    """Sum all applied forces/torques for each particle. Take into account:
+    """Sum all applied forces/torques for each particle. 
+    
+    Take into account:
         external forces/torques,
         hard-sphere repulsions,
         short-range attractions
 
     Parameters
     ----------
-    N:
+    N: (int)
         Number of particles
-    AppliedForce:
-        Applied (external) forces, e.g. buoyancy
-    AppliedTorques:
-        Applied (external) torques
-    saddle_b:
-        Right-hand side vector of saddle point system Ax=b
-    U:
+    AppliedForce: (float)
+        Array (N,3) of applied (external) forces, e.g. buoyancy 
+    AppliedTorques: (float)
+        Array (N,3) of applied (external) torques
+    saddle_b: (float)
+        Right-hand side vector (17*N) of saddle point system Ax=b
+    U: (float)
         Energy of a single colloidal bond
-    indices_i:
-        Indices of first particle in neighbor list pairs 
-    indices_j:
-        Indices of second particle in neighbor list pairs 
-    dist:
-        Radial distances between particles
-    Ucutoff:
+    indices_i: (int)
+        Array (n_pair) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (n_pair) of indices of second particle in neighbor list pairs 
+    dist: (float)
+        Array (n_pair,3) of distance vectors between particles in neighbor list
+    Ucutoff: (float)
         Cutoff (max) distance for pair-interactions
+    HIs_flag: (int)
+        Flag used to set level of hydrodynamic interaction. 0 for BD, 1 for SD.
         
     Returns
     -------
@@ -55,22 +60,22 @@ def sumAppliedForces(
 
     def compute_LJhe_potentialforces(
             U: float, 
-            indices_i: int, 
-            indices_j: int, 
-            dist: float) -> tuple:
+            indices_i: ArrayLike, 
+            indices_j: ArrayLike, 
+            dist: ArrayLike) -> Array:
         
         """Compute pair interactions using a "high exponent" Lennard-Jones potential (attractions+repulsions)
     
         Parameters
         ----------
-        U:
+        U: (float)
             Energy of a single colloidal bond
-        indices_i:
-            Indices of first particle in neighbor list pairs 
-        indices_j:
-            Indices of second particle in neighbor list pairs 
-        dist:
-            Radial distances between particles
+        indices_i: (int)
+            Array (n_pair) of indices of first particle in neighbor list pairs
+        indices_j: (int)
+            Array (n_pair) of indices of second particle in neighbor list pairs
+        dist: (float)
+            Array (n_pair,3) of distance vectors between particles in neighbor list
             
         Returns
         -------
@@ -117,22 +122,22 @@ def sumAppliedForces(
 
     def compute_AO_potentialforces(
             U: float, 
-            indices_i: int, 
-            indices_j: int, 
-            dist: float) -> tuple:
+            indices_i: ArrayLike, 
+            indices_j: ArrayLike, 
+            dist: ArrayLike) -> Array:
         
-        """Compute pair interactions using an Asakura-Osawa potential (attractions)
+        """Compute attractive pair interactions using an Asakura-Osawa potential.
     
         Parameters
         ----------
-        U:
+        U: (float)
             Energy of a single colloidal bond
-        indices_i:
-            Indices of first particle in neighbor list pairs 
-        indices_j:
-            Indices of second particle in neighbor list pairs 
-        dist:
-            Radial distances between particles
+        indices_i: (int)
+            Array (n_pair) of indices of first particle in neighbor list pairs
+        indices_j: (int)
+            Array (n_pair) of indices of second particle in neighbor list pairs
+        dist: (float)
+            Array (n_pair,3) of distance vectors between particles in neighbor list
             
         Returns
         -------
@@ -179,23 +184,23 @@ def sumAppliedForces(
         return Fp
 
     def compute_hs_forces(
-            indices_i: int, 
-            indices_j: int, 
-            dist: float) -> tuple:
-        """Compute hard-sphere pair interactions using an asymmetric harmonic potential (repulsion)
+            indices_i: ArrayLike, 
+            indices_j: ArrayLike, 
+            dist: ArrayLike) -> Array:
+        """Compute repulsive hard-sphere pair interactions using an asymmetric harmonic potential.
     
         Parameters
         ----------
-        indices_i:
-            Indices of first particle in neighbor list pairs 
-        indices_j:
-            Indices of second particle in neighbor list pairs 
-        dist:
-            Radial distances between particles
+        indices_i: (int)
+            Array (n_pair) of indices of first particle in neighbor list pairs
+        indices_j: (int)
+            Array (n_pair) of indices of second particle in neighbor list pairs
+        dist: (float)
+            Array (n_pair,3) of distance vectors between particles in neighbor list
             
         Returns
         -------
-        Fp
+        Fp 
     
         """
         Fp = jnp.zeros((N, N, 3))
@@ -205,8 +210,10 @@ def sumAppliedForces(
         sigma = 2. * (1.001)
 
         #compute forces for each pair
-        # relax constant (If lubrication is not on, k should to be ~ o(1) )
-        k = 1000.
+        # spring constant (with lubrication hydrodynamic this should to be ~ o(1000) at least
+        # because of divergent effective drag coeff on particles)
+        k = jnp.where(HIs_flag > 0, 1000. , 100)
+        
         Fp_mod = jnp.where(indices_i != indices_j, k *
                            (1-sigma/dist_mod[indices_i, indices_j]), 0.)
         Fp_mod = jnp.where(
@@ -244,5 +251,13 @@ def sumAppliedForces(
     saddle_b = saddle_b.at[(11*N+3)::6].add(-AppliedTorques.at[0::3].get())
     saddle_b = saddle_b.at[(11*N+4)::6].add(-AppliedTorques.at[1::3].get())
     saddle_b = saddle_b.at[(11*N+5)::6].add(-AppliedTorques.at[2::3].get())
+    #if there are no HIs, divide torques by rotational drag coeff (not done for forces as the translational drag coeff is set to 1 in simulation units)
+    saddle_b = saddle_b.at[(11*N+3)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+3)::6].get(), saddle_b.at[(11*N+3)::6].get()*3/4)) 
+    saddle_b = saddle_b.at[(11*N+4)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+4)::6].get(), saddle_b.at[(11*N+4)::6].get()*3/4)) 
+    saddle_b = saddle_b.at[(11*N+5)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+5)::6].get(), saddle_b.at[(11*N+5)::6].get()*3/4)) 
+
 
     return saddle_b
+
+
+

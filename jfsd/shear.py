@@ -1,5 +1,5 @@
 from functools import partial
-from jax import jit
+from jax import jit, Array
 import jax.numpy as jnp
 
 def update_box_tilt_factor(
@@ -8,23 +8,23 @@ def update_box_tilt_factor(
         tilt_factor: float,
         step: int,
         omega: float,
-        phase: float=0):
+        phase: float=0) -> float:
     
     """Update tilt factors of box (in case of shear)
     
     Parameters
     ----------
-    dt:
+    dt: (float)
         Timestep value
-    shear_rate_0:
+    shear_rate_0: (float)
         Shear rate amplitude
-    tilt_factor:
+    tilt_factor: (float)
         Box tilt factor before the update
-    step:
+    step: (int)
         Current time step
-    omega:
+    omega: (float)
         Angular frequerncy of applied oscillatory shear
-    phase:
+    phase: (float)
         Phase of applied oscillatory shear
         
     Returns
@@ -44,21 +44,21 @@ def update_shear_rate(
         step: int,
         shear_rate_0: float,
         omega: float,
-        phase: float=0) -> tuple:
+        phase: float=0) -> float:
     
     """Update shear rate 
     
     Parameters
     ----------
-    dt:
+    dt: (float)
         Timestep value
-    step:
+    step: int
         Current time step
-    shear_rate_0:
+    shear_rate_0: (float)
         Shear rate amplitude
-    omega:
+    omega: (float)
         Angular frequerncy of applied oscillatory shear
-    phase:
+    phase: (float)
         Phase of applied oscillatory shear
 
     Returns
@@ -82,29 +82,29 @@ def compute_sheared_grid(
         Ly: float,
         Lz: float,
         eta: float,
-        xisq: float) -> tuple:
+        xisq: float) -> Array:
     
-    """Compute wave vectors on a given grid, these are then needed for FFT  
+    """Compute wave vectors on a given grid, needed for FFT.  
     
     Parameters
     ----------
-    Nx:
+    Nx: (int)
         Number of grid points in x direction
-    Ny:
+    Ny: (int)
         Number of grid points in y direction
-    Nz:
+    Nz: (int)
         Number of grid points in z direction
-    tilt_factor:
+    tilt_factor: (float)
         Current box tilt factor
-    Lx:
+    Lx: (float)
         Box size in x direction
-    Ly:
+    Ly: (float)
         Box size in y direction
-    Lz:
+    Lz: (float)
         Box size in z direction
-    eta:
+    eta: (float)
         Gaussian splitting parameter
-    xisq:
+    xisq: (float)
         Squared Ewald split parameter
     
     Returns
