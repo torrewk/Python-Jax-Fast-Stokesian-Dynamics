@@ -44,9 +44,9 @@ test = [
     # "pytest-cov",
     "ruff",
     "mypy",
-    # "types-tqdm",
-    # "sphinx", "sphinx-rtd-theme", "sphinxcontrib-napoleon",
-    # "sphinx-autodoc-typehints", "sphinx_inline_tabs", "sphinx_copybutton",
+    "types-tqdm",
+    "sphinx", "sphinx-rtd-theme", "sphinxcontrib-napoleon",
+    "sphinx-autodoc-typehints", "sphinx_inline_tabs", "sphinx_copybutton",
 ]
 
 
