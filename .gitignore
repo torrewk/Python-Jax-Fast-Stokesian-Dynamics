@@ -145,3 +145,7 @@ dmypy.json
 docs/source/images/pipeline.afphoto~lock~
 docs/source/images/.$ClassDiagram.drawio.bkp
 docs/source/images/.$distributions.drawio.bkp
+
+
+# Sphinx
+docs/build
