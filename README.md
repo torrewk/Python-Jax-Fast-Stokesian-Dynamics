@@ -48,7 +48,7 @@ pytest tests/test_class.py
 ```
 		
 		
-## If no test fails, run the main code via:
+## If no test fails, run the main code, from the project directory, via:
 ```bash
 python jfsd/JFSD.py
 ```

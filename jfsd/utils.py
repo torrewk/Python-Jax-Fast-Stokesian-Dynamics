@@ -1,5 +1,4 @@
 import math
-import random
 import numpy as np
 from functools import partial
 import jax.numpy as jnp
@@ -7,9 +6,10 @@ from jax import jit, dtypes, Array
 from jax import random as jrandom
 from jfsd import jaxmd_partition as partition
 from jfsd import jaxmd_space as space
+from jfsd import thermal
 from jax.typing import ArrayLike
 from typing import Callable, Any
-
+import time
 # Define types for the functions
 DisplacementFn = Callable[[Any, Any], Any]
 
@@ -258,87 +258,6 @@ def Precompute_grid_distancing(
                                                   + (k - int(gaussP/2) - center_offsets[:, 2])**2)
     return grid
 
-def CreateRandomConfiguration(
-        L: float, 
-        N: int, 
-        seed: int) -> Array:
-    
-    """Create a random configuration of non-overlapping sphere. 
-    
-    NOTE: this function is not optimized and should be used only for configuration with
-    small number of particles (<1000) and small volume fraction (<25%). 
-
-    Parameters
-    ----------
-    L: (float)
-        Box size requested
-    N: (int)
-        Number of particles requested
-    seed: (int)
-        Seed for random number generator
-        
-    Returns
-    -------
-    positions
-
-    """ 
-
-    def distance_periodic(
-            p1: ArrayLike, 
-            p2: ArrayLike, 
-            L: float) -> Array:
-        
-        """Compute (squared) distance between two particles in a periodic box. 
-
-        Parameters
-        ----------
-        p1:
-            Position of first particle
-        p2:
-            Position of second particle
-        L:
-            Size of the periodic box
-            
-        Returns
-        -------
-        Squared distance 
-
-        """ 
-        
-        d = np.abs(p1 - p2)
-        d = np.where(d > L / 2, L - d, d)
-        return (np.sum(d*d))
-
-    positions = np.zeros((N, 3), float)
-    max_attempts = 100000
-    attempts = 0
-    n = 0
-    random.seed(seed)
-
-    while n < N:
-        attempts += 1
-        x = random.uniform(-L / 2, L / 2)
-        y = random.uniform(-L / 2, L / 2)
-        z = random.uniform(-L / 2, L / 2)
-        overlap = False
-
-        for i in range(n):
-            d = distance_periodic(positions[i, :], np.array([x, y, z]), L)
-            if d < 4.5:  # The distance should be compared with the sum of the radii
-                overlap = True
-                break
-
-        if not overlap:
-            positions[n, :] = np.array([x, y, z])
-            n += 1
-            # print(n)
-
-        if attempts > max_attempts:
-            ValueError("Computation too long, abort. Retry with smaller volume fraction and/or less particles.")
-            break
-
-    return jnp.array(positions)
-
 def initialize_single_neighborlist(
         space_cut: float, 
         Lx: float, 
@@ -375,16 +294,238 @@ def initialize_single_neighborlist(
     neighbor_fn = partition.neighbor_list(displacement,  
                                               jnp.array([Lx, Ly, Lz]),
                                               r_cutoff=space_cut,  # Spatial cutoff for 2 particles to be neighbor
-                                              dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
-                                              capacity_multiplier=1,
+                                              #dr_threshold=0.1,  # displacement of particles threshold to recompute neighbor list
+                                              capacity_multiplier=1.1,
                                               format=partition.NeighborListFormat.OrderedSparse,
                                               disable_cell_list=True)
     
     return neighbor_fn
 
+def allocate_nlist(
+    positions: ArrayLike,
+    nbrs: partition.NeighborList) -> partition.NeighborList:    
+    """Allocate particle neighbor list
+    
+    Parameters
+    ----------
+    positions:
+        Array (N,3) of particles positions
+    nbrs:
+        Input neighbor lists
+    
+    Returns
+    -------
+    nbrs
+    
+    """   
+    return nbrs.allocate(positions)
+
+@jit
+def update_nlist(
+    positions: ArrayLike,
+    nbrs: partition.NeighborList) -> partition.NeighborList:    
+    """Update particle neighbor list
+    
+    Parameters
+    ----------
+    positions:
+        Array (N,3) of particles positions
+    nbrs:
+        Input neighbor lists
+    
+    Returns
+    -------
+    nbrs
+    
+    """   
+    #Update neighbor list
+    nbrs = nbrs.update(positions)
+    return nbrs
+
+def CreateHardSphereConfiguration(
+        L: float, 
+        N: int, 
+        seed: int,
+        T: float) -> Array:
+    
+    """Create an (at equilibrium, or close) configuration of Brownian hard spheres at a given temperature T. 
+    
+    First initialize a random configuration of N ideal particles.
+    Then, thermalize the system while applying a soft repulsive potential,
+    until no overlaps are present in the system.
+    
+    Parameters
+    ----------
+    L: (float)
+        Box size requested
+    N: (int)
+        Number of particles requested
+    seed: (int)
+        Seed for random number generator
+    T: (float)
+        Thermal energy of the system
+        
+    Returns
+    -------
+    positions
+
+    """ 
+    @jit
+    def compute_hardsphere(net_vel,displacements,indices_i,indices_j): 
+        Fp = jnp.zeros((N, N, 3))
+        
+        #Reset particle velocity
+        net_vel *= 0.
+        
+        #Compute velocity from hard-sphere repulsion 
+        dist_mod = jnp.sqrt(displacements[:, :, 0]*displacements[:, :, 0]
+                            +displacements[:, :, 1]*displacements[:, :, 1]
+                            +displacements[:, :, 2]*displacements[:, :, 2])
+        
+        
+        Fp_mod = jnp.where(indices_i != indices_j, k *
+                           (1-sigma/dist_mod[indices_i, indices_j]), 0.)
+        Fp_mod = jnp.where(
+            (dist_mod[indices_i, indices_j]) < sigma, Fp_mod, 0.)
+
+        #get forces in components
+        Fp = Fp.at[indices_i, indices_j, 0].add(
+            Fp_mod*displacements[indices_i, indices_j, 0])
+        Fp = Fp.at[indices_i, indices_j, 1].add(
+            Fp_mod*displacements[indices_i, indices_j, 1])
+        Fp = Fp.at[indices_i, indices_j, 2].add(
+            Fp_mod*displacements[indices_i, indices_j, 2])
+        Fp = Fp.at[indices_j, indices_i, 0].add(
+            Fp_mod*displacements[indices_j, indices_i, 0])
+        Fp = Fp.at[indices_j, indices_i, 1].add(
+            Fp_mod*displacements[indices_j, indices_i, 1])
+        Fp = Fp.at[indices_j, indices_i, 2].add(
+            Fp_mod*displacements[indices_j, indices_i, 2])
+
+        #sum all forces in each particle
+        Fp = jnp.sum(Fp, 1)
+        
+        net_vel = net_vel.at[(0)::3].add(Fp.at[:,0].get())  
+        net_vel = net_vel.at[(1)::3].add(Fp.at[:,1].get())
+        net_vel = net_vel.at[(2)::3].add(Fp.at[:,2].get())
+        
+        return net_vel
+    
+    @jit
+    def update_pos(positions,displacements,net_vel,nbrs):
+        #Define array of displacement r(t+dt)-r(t)
+        dR = jnp.zeros((N, 3), float)
+        #Compute actual displacement due to velocities
+        dR = dR.at[:, 0].set(dt*net_vel.at[(0)::3].get())
+        dR = dR.at[:, 1].set(dt*net_vel.at[(1)::3].get())
+        dR = dR.at[:, 2].set(dt*net_vel.at[(2)::3].get())
+        #Apply displacement and compute wrapped shift
+        # shift system origin to (0,0,0)
+        positions = shift(positions+jnp.array([L, L, L])/2, dR)
+        # re-shift origin back to box center
+        positions = positions - jnp.array([L, L, L])*0.5
+
+        #Compute new relative displacements between particles
+        displacements = (space.map_product(displacement))(positions, positions)
+        #Update neighbor list
+        nbrs = update_nlist(positions, nbrs)
+        # nl = np.array(nbrs.idx)  # extract lists in sparse format
+        return positions, nbrs, displacements, net_vel
+    
+    @jit
+    def add_thermal_noise(net_vel,brow):
+        net_vel = net_vel.at[0::3].add(brow[0::6])
+        net_vel = net_vel.at[1::3].add(brow[1::6])
+        net_vel = net_vel.at[2::3].add(brow[2::6])
+        return net_vel
+    
+    displacement, shift = space.periodic_general(
+        jnp.array([[L, 0., 0.], [0., L, 0.], [0., 0., L]]),fractional_coordinates=False)
+        
+    key = jrandom.PRNGKey(seed)
+        
+    T = 0.001
+    sigma = 2.15 #2.05 #particle diameter
+    net_vel = jnp.zeros(3*N)
+    brow_time = sigma*sigma / (4*T)
+    dt = brow_time / (1e4)
+    Nsteps = int(brow_time / dt)
+    key, random_coord = generate_random_array(key, (N*3))  
+    random_coord = (random_coord-1/2)*L
+    positions = jnp.zeros((N,3))
+    positions = positions.at[:,0].set(random_coord[0::3])
+    positions = positions.at[:,1].set(random_coord[1::3])
+    positions = positions.at[:,2].set(random_coord[2::3])
+        
+    displacements = (
+        space.map_product(displacement))(positions, positions)
+    
+    neighbor_fn = initialize_single_neighborlist(
+        2.2, L, L, L, displacement)
+    nbrs = allocate_nlist(positions+jnp.array([L, L, L])/2, neighbor_fn)
+    nl = np.array(nbrs.idx)
+    
+    overlaps = check_overlap(displacements,2.002)
+    buffer = (displacements[nl[0, :],nl[1, :],:])
+    buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
+    
+    k = 30*np.sqrt(6*T/(sigma*sigma*dt))  # spring constant
+    phi_eff = N/(L*L*L)*(sigma*sigma)*np.pi/3
+    print("Effective vol fraction is ", phi_eff)
+    if(phi_eff > 0.65):
+                raise ValueError(
+                    "Attempted to create particles configuration too dense. Use imported coordinates instead. Abort!")    
+    print("Overlaps while creating random configurations: ", overlaps, ' Steps to perform are ', Nsteps, ' k is ', k)    
+    while(overlaps>0):
+        start_time = time.time()
+
+        for i in range(Nsteps):
+            #Compute Velocity (Brownian + hard-sphere)
+            
+            #Compute distance vectors and neighbor list indices
+            (r, indices_i, indices_j) = precomputeBD(positions, nl, displacements, N, L, L, L)
+            
+            #compute forces for each pair
+            net_vel = compute_hardsphere(net_vel,displacements,indices_i,indices_j)
+
+            #Compute and add Brownian velocity
+            key, random_noise = generate_random_array(key, (6*N))
+            brow = thermal.compute_BD_randomforce(N, T, dt,random_noise)   
+            net_vel = add_thermal_noise(net_vel,brow)
+            
+            #Update positions
+            new_positions, nbrs, new_displacements, net_vel = update_pos(positions,displacements,net_vel,nbrs)
+            
+            if(nbrs.did_buffer_overflow):
+                print('its happening')
+                nbrs = allocate_nlist(positions, neighbor_fn)
+                nl = np.array(nbrs.idx)
+                (r, indices_i, indices_j) = precomputeBD(positions, nl, displacements, N, L, L, L)
+                net_vel = compute_hardsphere(net_vel,displacements,indices_i,indices_j)
+                net_vel = add_thermal_noise(net_vel,brow)
+                new_positions, nbrs, new_displacements, net_vel = update_pos(positions,displacements,net_vel,nbrs)
+                positions = new_positions
+                nl = np.array(nbrs.idx)
+                displacements = new_displacements
+            else:
+                positions = new_positions
+                nl = np.array(nbrs.idx)
+                displacements = new_displacements
+            
+            
+            
+        k *= 2
+        buffer = (displacements[nl[0, :],nl[1, :],:])
+        buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
+        print(np.sort(buffer[buffer != 0]))
+        overlaps = check_overlap(displacements,2.)
+        print("Overlaps after some thermalization: ", overlaps, ' TPS are ',Nsteps/(time.time()-start_time),' k is ',k)
+    return positions
+
 @jit
 def check_overlap(
-        dist: ArrayLike) -> tuple[int,float]:
+        dist: ArrayLike,
+        sigma: float) -> tuple[int,float]:
     
     """Check overlaps between particles and returns number of overlaps + number of particles.
     
@@ -396,20 +537,21 @@ def check_overlap(
     ----------
     dist: (float)
         Array (N*N,3) of distance vectors between particles in neighbor list
+    sigma: (float)
+        Particle diameter
         
     Returns
     -------
-    Number of overlaps + Number of particles
+    output:
+        Number of overlaps + Number of particles
 
     """ 
-    
+    sigma_sq = sigma*sigma
     dist_sq = (dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
-    exitcode = jnp.where(dist_sq < 4.008004, 1., 0.)
-    exitcode2 = jnp.where(dist_sq < 4.008004, dist_sq, 0.)
-    exitcode2 = jnp.where(exitcode2 > 0, exitcode2, 0.)
-
-    return exitcode, jnp.sqrt(exitcode2)  # return 0 if
+    output = jnp.where(dist_sq < sigma_sq, 1., 0.)
+    output = jnp.sum(output) 
+    return ( output - (len(dist[:,:])) )/2 # subtract number of particles, and divide by 2 to avoid overcounting
 
 @partial(jit, static_argnums=[1])
 def generate_random_array(
