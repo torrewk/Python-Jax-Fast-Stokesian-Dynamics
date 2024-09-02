@@ -342,7 +342,7 @@ def update_nlist(
     nbrs = nbrs.update(positions)
     return nbrs
 
-def CreateHardSphereConfiguration(
+def create_hardsphere_configuration(
         L: float, 
         N: int, 
         seed: int,
@@ -479,7 +479,7 @@ def CreateHardSphereConfiguration(
     while(overlaps>0):
         start_time = time.time()
 
-        for i in range(Nsteps):
+        for i_step in range(Nsteps):
             #Compute Velocity (Brownian + hard-sphere)
             
             #Compute distance vectors and neighbor list indices
@@ -496,8 +496,8 @@ def CreateHardSphereConfiguration(
             #Update positions
             new_positions, nbrs, new_displacements, net_vel = update_pos(positions,displacements,net_vel,nbrs)
             
+            #If the allocated neighbor list is too small in size for the new particle configuration, re-allocate it, otherwise just update it
             if(nbrs.did_buffer_overflow):
-                print('its happening')
                 nbrs = allocate_nlist(positions, neighbor_fn)
                 nl = np.array(nbrs.idx)
                 (r, indices_i, indices_j) = precomputeBD(positions, nl, displacements, N, L, L, L)
@@ -511,15 +511,12 @@ def CreateHardSphereConfiguration(
                 positions = new_positions
                 nl = np.array(nbrs.idx)
                 displacements = new_displacements
-            
-            
-            
+              
         k *= 2
         buffer = (displacements[nl[0, :],nl[1, :],:])
         buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
-        print(np.sort(buffer[buffer != 0]))
         overlaps = check_overlap(displacements,2.)
-        print("Overlaps after some thermalization: ", overlaps, ' TPS are ',Nsteps/(time.time()-start_time),' k is ',k)
+        print("Overlaps after some thermalization: ", overlaps, ' timesteps-per-second are ',Nsteps/(time.time()-start_time),' k is ',k)
     return positions
 
 @jit

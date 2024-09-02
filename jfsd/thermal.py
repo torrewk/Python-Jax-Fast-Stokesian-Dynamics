@@ -85,10 +85,14 @@ def Random_force_on_grid_indexing(
     normal_conj_indices_x = normal_conj_indices[:,0]
     normal_conj_indices_y = normal_conj_indices[:,1]
     normal_conj_indices_z = normal_conj_indices[:,2]
-    nyquist_indices_x = nyquist_indices[:,0]
-    nyquist_indices_y = nyquist_indices[:,1]
-    nyquist_indices_z = nyquist_indices[:,2]
-
+    if (len(nyquist_indices)>0):
+        nyquist_indices_x = nyquist_indices[:,0]
+        nyquist_indices_y = nyquist_indices[:,1]
+        nyquist_indices_z = nyquist_indices[:,2]
+    else:
+        nyquist_indices_x = np.array([-1])
+        nyquist_indices_y = np.array([-1])
+        nyquist_indices_z = np.array([-1])
     return normal_indices_x,normal_indices_y,normal_indices_z, normal_conj_indices_x,normal_conj_indices_y,normal_conj_indices_z, nyquist_indices_x,nyquist_indices_y,nyquist_indices_z
 
 def Number_of_neigh(

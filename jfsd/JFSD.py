@@ -71,7 +71,7 @@ if __name__ == "__main__":
         else:
             positions = np.load(traj_name)
     else:
-        positions = utils.CreateHardSphereConfiguration(Lx,N,init_positions_seed,0.001)
+        positions = utils.create_hardsphere_configuration(Lx,N,init_positions_seed,0.001)
 
     output_name = str(input('Insert the name of the output file and press enter:'))    
             
