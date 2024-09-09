@@ -59,7 +59,7 @@ Installation
 	pytest tests/test_class.py
 		
 		
-9 - If no test fails, run the main code via:
+9 - If no test fails, run the main code, from the project directory, via:
 
 .. code-block:: shell
 

@@ -5,7 +5,6 @@ import time
 import jax.numpy as jnp
 
 from jfsd import jaxmd_space as space
-from jfsd import jaxmd_partition as partition
 
 import numpy as np
 from jax import jit, random, Array
@@ -183,31 +182,6 @@ def main(
 
         return positions, displacements_vector_matrix
 
-    @jit
-    def update_nlist(
-        positions: ArrayLike,
-        nbrs: partition.NeighborList) -> partition.NeighborList:    
-                           
-        """Update particle neighbor list
-        
-        Parameters
-        ----------
-        positions:
-            Array (N,3) of particles positions
-        nbrs:
-            Input neighbor lists
-        
-        Returns
-        -------
-        nbrs
-        
-        """   
-        
-        #Update neighbor list
-        nbrs = nbrs.update(positions)
-        
-        return nbrs
-
     start_time = time.time()  # perfomances evaluation
     
     # set array for output trajectory, velocities and stresslet in time
@@ -351,9 +325,6 @@ def main(
     # create RNG states 
     key_nf = random.PRNGKey(seed_nf) #also used for standard Brownian Dynamics
 
-
-    
-
     # initialize stresslet (for output, not needed to integrate trajectory in space)
     stresslet = jnp.zeros((N, 5), float)
 
@@ -361,14 +332,24 @@ def main(
     compilation_time = time.time() - start_time
         
     # kwt debug: check if particles overlap
-    # overlaps, overlaps2 = utils.check_overlap(
-    #     displacements_vector_matrix)
-    # print('Starting: initial overlaps are ', jnp.sum(overlaps)-N)
+    overlaps = utils.check_overlap(
+        displacements_vector_matrix,2.)
+    print('Starting: initial overlaps are ',(overlaps))
+    print('Starting: compiling the code... This should not take more than 1-2 minutes.')
  
     start_time = time.time() #perfomances evaluation
     
-
     for step in range(Nsteps):
+
+        # check that neighborlists buffers did not overflow, if so, re-allocate the lists
+        if(nbrs_lub.did_buffer_overflow): 
+            nbrs_lub = utils.allocate_nlist(positions, lub_neighbor_fn)
+            nl_lub = np.array(nbrs_lub.idx)
+        if((HIs_flag>0) and (nbrs_ff.did_buffer_overflow)):
+            nbrs_ff = utils.allocate_nlist(positions, ff_neighbor_fn)
+            nl_ff = np.array(nbrs_ff.idx)
+        if((HIs_flag>1) and (nbrs_lub_prec.did_buffer_overflow)):
+                nbrs_lub_prec = utils.allocate_nlist(positions, prec_lub_neighbor_fn)
 
         # initialize generalized velocity (6*N array, for linear and angular components)
         general_velocity = jnp.zeros(6*N, float) #this array stores the velocity for Brownian Dynamics, or the Brownian drift otherwise
@@ -381,6 +362,7 @@ def main(
         saddle_b = jnp.zeros(17*N, float)
 
         if(HIs_flag>1):
+            
             # precompute quantities for far-field and near-field hydrodynamic calculation
             (all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
              r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
@@ -435,8 +417,8 @@ def main(
             # perform a displacement in the positive random directions (and update wave grid and neighbor lists) and save it to a buffer
             buffer_positions, buffer_displacements_vector_matrix = update_positions(
                 shear_rate, positions, displacements_vector_matrix, random_array, epsilon/2.)
-            buffer_nbrs_lub = update_nlist(buffer_positions,nbrs_lub)
-            buffer_nbrs_ff = update_nlist(buffer_positions,nbrs_ff)
+            buffer_nbrs_lub = utils.update_nlist(buffer_positions,nbrs_lub)
+            buffer_nbrs_ff = utils.update_nlist(buffer_positions,nbrs_ff)
             buffer_gaussian_grid_spacing = utils.Precompute_grid_distancing(
                 gaussP, gridh[0], xy, buffer_positions, N, Nx, Ny, Nz, Lx, Ly, Lz)
             buffer_nl_lub = np.array(buffer_nbrs_lub.idx)
@@ -480,8 +462,8 @@ def main(
             # perform a displacement in the negative random directions (and update wave grid and neighbor lists) and save it to a buffer
             buffer_positions, buffer_displacements_vector_matrix = update_positions(
                 shear_rate, positions, displacements_vector_matrix, random_array, -epsilon/2.)
-            buffer_nbrs_lub = update_nlist(buffer_positions,nbrs_lub)
-            buffer_nbrs_ff = update_nlist(buffer_positions,nbrs_ff)
+            buffer_nbrs_lub = utils.update_nlist(buffer_positions,nbrs_lub)
+            buffer_nbrs_ff = utils.update_nlist(buffer_positions,nbrs_ff)
             buffer_gaussian_grid_spacing = utils.Precompute_grid_distancing(
                 gaussP, gridh[0], xy, buffer_positions, N, Nx, Ny, Nz, Lx, Ly, Lz)
             buffer_nl_lub = np.array(buffer_nbrs_lub.idx)
@@ -672,9 +654,9 @@ def main(
                                                               saddle_x.at[11*N:].get() +
                                                               general_velocity,
                                                               dt)
-            nbrs_lub_prec= update_nlist(positions, nbrs_lub_prec)
+            nbrs_lub_prec = utils.update_nlist(positions, nbrs_lub_prec)
 
-            nbrs_ff= update_nlist(positions, nbrs_ff)
+            nbrs_ff= utils.update_nlist(positions, nbrs_ff)
             nl_ff = np.array(nbrs_ff.idx)  # extract lists in sparse format
             
             # update grid distances for FFT (needed for wave space calculation of mobility)
@@ -696,7 +678,7 @@ def main(
                                                                            displacements_vector_matrix,
                                                                            general_velocity,
                                                                            dt)
-            nbrs_ff= update_nlist(positions, nbrs_ff)
+            nbrs_ff= utils.update_nlist(positions, nbrs_ff)
             nl_ff = np.array(nbrs_ff.idx)  # extract lists in sparse format
         else:
             #add potential force contribution to total velocity (thermal contribution is already included)
@@ -706,7 +688,7 @@ def main(
                                                                            displacements_vector_matrix,
                                                                            general_velocity,
                                                                            dt)
-        nbrs_lub = update_nlist(positions, nbrs_lub)
+        nbrs_lub = utils.update_nlist(positions, nbrs_lub)
         nl_lub = np.array(nbrs_lub.idx)  # extract lists in sparse format
 
         # if system is sheared, strain wave-vectors grid and update box tilt factor
@@ -722,7 +704,7 @@ def main(
         # compute compilation time
         if(step == 0):
             compilation_time2 = (time.time() - start_time)
-            print('Compilation Time is ', compilation_time+compilation_time2)
+            print('Compilation Time = ', compilation_time+compilation_time2)
 
         # reset Lacnzos number of iteration once in a while (avoid to do too many iterations if not needed, can be tuned for better performance)
         elif((step % 100) == 0):

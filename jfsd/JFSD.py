@@ -31,7 +31,7 @@ if __name__ == "__main__":
     shear_rate_0 = float(input('Insert value of shear rate amplitude and press enter: '))
     shear_freq = float(input('Insert value of shear rate frequency and press enter: '))
     alpha_fric = float(input('Insert value of friction coeff. and press enter: '))
-    h0_fric = float(input('Insert value of friction range and press enter: '))
+    h0_fric = float(input('Insert value of friction range (in units of particle radius) and press enter: '))
 
     stresslet_flag = int(input('Insert 1 for storing the stresslet, or 0 for not storing it, and press enter: '))
     velocity_flag = int(input('Insert 1 for storing the velocity, or 0 for not storing it, and press enter: '))
@@ -71,17 +71,23 @@ if __name__ == "__main__":
         else:
             positions = np.load(traj_name)
     else:
-        positions = utils.CreateRandomConfiguration(
-        Lx, N, init_positions_seed)  # (N,3) array of particle positions
+        positions = utils.create_hardsphere_configuration(Lx,N,init_positions_seed,0.001)
 
     output_name = str(input('Insert the name of the output file and press enter:'))    
             
-    if ((kT>0) and (HIs_flag==1)):
+    if ((kT>0) and (HIs_flag==2)):
         print('Brownian motion needs 4 seeds.')
         seed_RFD = int(input("Insert a seed for the random-finite-difference and press enter: "))
         seed_ffwave = int(input("Insert a seed for wave space far-field Brownian motion and press enter: "))
         seed_ffreal = int(input("Insert a seed for real space far-field Brownian motion and press enter: "))
         seed_nf = int(input("Insert a seed for real space near-field Brownian motion and press enter: "))
+    if ((kT>0) and (HIs_flag==1)):
+        print('Brownian motion needs 2 seeds.')
+        seed_ffwave = int(input("Insert a seed for wave space far-field Brownian motion and press enter: "))
+        seed_ffreal = int(input("Insert a seed for real space far-field Brownian motion and press enter: "))
+        seed_RFD = 0
+        seed_nf = 0
+        
     if ((kT>0) and (HIs_flag==0)):
         print('Brownian motion needs 1 seed.')
         seed_RFD = 0
