@@ -1,0 +1,42 @@
+[general]
+n_steps = 1000
+n_particles = 1000
+dt = 0.1
+
+[initialization]
+
+position_source_type = "random_hardsphere"  # Other option: file
+init_seed = 12039844
+
+[physics]
+
+dynamics_type = "brownian"  # Other options: rpy, stokesian
+kT = 0.1
+interaction_strength = 1.3
+interaction_cutoff = 1.0
+shear_rate = 1.0
+shear_frequency = 1.0
+friction_coefficient = 1.0
+friction_range = 1.0
+constant_force = [1.0, 0.0, 0.0]
+constant_torque = [1.0, 0.0, 0.0]
+buoyancy = false
+
+[box]
+Lx = 10
+Ly = 10
+Lz = 10
+
+[seeds]
+RFD = 1234
+ffwave = 1239874
+ffreal = 571023
+nf = 38102399
+
+[output]
+
+store_stresslet = false
+store_velocity = false
+store_orientation = true
+writing_period = 100
+thermal_fluctuation_test = "none"  # Other options: far-field, lubrication
