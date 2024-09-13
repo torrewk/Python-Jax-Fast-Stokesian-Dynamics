@@ -3,34 +3,39 @@ import os
 import time
 
 import jax.numpy as jnp
-
-from jfsd import jaxmd_space as space
-
 import numpy as np
-from jax import jit, random, Array
+from jax import Array, jit, random
 from jax.config import config
 from jax.typing import ArrayLike
 
-from jfsd import appliedForces, ewaldTables, resistance, shear, thermal, utils, solver, mobility
+from jfsd import appliedForces, ewaldTables, mobility, resistance, shear, solver, thermal, utils
+from jfsd import jaxmd_space as space
 
 config.update("jax_enable_x64", False) #disable double precision
 np.set_printoptions(precision=8, suppress=True)
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
 
+
 def main(
-    Nsteps: int,
+    # n_steps: int,
+    # n_particles: int,
+    # physics_options: Physics,
+    # output_options: Output,
+    # constant_force: Vector,
+    # constant_torque: Vector,
+    # seeds: Seeds,
+    # box_shape: Box,
     writing_period: int,
     dt: float,
     Lx: float, Ly: float, Lz: float,
-    N: int,
     max_strain: float,
     T: float,
     a: float,
     xi: float,
     error: float,
-    U: float,
+    interaction_strength: float,
     buoyancy_flag: int,
-    U_cutoff: float,
+    interaction_cutoff: float,
     positions: ArrayLike,
     seed_RFD: int,
     seed_ffwave: int,
@@ -44,11 +49,11 @@ def main(
     orient_flag: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
-    HIs_flag: int,
+    dynamics_type: str,
     thermal_test_flag: int,
     alpha_friction: float,
-    ho_friction: float) -> tuple[Array,Array,Array,list[float]]:
-    
+    ho_friction: float
+    ) -> tuple[Array,Array,Array,list[float]]:
     """Integrate the particles equation of motions forward in time.
 
     While the simulation is performed, trajectories data are saved into a .npy file.
@@ -125,6 +130,23 @@ def main(
         trajectory, stresslet_history, velocities, test_result
 
     """
+    # N = n_particles
+    # Nsteps = n_steps
+    # (dynamics_type, T, U, U_cutoff, shear_rate, shear_frequency, alpha_friction,
+    #     h0_friction) = physics_options
+    # (_, seed_RFD, seed_ffwave, seed_ffreal, seed_nf) = seeds
+    # (stresslet_flag, velocity_flag, orient_flag, writing_period) = output_options
+    
+    # if dynamics_type == "brownian":
+    #     HIs_flag = 0
+    # elif dynamics_type == "rpy":
+    #     HIs_flag = 1
+    # elif dynamics_type == "stokesian":
+    #     HIs_flag = 2
+    # else:
+    #     raise ValueError(f"Unknown dynamics type: {dynamics_type}")
+
+
 
     @jit
     def update_positions(
