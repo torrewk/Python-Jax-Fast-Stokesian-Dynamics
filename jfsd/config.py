@@ -40,7 +40,7 @@ class JfsdConfiguration():
     def parameters(self):
         params = {}
         params.update(self.general.get_parameters())
-        params.update(self.physics.get_parameters())
+        params.update(self.physics.get_parameters(self.general.n_particles))
         params.update(self.box.get_parameters())
         params.update(self.initialization.get_parameters(self.box.Lx,
                                                          self.general.n_particles))
@@ -55,9 +55,9 @@ class General(NamedTuple):
 
     def get_parameters(self):
         return {
-            "NSteps": self.n_steps,
+            "Nsteps": self.n_steps,
             "N": self.n_particles,
-            "dt": self.dt
+            "dt": self.dt,
         }
 
 class Initialization(NamedTuple):
@@ -74,7 +74,8 @@ class Initialization(NamedTuple):
         else:
             raise ValueError(f"Unknown source_type {self.position_source_type}")
         return {
-            "positions": positions
+            "positions": positions,
+            "a": 1,  # Colloid radius
         }
 
 class Vector(NamedTuple):
@@ -95,7 +96,7 @@ class Physics(NamedTuple):
     constant_torque: Vector
     buoyancy: bool
 
-    def get_parameters(self):
+    def get_parameters(self, n_particles):
         if self.dynamics_type.lower() == "brownian":
             HIs_flag = 0
         elif self.dynamics_type.lower() == "rpy":
@@ -105,6 +106,10 @@ class Physics(NamedTuple):
         else:
             raise ValueError(f"Unknown dynamics type: {self.dynamics_type}, choose from:"
                              " brownian, rpy or stokesian.")
+        constant_forces = np.zeros((n_particles, 3))
+        constant_forces[:, :] = self.constant_force
+        constant_torques = np.zeros((n_particles, 3))
+        constant_torques[:, :] = self.constant_torque
         return {
             "HIs_flag": HIs_flag,
             "T": self.kT,
@@ -113,9 +118,9 @@ class Physics(NamedTuple):
             "shear_rate_0": self.shear_rate,
             "shear_freq": self.shear_frequency,
             "alpha_friction": self.friction_coefficient,
-            "h0_friction": self.friction_range,
-            "constant_applied_forces": np.array(self.constant_force),
-            "constant_applied_torques": np.array(self.constant_torque),
+            "ho_friction": self.friction_range,
+            "constant_applied_forces": constant_forces,
+            "constant_applied_torques": constant_torques,
             "buoyancy_flag": int(self.buoyancy),
             "xi": 0.5,  # Ewald parameter
             "error": 0.001  # Error tolerance
@@ -126,6 +131,7 @@ class Box(NamedTuple):
     Lx: int
     Ly: int
     Lz: int
+    max_strain: float
 
     def get_parameters(self):
         return dict(zip(self._fields, self))
@@ -137,7 +143,7 @@ class Seeds(NamedTuple):
     nf: int
 
     def get_parameters(self):
-        return {"seed_{f}": getattr(self, f) for f in self._fields}
+        return {f"seed_{f}": getattr(self, f) for f in self._fields}
 
 class Output(NamedTuple):
     store_stresslet: bool
@@ -160,7 +166,7 @@ class Output(NamedTuple):
         return {
             "stresslet_flag": self.store_stresslet,
             "velocity_flag": self.store_velocity,
-            "orientation_flag": self.store_orientation,
+            "orient_flag": self.store_orientation,
             "writing_period": self.writing_period,
             "thermal_test_flag": self.thermal_fluctuation_test,
         }

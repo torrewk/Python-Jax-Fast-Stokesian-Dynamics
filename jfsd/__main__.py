@@ -8,6 +8,7 @@ from pathlib import Path
 
 import tomllib
 
+from jfsd.config import JfsdConfiguration
 from jfsd.interactive import interactive_main
 from jfsd.main import main
 
@@ -29,6 +30,12 @@ def cli_main():
         help="Set the parameters interactively with questions.",
         action="store_true",
     )
+    parser.add_argument(
+        "-o", "--output",
+        help="Output directory to store the results in.",
+        type=Path,
+        default=None
+    )
     args = parser.parse_args()
     if args.interactive:
         interactive_main()
@@ -38,10 +45,9 @@ def cli_main():
     else:
         config_fp = args.config
 
-    with open(config_fp, "rb") as handle:
-        config = tomllib.load(handle)
+    config = JfsdConfiguration.from_toml(config_fp)
 
-    main(**_parse_config(config))
+    main(**config.parameters, output=args.output)
 
 
 if __name__ == "__main__":

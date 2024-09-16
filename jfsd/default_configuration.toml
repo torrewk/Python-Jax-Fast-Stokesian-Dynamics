@@ -1,6 +1,6 @@
 [general]
 n_steps = 1000
-n_particles = 1000
+n_particles = 100
 dt = 0.1
 
 [initialization]
@@ -26,6 +26,7 @@ buoyancy = false
 Lx = 10
 Ly = 10
 Lz = 10
+max_strain = 0.5
 
 [seeds]
 RFD = 1234
