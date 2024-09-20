@@ -1,8 +1,12 @@
 [general]
-
 n_steps = 1000
-n_particles = 1000
-writing_period = 100
+n_particles = 100
+dt = 0.1
+
+[initialization]
+
+position_source_type = "random_hardsphere"  # Other option: file
+init_seed = 12039844
 
 [physics]
 
@@ -12,17 +16,19 @@ interaction_strength = 1.3
 interaction_cutoff = 1.0
 shear_rate = 1.0
 shear_frequency = 1.0
-friction_coeficient = 1.0
+friction_coefficient = 1.0
 friction_range = 1.0
-
+constant_force = [1.0, 0.0, 0.0]
+constant_torque = [1.0, 0.0, 0.0]
+buoyancy = false
 
 [box]
 Lx = 10
 Ly = 10
 Lz = 10
+max_strain = 0.5
 
 [seeds]
-initial_positions = 12039844
 RFD = 1234
 ffwave = 1239874
 ffreal = 571023
@@ -33,18 +39,5 @@ nf = 38102399
 store_stresslet = false
 store_velocity = false
 store_orientation = true
-
-[input]
-
-
-[constant_force]
-
-fx = 1.0
-fy = 0.0
-fz = 0.0
-
-[constant_torque]
-
-fx = 1.0
-fy = 0.0
-fz = 0.0
+writing_period = 100
+thermal_fluctuation_test = "none"  # Other options: far-field, lubrication

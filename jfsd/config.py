@@ -28,11 +28,11 @@ class JfsdConfiguration():
             config_data = tomllib.load(handle)
         return cls(
             General(**config_data["general"]),
-            Initialization(**config_data["initialization"]),
-            Physics(**config_data["physics"]),
-            Box(**config_data["box"]),
-            Seeds(**config_data["seeds"]),
-            Output(**config_data["output"])
+            Initialization(**config_data.get("initialization", {})),
+            Physics(**config_data.get("physics", {})),
+            Box(**config_data.get("box", {})),
+            Seeds(**config_data.get("seeds", {})),
+            Output(**config_data.get("output", {}))
         )
 
 
@@ -51,7 +51,7 @@ class JfsdConfiguration():
 class General(NamedTuple):
     n_steps: int
     n_particles: int
-    dt: float
+    dt: float = 0.1
 
     def get_parameters(self):
         return {
@@ -61,8 +61,8 @@ class General(NamedTuple):
         }
 
 class Initialization(NamedTuple):
-    position_source_type: str
-    init_seed: int
+    position_source_type: str = "random_hardsphere"
+    init_seed: int = 210398423
 
     def get_parameters(self, box_x, n_particles, numpy_file = None):
         if self.position_source_type == "random_hardsphere":
@@ -84,17 +84,17 @@ class Vector(NamedTuple):
     z: float
 
 class Physics(NamedTuple):
-    dynamics_type: str
-    kT: float
-    interaction_strength: float
-    interaction_cutoff: float
-    shear_rate: float
-    shear_frequency: float
-    friction_coefficient: float
-    friction_range: float
-    constant_force: Vector
-    constant_torque: Vector
-    buoyancy: bool
+    dynamics_type: str = "brownian"
+    kT: float = 0.1
+    interaction_strength: float = 1.3
+    interaction_cutoff: float = 1.0
+    shear_rate: float = 1.0
+    shear_frequency: float = 1.0
+    friction_coefficient: float = 1.0
+    friction_range: float = 1.0
+    constant_force: Vector = (0.0, 0.0, 0.0)
+    constant_torque: Vector = (0.0, 0.0, 0.0)
+    buoyancy: bool = False
 
     def get_parameters(self, n_particles):
         if self.dynamics_type.lower() == "brownian":
@@ -128,29 +128,29 @@ class Physics(NamedTuple):
 
 
 class Box(NamedTuple):
-    Lx: int
-    Ly: int
-    Lz: int
-    max_strain: float
+    Lx: int = 10
+    Ly: int = 10
+    Lz: int = 10
+    max_strain: float = 0.5
 
     def get_parameters(self):
         return dict(zip(self._fields, self))
 
 class Seeds(NamedTuple):
-    RFD: int
-    ffwave: int
-    ffreal: int
-    nf: int
+    RFD: int = 9237412
+    ffwave: int = 30498522
+    ffreal: int = 57239485
+    nf: int = 2343095
 
     def get_parameters(self):
         return {f"seed_{f}": getattr(self, f) for f in self._fields}
 
 class Output(NamedTuple):
-    store_stresslet: bool
-    store_velocity: bool
-    store_orientation: bool
-    writing_period: int
-    thermal_fluctuation_test: str
+    store_stresslet: bool = False
+    store_velocity: bool = False
+    store_orientation: bool = True
+    writing_period: int = 100
+    thermal_fluctuation_test: str = "none"
 
     def get_parameters(self):
         _rf_convert = {
