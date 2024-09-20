@@ -1,17 +1,16 @@
 import math
 import os
 import time
+from pathlib import Path
 
 import jax.numpy as jnp
-
-from jfsd import jaxmd_space as space
-
 import numpy as np
-from jax import jit, random, Array
+from jax import Array, jit, random
 from jax.config import config
 from jax.typing import ArrayLike
 
-from jfsd import appliedForces, ewaldTables, resistance, shear, thermal, utils, solver, mobility
+from jfsd import appliedForces, ewaldTables, mobility, resistance, shear, solver, thermal, utils
+from jfsd import jaxmd_space as space
 
 config.update("jax_enable_x64", False) #disable double precision
 np.set_printoptions(precision=8, suppress=True)
@@ -183,7 +182,10 @@ def main(
         return positions, displacements_vector_matrix
 
     start_time = time.time()  # perfomances evaluation
-    
+    if output is not None:
+        output = Path(output)
+        output.mkdir(exist_ok=True, parents=True)
+
     # set array for output trajectory, velocities and stresslet in time
     trajectory = np.zeros((int(Nsteps/writing_period), N, 3), float)
     stresslet_history = np.zeros((int(Nsteps/writing_period), N, 5), float)
@@ -645,8 +647,8 @@ def main(
                                                     ResFunction[19], ResFunction[20], ResFunction[21], ResFunction[22], stresslet)
                 # save stresslet
                 stresslet_history[int(step/writing_period), :, :] = stresslet
-                if(output != 'None'):
-                    np.save('stresslet_'+output, stresslet_history)
+                if output is not None:
+                    np.save(output/"stresslet.npy", stresslet_history)
 
             # update positions and neighborlists
             (positions, displacements_vector_matrix) = update_positions(shear_rate,
@@ -721,14 +723,14 @@ def main(
 
             #save trajectory to file
             trajectory[int(step/writing_period), :, :] = positions
-            if(output != 'None'):
-                np.save(output, trajectory)
+            if output is not None:
+                np.save(output/"trajectory.npy", trajectory)
                 
             #store velocity (linear and angular) to file
             if( (velocity_flag > 0) ):
                 velocities[int(step/writing_period), :, :] = jnp.reshape(saddle_x.at[11*N:].get() + general_velocity, (N,6))
-                if (output != 'None'): 
-                    np.save('velocities_'+output, velocities)
+                if output is not None:
+                    np.save(output/'velocities.npy', velocities)
                     
             #store orientation
             #TODO

@@ -49,6 +49,8 @@ test = [
     "sphinx-autodoc-typehints", "sphinx_inline_tabs", "sphinx_copybutton",
 ]
 
+[project.scripts]
+jfsd = "jfsd.__main__:cli_main"
 
 [tool.setuptools]
 packages = ["jfsd"]

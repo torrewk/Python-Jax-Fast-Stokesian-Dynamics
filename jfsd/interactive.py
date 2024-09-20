@@ -2,7 +2,7 @@ import numpy as np
 
 from jfsd import main, utils
 
-if __name__ == "__main__":
+def interactive_main():
 
     print('This software performs Stokesian Dynamics simulations of colloidal particles in a tricyclic periodic box')
     print()
@@ -110,7 +110,7 @@ if __name__ == "__main__":
             0.001,  # error tolerance
             U,  # strength of bonds
             0,  # buoyancy
-            0, # potential cutoff  
+            0, # potential cutoff
             positions,
             seed_RFD, seed_ffwave, seed_ffreal, seed_nf,
             shear_rate_0, shear_freq,
