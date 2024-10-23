@@ -342,7 +342,7 @@ def main(
     start_time = time.time() #perfomances evaluation
     
     for step in range(Nsteps):
-
+        print(trajectory)
         # check that neighborlists buffers did not overflow, if so, re-allocate the lists
         if(nbrs_lub.did_buffer_overflow): 
             nbrs_lub = utils.allocate_nlist(positions, lub_neighbor_fn)
@@ -521,7 +521,7 @@ def main(
         # add applied forces and conservative (pair potential) forces to right-hand side of system
         saddle_b = appliedForces.sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U,
                                                   indices_i_lub, indices_j_lub, displacements_vector_matrix,
-                                                  U_cutoff,HIs_flag)
+                                                  U_cutoff,HIs_flag,dt)
         
         # add (-) the ambient rate of strain to the right-hand side (if full hydrodynamics are switched on)
         if((shear_rate_0 != 0) and (HIs_flag>1)):
@@ -720,7 +720,12 @@ def main(
             if((jnp.isnan(positions)).any() or (jnp.isinf(positions)).any()):
                 raise ValueError(
                     "Invalid particles positions. Abort!")
-
+                    
+            #check that current configuration does not have overlapping particles
+            overlaps = utils.check_overlap(displacements_vector_matrix,2.)
+            if (overlaps>0):
+                print('Starting: initial overlaps are ',(overlaps))
+            
             #save trajectory to file
             trajectory[int(step/writing_period), :, :] = positions
             if output is not None:
@@ -735,16 +740,12 @@ def main(
             #store orientation
             #TODO
             
-            # kwt debug: check if particles overlap
-            # overlaps, overlaps2 = utils.check_overlap(
-            #     displacements_vector_matrix)
-            # print('Step= ', step, ' Overlaps are ', jnp.sum(overlaps)-N)
             print('Step= ', step)
-                
+
     end_time = time.time()
     print('Time for ', Nsteps, ' steps is ', end_time-start_time-compilation_time2,
           'or ', Nsteps/(end_time-start_time-compilation_time2), ' steps per second')
-
+    
     #perform thermal test if needed
     test_result = 0.    
     if((T>0) and (thermal_test_flag==1)):
@@ -769,5 +770,5 @@ def main(
                         
             
             
-
+        
     return trajectory, stresslet_history, velocities, test_result
