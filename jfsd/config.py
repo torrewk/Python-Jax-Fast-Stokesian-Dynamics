@@ -51,7 +51,7 @@ class JfsdConfiguration():
 class General(NamedTuple):
     n_steps: int
     n_particles: int
-    dt: float = 0.1
+    dt: float = 0.01
 
     def get_parameters(self):
         return {
@@ -85,13 +85,13 @@ class Vector(NamedTuple):
 
 class Physics(NamedTuple):
     dynamics_type: str = "brownian"
-    kT: float = 0.1
-    interaction_strength: float = 1.3
-    interaction_cutoff: float = 1.0
-    shear_rate: float = 1.0
-    shear_frequency: float = 1.0
-    friction_coefficient: float = 1.0
-    friction_range: float = 1.0
+    kT: float = 0.005305165
+    interaction_strength: float = 0.0
+    interaction_cutoff: float = 0.0
+    shear_rate: float = 0.0
+    shear_frequency: float = 0.0
+    friction_coefficient: float = 0.0
+    friction_range: float = 0.0
     constant_force: Vector = (0.0, 0.0, 0.0)
     constant_torque: Vector = (0.0, 0.0, 0.0)
     buoyancy: bool = False
@@ -128,9 +128,9 @@ class Physics(NamedTuple):
 
 
 class Box(NamedTuple):
-    Lx: int = 10
-    Ly: int = 10
-    Lz: int = 10
+    Lx: int = 20
+    Ly: int = 20
+    Lz: int = 20
     max_strain: float = 0.5
 
     def get_parameters(self):
@@ -148,8 +148,8 @@ class Seeds(NamedTuple):
 class Output(NamedTuple):
     store_stresslet: bool = False
     store_velocity: bool = False
-    store_orientation: bool = True
-    writing_period: int = 100
+    store_orientation: bool = False
+    writing_period: int = 10
     thermal_fluctuation_test: str = "none"
 
     def get_parameters(self):

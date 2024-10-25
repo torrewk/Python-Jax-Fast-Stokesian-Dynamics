@@ -214,10 +214,9 @@ def sumAppliedForces(
         sigma = 2. * (1.001)
 
         #compute forces for each pair
-        # spring constant (with lubrication hydrodynamic this should to be ~ o(1000) at least
-        # because of divergent (at contact) effective drag coeff on particles)
-        #k = jnp.where(HIs_flag > 1, 1000. , 100)        
-        k = jnp.where(HIs_flag > 1, 2500. / dt , 1/dt)
+        # spring constant must be calibrated to exactly remove the current overlap
+        # with lubrication hydrodynamic this is ~ o(1000) because of divergent (at contact) effective drag coeff
+        k = jnp.where(HIs_flag > 1, (2500.839791) / dt , 1/dt)
         
         Fp_mod = jnp.where(indices_i != indices_j, k *
                            (1-sigma/dist_mod[indices_i, indices_j]), 0.)
