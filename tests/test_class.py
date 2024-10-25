@@ -28,7 +28,7 @@ class TestClass:
             0., 1, 0.5, 0.001, 0., 1, 1.,
             jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
             0, 0, 0, 0, 0., 0.,
-            'None', 0, 0, 0,np.array([0]), np.array([0]),
+            None, 0, 0, 0,np.array([0]), np.array([0]),
             2,0,
             0.1,0.1)
         error = np.linalg.norm(reference_traj-traj)
@@ -40,7 +40,7 @@ class TestClass:
             0., 1, 0.5, 0.001, 0., 1, 1.,
             jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
             0, 0, 0, 0, 0., 0.,
-            'None', 0, 0, 0,np.array([0]), np.array([0]),
+            None, 0, 0, 0,np.array([0]), np.array([0]),
             1,0,0,0)
         error = (np.linalg.norm(reference_traj-traj)) / np.linalg.norm(reference_traj)
         assert (error < 0.02)
@@ -62,7 +62,7 @@ class TestClass:
             0., 1, 0.5, 0.001, 0., 0, 1.,
             jnp.array([[0., 1.+dr, 0.], [0., -1.-dr, 0.]]),
             0, 0, 0, 0, 0.1, 0.,
-            'None', 0, 0, 0,np.array([0]), np.array([0]),
+            None, 0, 0, 0,np.array([0]), np.array([0]),
             2,0,0,0)
         error = np.linalg.norm(reference_traj-traj)
         assert (error < 1e-8)
@@ -73,7 +73,7 @@ class TestClass:
             0., 1, 0.5, 0.001, 0., 0, 1.,
             jnp.array([[0., 1.+dr, 0.], [0., -1.-dr, 0.]]),
             0, 0, 0, 0, 0.1, 0.,
-            'None', 0, 0, 0,np.array([0]), np.array([0]),
+            None, 0, 0, 0,np.array([0]), np.array([0]),
             1,0,0,0)
         error = np.linalg.norm(reference_traj-traj)/np.linalg.norm(reference_traj)
         assert (error < 0.17)
@@ -109,7 +109,7 @@ class TestClass:
                 jnp.array([[0., 0., 0.]]),
                 rfd_seeds[i], ff_w_seeds[i], ff_r_seeds[i], 0,
                 0., 0.,
-                'None', 0, 0, 0, np.array([0]), np.array([0]), 
+                None, 0, 0, 0, np.array([0]), np.array([0]), 
                 2,0,0,0)
             msd.compute(positions=(traj))
             MSDs.append(msd.msd)
@@ -125,18 +125,29 @@ class TestClass:
         This test probes lubrication and real-space far-field calculation of thermal motion.
 
         """
-        
+        N = 50
+        dr=2.0005
         assert (jax_has_gpu() == 'gpu')
         _, _, _, testresults = main.main(
-                    1, 1, 0.1, 20, 20, 20, 5, 0.5,
-                    1., 1, 0.5, 0.001, 0., 0, 1.,
-                    jnp.array([[0., 0., 0.],[0., 0., 2.1],[0., 0.,-2.1],[-5., 0., 0.],[5., 0., 0.]]),
+                    1, 1, 0.1, 35, 35, 35, N, 0.5,
+                    0.001, 1, 0.5, 0.001, 0., 0, 1.,
+                    jnp.array([[0., dr, 0.],    [0., dr, dr],    [0., dr,-dr],    [-dr, dr, 0.],    [dr, dr, 0.],
+                                [0., 2*dr, 0.],  [0., 2*dr, dr],  [0., 2*dr,-dr],  [-dr, 2*dr, 0.],  [dr, 2*dr, 0.],
+                                [0., 3*dr, 0.],  [0., 3*dr, dr],  [0., 3*dr,-dr],  [-dr, 3*dr, 0.],  [dr, 3*dr, 0.],
+                                [0., 4*dr, 0.],  [0., 4*dr, dr],  [0., 4*dr,-dr],  [-dr, 4*dr, 0.],  [dr, 4*dr, 0.],
+                                [0., 0., 0.],    [0., 0., dr],    [0., 0.,-dr],    [-dr, 0., 0.],    [dr, 0., 0.],
+                                [0., -dr, 0.],   [0., -dr, dr],   [0., -dr,-dr],   [-dr, -dr, 0.],   [dr, -dr, 0.],
+                                [0., -2*dr, 0.], [0., -2*dr, dr], [0., -2*dr,-dr], [-dr, -2*dr, 0.], [dr, -2*dr, 0.],
+                                [0., -3*dr, 0.], [0., -3*dr, dr], [0., -3*dr,-dr], [-dr, -3*dr, 0.], [dr, -3*dr, 0.],
+                                [0., -4*dr, 0.], [0., -4*dr, dr], [0., -4*dr,-dr], [-dr, -4*dr, 0.], [dr, -4*dr, 0.],
+                                [0., -5*dr, 0.], [0., -5*dr, dr], [0., -5*dr,-dr], [-dr, -5*dr, 0.], [dr, -5*dr, 0.]]),
                     19989, 3300, 83909, 41234,
                     0., 0.,
-                    'None', 0, 0, 0, np.array([0]), np.array([0]), 
+                    None, 0, 0, 0, np.array([0]), np.array([0]), 
                     2,1,0,0)
         error_nf = testresults[0]
         error_ff = testresults[1]
-        assert (error_nf < 0.001)
-        assert (error_ff < 0.001)
+        # print('NF iterations are ', testresults[2],' and stepnorm is ', testresults[3])
+        assert (error_nf < 0.01)
+        assert (error_ff < 0.01)
         

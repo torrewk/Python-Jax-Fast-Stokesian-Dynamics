@@ -20,7 +20,8 @@ def sumAppliedForces(
         indices_j: ArrayLike, 
         dist: ArrayLike, 
         Ucutoff: float,
-        HIs_flag: int) -> Array:
+        HIs_flag: int,
+        dt: float) -> Array:
     
     """Sum all applied forces/torques for each particle. 
     
@@ -51,6 +52,8 @@ def sumAppliedForces(
         Cutoff (max) distance for pair-interactions
     HIs_flag: (int)
         Flag used to set level of hydrodynamic interaction. 0 for BD, 1 for SD.
+    dt: (float)
+        Timestep. Needed to compute 'potential-free' hard sphere repulsion
         
     Returns
     -------
@@ -186,7 +189,8 @@ def sumAppliedForces(
     def compute_hs_forces(
             indices_i: ArrayLike, 
             indices_j: ArrayLike, 
-            dist: ArrayLike) -> Array:
+            dist: ArrayLike,
+            dt: float) -> Array:
         """Compute repulsive hard-sphere pair interactions using an asymmetric harmonic potential.
     
         Parameters
@@ -210,9 +214,9 @@ def sumAppliedForces(
         sigma = 2. * (1.001)
 
         #compute forces for each pair
-        # spring constant (with lubrication hydrodynamic this should to be ~ o(1000) at least
-        # because of divergent (at contact) effective drag coeff on particles)
-        k = jnp.where(HIs_flag > 1, 1000. , 100)
+        # spring constant must be calibrated to exactly remove the current overlap
+        # with lubrication hydrodynamic this is ~ o(1000) because of divergent (at contact) effective drag coeff
+        k = jnp.where(HIs_flag > 1, (2500.839791) / dt , 1/dt)
         
         Fp_mod = jnp.where(indices_i != indices_j, k *
                            (1-sigma/dist_mod[indices_i, indices_j]), 0.)
@@ -239,7 +243,7 @@ def sumAppliedForces(
         return Fp
 
     # compute hard sphere repulsion, and short-range attractions
-    hs_Force = compute_hs_forces(indices_i, indices_j, dist)
+    hs_Force = compute_hs_forces(indices_i, indices_j, dist, dt)
     AO_force = compute_AO_potentialforces(U, indices_i, indices_j, dist)
 
     # add imposed (-forces) to rhs of linear system

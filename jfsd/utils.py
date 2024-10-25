@@ -442,13 +442,18 @@ def create_hardsphere_configuration(
     displacement, shift = space.periodic_general(
         jnp.array([[L, 0., 0.], [0., L, 0.], [0., 0., L]]),fractional_coordinates=False)
         
-    key = jrandom.PRNGKey(seed)
-        
-    T = 0.001
-    sigma = 2.15 #2.05 #particle diameter
     net_vel = jnp.zeros(3*N)
+    key = jrandom.PRNGKey(seed)
+    T = 0.001
+    sigma = 2.15 #2.15 #2.05 #particle diameter
+    phi_eff = N/(L*L*L)*(sigma*sigma*sigma)*np.pi/6
+    phi_actual = ((np.pi/6) * (2*2*2) * N) / (L*L*L)
     brow_time = sigma*sigma / (4*T)
-    dt = brow_time / (1e4)
+    if(phi_actual>0.45):
+        dt = brow_time / (1e5)
+    else:
+        dt = brow_time / (1e4)    
+    
     Nsteps = int(brow_time / dt)
     key, random_coord = generate_random_array(key, (N*3))  
     random_coord = (random_coord-1/2)*L
@@ -464,21 +469,20 @@ def create_hardsphere_configuration(
         2.2, L, L, L, displacement)
     nbrs = allocate_nlist(positions+jnp.array([L, L, L])/2, neighbor_fn)
     nl = np.array(nbrs.idx)
-    
+
     overlaps = check_overlap(displacements,2.002)
-    buffer = (displacements[nl[0, :],nl[1, :],:])
-    buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
-    
+    # buffer = (displacements[nl[0, :],nl[1, :],:])
+    # buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
     k = 30*np.sqrt(6*T/(sigma*sigma*dt))  # spring constant
-    phi_eff = N/(L*L*L)*(sigma*sigma)*np.pi/3
-    print("Effective vol fraction is ", phi_eff)
-    if(phi_eff > 0.65):
+    
+    if(phi_eff > 0.6754803226762013):
+                print("System Volume Fraction is ", phi_actual, phi_eff)
                 raise ValueError(
                     "Attempted to create particles configuration too dense. Use imported coordinates instead. Abort!")    
-    print("Overlaps while creating random configurations: ", overlaps, ' Steps to perform are ', Nsteps, ' k is ', k)    
+    print("Creating initial configuration with volume fraction ",phi_actual,". This could take several minutes in dense systems.")
+    start_time = time.time()
     while(overlaps>0):
-        start_time = time.time()
-
+        
         for i_step in range(Nsteps):
             #Compute Velocity (Brownian + hard-sphere)
             
@@ -511,12 +515,15 @@ def create_hardsphere_configuration(
                 positions = new_positions
                 nl = np.array(nbrs.idx)
                 displacements = new_displacements
-              
-        k *= 2
-        buffer = (displacements[nl[0, :],nl[1, :],:])
-        buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
+
+        # buffer = (displacements[nl[0, :],nl[1, :],:])
+        # buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
         overlaps = check_overlap(displacements,2.)
-        print("Overlaps after some thermalization: ", overlaps, ' timesteps-per-second are ',Nsteps/(time.time()-start_time),' k is ',k)
+        # print("Overlaps after some thermalization: ", overlaps, 'k and dt are  ',k, dt)
+        if((time.time() - start_time) > 1800): #interrupt if too computationally expensive
+            raise ValueError(
+                    "Creation of initial configuration failed. Abort!")
+    print("Initial configuration created. Volume fraction is ", phi_actual)
     return positions
 
 @jit

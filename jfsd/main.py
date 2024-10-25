@@ -336,7 +336,8 @@ def main(
     # kwt debug: check if particles overlap
     overlaps = utils.check_overlap(
         displacements_vector_matrix,2.)
-    print('Starting: initial overlaps are ',(overlaps))
+    if(overlaps>0):
+        print('Warning: initial overlaps are ',(overlaps))
     print('Starting: compiling the code... This should not take more than 1-2 minutes.')
  
     start_time = time.time() #perfomances evaluation
@@ -521,7 +522,7 @@ def main(
         # add applied forces and conservative (pair potential) forces to right-hand side of system
         saddle_b = appliedForces.sumAppliedForces(N, AppliedForce, AppliedTorques, saddle_b, U,
                                                   indices_i_lub, indices_j_lub, displacements_vector_matrix,
-                                                  U_cutoff,HIs_flag)
+                                                  U_cutoff,HIs_flag,dt)
         
         # add (-) the ambient rate of strain to the right-hand side (if full hydrodynamics are switched on)
         if((shear_rate_0 != 0) and (HIs_flag>1)):
@@ -556,7 +557,7 @@ def main(
                     N, m_self, T, dt, int(n_iter_Lanczos_ff),
                     random_array_real, r, indices_i, indices_j,
                     f1, f2, g1, g2, h1, h2, h3)
-                while((stepnormff > 0.0001) and (n_iter_Lanczos_ff < 150)):
+                while((stepnormff > 1e-3) and (n_iter_Lanczos_ff < 150)):
                     n_iter_Lanczos_ff += 20
                     rs_linvel, rs_angvel_strain, stepnormff, diag_ff = thermal.compute_real_space_slipvelocity(
                         N, m_self, T, dt, int(n_iter_Lanczos_ff),
@@ -581,7 +582,7 @@ def main(
                                                                                       diagonal_zeroes_for_brownian,
                                                                                       n_iter_Lanczos_nf
                                                                                       )
-                    while((stepnormnf > 0.0001) and (n_iter_Lanczos_nf < 150)):
+                    while((stepnormnf > 1e-3) and (n_iter_Lanczos_nf < 250)):
                         n_iter_Lanczos_nf += 20
                         buffer, stepnormnf, diag_nf = thermal.compute_nearfield_brownianforce(N, T, dt,
                                                                                           random_array_nf,
@@ -596,16 +597,20 @@ def main(
                                                                                           n_iter_Lanczos_nf
                                                                                           )
                     saddle_b = saddle_b.at[11*N:].add(-buffer)
-
                 # check that thermal fluctuation calculation went well
                 if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.0001))):
+                    overlaps = utils.check_overlap(displacements_vector_matrix,2.) 
+                    if(overlaps>0):
+                        print('Warning! Particles are overlapping. Reducing the timestep might help prevent the simulation from stopping.')
                     raise ValueError(
-                        f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!")
+                        f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Overlapping pairs are {overlaps}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!")
 
                 if ((not math.isfinite(stepnormnf)) or ((n_iter_Lanczos_nf > 150) and (stepnormnf > 0.0001))):
+                    overlaps = utils.check_overlap(displacements_vector_matrix,2.)            
+                    if(overlaps>0):
+                        print('Warning! Particles are overlapping. Reducing the timestep might help prevent the simulation from stopping.')
                     raise ValueError(
-                        f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!")
-
+                        f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Overlapping pairs are {overlaps}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!")
             else:
                 #compute random force for Brownian Dynamics 
                 random_velocity = thermal.compute_BD_randomforce(N, T, dt,random_array_nf)
@@ -708,11 +713,11 @@ def main(
             compilation_time2 = (time.time() - start_time)
             print('Compilation Time = ', compilation_time+compilation_time2)
 
-        # reset Lacnzos number of iteration once in a while (avoid to do too many iterations if not needed, can be tuned for better performance)
+        # reset Lanczos number of iteration once in a while (avoid to do too many iterations if not needed, can be tuned for better performance)
         elif((step % 100) == 0):
             n_iter_Lanczos_ff = 5
             n_iter_Lanczos_nf = 5
-            
+
         # write trajectory to file
         if((step % writing_period) == 0):
 
@@ -720,7 +725,12 @@ def main(
             if((jnp.isnan(positions)).any() or (jnp.isinf(positions)).any()):
                 raise ValueError(
                     "Invalid particles positions. Abort!")
-
+                    
+            #check that current configuration does not have overlapping particles
+            overlaps = utils.check_overlap(displacements_vector_matrix,2.)
+            if (overlaps>0):
+                print('Warning: ',(overlaps),' particles are overlapping')
+            
             #save trajectory to file
             trajectory[int(step/writing_period), :, :] = positions
             if output is not None:
@@ -735,16 +745,12 @@ def main(
             #store orientation
             #TODO
             
-            # kwt debug: check if particles overlap
-            # overlaps, overlaps2 = utils.check_overlap(
-            #     displacements_vector_matrix)
-            # print('Step= ', step, ' Overlaps are ', jnp.sum(overlaps)-N)
             print('Step= ', step)
-                
+
     end_time = time.time()
     print('Time for ', Nsteps, ' steps is ', end_time-start_time-compilation_time2,
           'or ', Nsteps/(end_time-start_time-compilation_time2), ' steps per second')
-
+    
     #perform thermal test if needed
     test_result = 0.    
     if((T>0) and (thermal_test_flag==1)):
@@ -765,9 +771,10 @@ def main(
             ResFunction[6], ResFunction[7], ResFunction[
                 8], ResFunction[9], ResFunction[10])
         
-        test_result = [jnp.linalg.norm(buffer-nf) / jnp.linalg.norm(nf),jnp.linalg.norm(thermal.convert_to_generalized(N, 0, rs_linvel, 0, rs_angvel_strain)-ff)/jnp.linalg.norm(ff)]
-                        
+        test_result = [jnp.linalg.norm(buffer-nf) / jnp.linalg.norm(nf),
+                       jnp.linalg.norm(thermal.convert_to_generalized(N, 0, rs_linvel, 0, rs_angvel_strain)-ff)/jnp.linalg.norm(ff),
+                       n_iter_Lanczos_nf,
+                       stepnormnf]            
             
-            
-
+        
     return trajectory, stresslet_history, velocities, test_result

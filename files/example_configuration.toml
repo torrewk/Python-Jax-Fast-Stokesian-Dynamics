@@ -1,50 +1,40 @@
 [general]
-
 n_steps = 1000
 n_particles = 1000
-writing_period = 100
+dt = 0.005
+
+[initialization]
+position_source_type = "random_hardsphere"  # Other option: file
+init_seed = 7238659235
 
 [physics]
-
-dynamics_type = "brownian"  # Other options: rpy, stokesian
-kT = 0.1
-interaction_strength = 1.3
-interaction_cutoff = 1.0
-shear_rate = 1.0
-shear_frequency = 1.0
-friction_coeficient = 1.0
-friction_range = 1.0
-
+dynamics_type = "stokesian"  # Options: brownian, rpy, stokesian
+kT = 0.005305165 # 1/6pi (resulting brownian time = 60pi)
+interaction_strength = 0.0 #in units of kBT
+interaction_cutoff = 0.0 #in units of particle radius
+shear_rate = 0.0
+shear_frequency = 0.0
+friction_coefficient = 0.0
+friction_range = 0.0
+constant_force = [0.0, 0.0, 0.0]
+constant_torque = [0.0, 0.0, 0.0]
+buoyancy = false
 
 [box]
-Lx = 10
-Ly = 10
-Lz = 10
+Lx = 24
+Ly = 24
+Lz = 24
+max_strain = 0.5
 
 [seeds]
-initial_positions = 12039844
-RFD = 1234
-ffwave = 1239874
-ffreal = 571023
-nf = 38102399
+RFD = 43175675
+ffwave = 6357442
+ffreal = 6474524532
+nf = 325425435
 
 [output]
-
 store_stresslet = false
 store_velocity = false
-store_orientation = true
-
-[input]
-
-
-[constant_force]
-
-fx = 1.0
-fy = 0.0
-fz = 0.0
-
-[constant_torque]
-
-fx = 1.0
-fy = 0.0
-fz = 0.0
+store_orientation = false
+writing_period = 10
+thermal_fluctuation_test = "none"  # Other options: far-field, lubrication

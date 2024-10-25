@@ -1,0 +1,3 @@
+[general]
+n_steps = 1000
+n_particles = 250

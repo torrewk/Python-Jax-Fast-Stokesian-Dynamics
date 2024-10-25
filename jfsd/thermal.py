@@ -2,6 +2,7 @@ import os
 import jax.numpy as jnp
 import numpy as np
 import scipy
+import jax.scipy as jscipy
 from jax import jit, Array
 from jax.config import config
 from functools import partial
@@ -957,7 +958,7 @@ def compute_nearfield_brownianforce(
 
         """
         #Apply precodintion for large eigenvalues - part 1
-        # psi = jscipy.linalg.solve_triangular(jnp.transpose(R_fu_prec_lower_triang), psi, lower=False) #more preconditioning (not needed for now)
+        # psi = jscipy.linalg.solve_triangular(jnp.transpose(R_fu_prec_lower_triang), psi, lower=False) 
         
         #Apply precodintion for small eigenvalues - part 1
         # psi = Precondition_DiagMult_kernel(psi, diagonal_elements_for_brownian, 1) #more preconditioning (not needed for now)
@@ -966,12 +967,11 @@ def compute_nearfield_brownianforce(
         z += Precondition_Inn_kernel(psi,diagonal_zeroes_for_brownian)
         
         #Apply precodintion for small eigenvalues - part 2
-        # psi = Precondition_DiagMult_kernel(z,diagonal_elements_for_brownian, 1) #more preconditioning (not needed for now)
+        # z = Precondition_DiagMult_kernel(z,diagonal_elements_for_brownian, 1) #more preconditioning (not needed for now)
         
         #Apply precodintion for large eigenvalues - part 2
-        # return jscipy.linalg.solve_triangular(R_fu_prec_lower_triang, psi, lower=True) #more preconditioning (not needed for now)
+        # return jscipy.linalg.solve_triangular(R_fu_prec_lower_triang, z, lower=True) 
         
-        # return psi #more preconditioning (not needed apparently)
         return z
     
     def Precondition_Brownian_Undo(
@@ -989,9 +989,10 @@ def compute_nearfield_brownianforce(
         Precondition_ImInn_kernel(nf_Brownian_force, diagonal_zeroes_for_brownian)
 
         """
-        
-        # nf_Brownian_force = jnp.dot(R_fu_prec_lower_triang,nf_Brownian_force) #more preconditioning (not needed apparently)
-        # nf_Brownian_force = Precondition_DiagMult_kernel(nf_Brownian_force,diagonal_elements_for_brownian,-1) #more preconditioning (not needed apparently)
+        #undo large eigenvalue precondition
+        # nf_Brownian_force = jnp.dot(R_fu_prec_lower_triang,nf_Brownian_force) 
+        #undo small eigenvalue precondition
+        # nf_Brownian_force = Precondition_DiagMult_kernel(nf_Brownian_force,diagonal_elements_for_brownian,-1) 
         return Precondition_ImInn_kernel(nf_Brownian_force, diagonal_zeroes_for_brownian)
     
     def ComputeLubricationFU(
@@ -1091,19 +1092,17 @@ def compute_nearfield_brownianforce(
 
     #Scale random numbers from [0,1] to [-sqrt(3),sqrt(3)]
     random_array = (2*random_array-1)*jnp.sqrt(3.)
-    
-    trid, vectors = lanczos.lanczos_alg(Precondition_Brownian_RFUmultiply, 6*N, n_iter_Lanczos_nf, random_array)
        
     psinorm = jnp.linalg.norm(random_array)
-        
+    trid, vectors = lanczos.lanczos_alg(Precondition_Brownian_RFUmultiply, 6*N, n_iter_Lanczos_nf, random_array)
+
     R_FU12psi_old = helper_compute_R12psi((n_iter_Lanczos_nf-1), trid[:(n_iter_Lanczos_nf-1),:(n_iter_Lanczos_nf-1)], vectors[:(n_iter_Lanczos_nf-1),:])
     R_FU12psi = helper_compute_R12psi(n_iter_Lanczos_nf, trid, vectors)
     
     buff = jnp.linalg.norm(R_FU12psi)
-    stepnorm = jnp.linalg.norm((R_FU12psi-R_FU12psi_old))
-    stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)    
-    R_FU12psi = Precondition_Brownian_Undo(R_FU12psi)
+    stepnorm = jnp.linalg.norm((R_FU12psi-R_FU12psi_old)) / buff
     
+    R_FU12psi = Precondition_Brownian_Undo(R_FU12psi)
     return R_FU12psi, stepnorm, trid
 
 @partial(jit, static_argnums=[0])
