@@ -6,8 +6,6 @@ from collections.abc import Mapping
 from importlib.resources import files
 from pathlib import Path
 
-import tomllib
-
 from jfsd.config import JfsdConfiguration
 from jfsd.interactive import interactive_main
 from jfsd.main import main

@@ -1,7 +1,11 @@
 from typing import NamedTuple
 
 import numpy as np
-import tomllib
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # type: ignore  # noqa
 
 from jfsd.utils import create_hardsphere_configuration
 
