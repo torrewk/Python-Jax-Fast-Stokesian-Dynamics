@@ -27,7 +27,8 @@ dependencies = [
     "numpy",
     "scipy==1.10.1",
     "jraph==0.0.6.dev0",
-    "absl-py==2.1.0"
+    "absl-py==2.1.0",
+    "tomli;python_version<'3.11'",
 ]
 
 dynamic = ["version"]
