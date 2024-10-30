@@ -5,9 +5,9 @@ This repository contains a Python implementation of the Fast Stokesian Dynamics 
 ## Installation Guide
 
 ### Pre-requisites:
-- cuda 11.8 (https://developer.nvidia.com/cuda-11-8-0-download-archive)
-- cuDNN 8.6 for cuda 11 (https://developer.nvidia.com/rdp/cudnn-archive)
-- Python >= 3.10
+- cuda (tested with version 11.8, https://developer.nvidia.com/cuda-11-8-0-download-archive)
+- cuDNN (tested with 8.6 for cuda 11, https://developer.nvidia.com/rdp/cudnn-archive)
+- Python >= 3.9
 
 ### 1 - Set up work (virtual) environment:
 
@@ -28,7 +28,7 @@ source .venv/bin/activate
 
 ### 4 - Install correct version of jaxlib
 ```bash
-pip install jaxlib==0.4.14+cuda11.cudnn86 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install jaxlib==0.4.17+cuda11.cudnn86 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 ### 5 - Install jfsd and rest of dependencies
