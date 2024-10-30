@@ -1,0 +1,26 @@
+name: Continuous integration
+
+on:
+  pull_request:
+    branches: [ main, integration-tests ]
+
+jobs:
+  tests:
+    name: Run integration tests
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"] #, "3.12"]
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install jaxlib==0.4.17+cuda11.cudnn86 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+          pip install ".[test]"
+      - name: Test with pytest
+        run: bash run_tests_cpu.sh

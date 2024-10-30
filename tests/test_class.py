@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.lib import xla_bridge
 from jfsd import main
+import pytest 
 
 def jax_has_gpu():
     """Check that the machine in use has an available GPU for jax.
@@ -29,8 +30,7 @@ class TestClass:
             jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
             0, 0, 0, 0, 0., 0.,
             None, 0, 0, 0,np.array([0]), np.array([0]),
-            2,0,
-            0.1,0.1)
+            2,0,0.,0.)
         error = np.linalg.norm(reference_traj-traj)
         assert (error < 1e-8)
         
@@ -41,7 +41,7 @@ class TestClass:
             jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
             0, 0, 0, 0, 0., 0.,
             None, 0, 0, 0,np.array([0]), np.array([0]),
-            1,0,0,0)
+            1,0,0.,0.)
         error = (np.linalg.norm(reference_traj-traj)) / np.linalg.norm(reference_traj)
         assert (error < 0.02)
 
@@ -147,7 +147,57 @@ class TestClass:
                     2,1,0,0)
         error_nf = testresults[0]
         error_ff = testresults[1]
-        # print('NF iterations are ', testresults[2],' and stepnorm is ', testresults[3])
         assert (error_nf < 0.01)
         assert (error_ff < 0.01)
+            
+    @pytest.mark.parametrize("delta", [0.0001,0.001,0.01,0.1,1,10])
+    def test_sedimenting_triangle(self,delta):
+        """Physical unit test for deterministic (shearless) part of hydrodynamic calculations, that can run also on CPU.
         
+        Test instantaneous sedimentation of three spheres against reference values.
+
+        """
+        deltas = np.array([0.0001,0.001,0.01,0.1,1,10])
+        index = np.searchsorted(deltas, delta)
+        reference_traj = np.load('files/sedimenting_triangle_reference.npy') #load reference trajectory
+
+        r1 = np.array([-2. - delta,0.,0.])
+        r2 = np.array([0.,0.,0.])
+        theta= np.pi/3
+        alpha = np.pi - theta
+        r3 = np.array([np.cos(alpha),np.sin(alpha),0.]) * (2.+delta)
+        #test SD
+        traj, _, _, _ = main.main(
+                1, 1, 1, 50, 50, 50, 3, 0.5,
+                0., 1, 0.5, 0.001, 0., 1, 1.,
+                jnp.array([r1, r2, r3]),
+                0, 0, 0, 0, 0., 0.,
+                None, 0, 0, 0,np.array([0]), np.array([0]),
+                2,0,0.,0.)
+        error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
+        assert (error < 1e-5)
+    
+    @pytest.mark.parametrize("delta", [0.0001, 0.001, 0.01, 0.1, 1, 10])
+    def test_shear(self,delta):
+        """Physical unit test for deterministic shear part of hydrodynamic calculations, that can run also on CPU. 
+        
+        Test instantaneous response to shear of three spheres against reference vaues.
+
+        """
+        deltas = np.array([0.0001, 0.001, 0.01, 0.1, 1, 10])
+        index = np.searchsorted(deltas, delta)
+        reference_traj = np.load('files/sheared_triplet_reference.npy')  # Load reference trajectory
+        r1 = np.array([0., -2. - delta, 0.])
+        r2 = np.array([0., 0., 0.])
+        r3 = np.array([0., 2. + delta, 0.]) 
+        traj, _, _, _ = main.main(
+            1, 1, 0.1, 50, 50, 50, 3, 0.5,
+            0., 1, 0.5, 0.001, 0., 0, 0.,
+            jnp.array([r1, r2, r3]),
+            0, 0, 0, 0, 1., 0.,
+            None, 0, 0, 0, np.array([0]), np.array([0]),
+            2, 0, 0., 0.
+            )
+        # Only calculate error for this specific delta
+        error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
+        assert error < 1e-8
