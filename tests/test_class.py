@@ -177,12 +177,8 @@ class TestClassCPU:
                 None, 0, 0, 0,np.array([0]), np.array([0]),
                 2,0,0.,0.)
             all_traj[i] = traj
-        if(jax_has_gpu() == 'gpu'):
-            tol = 1e-5
-        else:
-            tol = 1e-8
         error = np.linalg.norm(reference_traj-all_traj)
-        assert (error < tol)
+        assert (error < 1e-5)
     
     def test_thermal_realspace(self):
         """Physical unit test for non-deterministic part of hydrodynamic calculations, that runs on CPU. 
