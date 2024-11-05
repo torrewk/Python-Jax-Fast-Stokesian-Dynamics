@@ -1,15 +1,10 @@
-import os
 import jax.numpy as jnp
 import numpy as np
 import scipy
-import jax.scipy as jscipy
 from jax import jit, Array
-from jax.config import config
 from functools import partial
 from jax.typing import ArrayLike
 from jfsd import lanczos
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
-config.update("jax_enable_x64", False) #disable double precision
 
 def Random_force_on_grid_indexing(
         Nx: int,
@@ -534,7 +529,6 @@ def compute_real_space_slipvelocity(
     lin_vel = M12_psi.at[:3*N].get()
     ang_vel_and_strain = M12_psi.at[3*N:].get()
     
-    # return lin_vel, ang_vel_and_strain, stepnorm, (jnp.linalg.eigh(trid))[0]
     return lin_vel, ang_vel_and_strain, stepnorm, trid
 
 @partial(jit, static_argnums=[0,1,2,3,4])

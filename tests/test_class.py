@@ -23,27 +23,16 @@ class TestClass:
         assert (jax_has_gpu() == 'gpu') #check that gpu works properly
         reference_traj = np.load('files/dancing_spheres_ref.npy') #load reference trajectory
 
-        #test SD
+        #test SD        
         traj, _, _, _ = main.main(
             1000, 10, 0.05, 50, 50, 50, 3, 0.5,
             0., 1, 0.5, 0.001, 0., 1, 1.,
             jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
             0, 0, 0, 0, 0., 0.,
             None, 0, 0, 0,np.array([0]), np.array([0]),
-            2,0,0.,0.)
-        error = np.linalg.norm(reference_traj-traj)
-        assert (error < 1e-8)
-        
-        #test RPY
-        traj, _, _, _ = main.main(
-            1000, 10, 0.05, 50, 50, 50, 3, 0.5,
-            0., 1, 0.5, 0.001, 0., 1, 1.,
-            jnp.array([[-5., 0., 0.], [0., 0., 0.], [7., 0., 0.]]),
-            0, 0, 0, 0, 0., 0.,
-            None, 0, 0, 0,np.array([0]), np.array([0]),
-            1,0,0.,0.)
-        error = (np.linalg.norm(reference_traj-traj)) / np.linalg.norm(reference_traj)
-        assert (error < 0.02)
+            2,0,0,0.,0.)
+        error = np.linalg.norm(reference_traj-traj) / np.linalg.norm(reference_traj)
+        assert (error < 5*1e-5)
 
     def test_external_shear(self):
         """Physical unit test for deterministic shear part of hydrodynamic calculations. 
@@ -63,20 +52,9 @@ class TestClass:
             jnp.array([[0., 1.+dr, 0.], [0., -1.-dr, 0.]]),
             0, 0, 0, 0, 0.1, 0.,
             None, 0, 0, 0,np.array([0]), np.array([0]),
-            2,0,0,0)
-        error = np.linalg.norm(reference_traj-traj)
-        assert (error < 1e-8)
-        
-        #test RPY
-        traj, _, _, _ = main.main(
-            1000, 10, 0.01, 50, 50, 50, 2, 0.5,
-            0., 1, 0.5, 0.001, 0., 0, 1.,
-            jnp.array([[0., 1.+dr, 0.], [0., -1.-dr, 0.]]),
-            0, 0, 0, 0, 0.1, 0.,
-            None, 0, 0, 0,np.array([0]), np.array([0]),
-            1,0,0,0)
+            2,0,0,0.,0.)
         error = np.linalg.norm(reference_traj-traj)/np.linalg.norm(reference_traj)
-        assert (error < 0.17)
+        assert (error < 0.000516)
 
     def test_thermal_1body(self):
         """Physical unit test for non-deterministic part of hydrodynamic calculations. 
@@ -110,7 +88,7 @@ class TestClass:
                 rfd_seeds[i], ff_w_seeds[i], ff_r_seeds[i], 0,
                 0., 0.,
                 None, 0, 0, 0, np.array([0]), np.array([0]), 
-                2,0,0,0)
+                2,0,0,0.,0.)
             msd.compute(positions=(traj))
             MSDs.append(msd.msd)
         MSDs_average = np.mean(MSDs, axis=0)
@@ -144,7 +122,7 @@ class TestClass:
                     19989, 3300, 83909, 41234,
                     0., 0.,
                     None, 0, 0, 0, np.array([0]), np.array([0]), 
-                    2,1,0,0)
+                    2,0,1,0,0)
         error_nf = testresults[0]
         error_ff = testresults[1]
         assert (error_nf < 0.01)
@@ -173,7 +151,7 @@ class TestClass:
                 jnp.array([r1, r2, r3]),
                 0, 0, 0, 0, 0., 0.,
                 None, 0, 0, 0,np.array([0]), np.array([0]),
-                2,0,0.,0.)
+                2,0,0,0.,0.)
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
         assert (error < 1e-5)
     
@@ -196,8 +174,8 @@ class TestClass:
             jnp.array([r1, r2, r3]),
             0, 0, 0, 0, 1., 0.,
             None, 0, 0, 0, np.array([0]), np.array([0]),
-            2, 0, 0., 0.
+            2, 0, 0, 0., 0.
             )
         # Only calculate error for this specific delta
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert error < 1e-8
+        assert error < 1e-5

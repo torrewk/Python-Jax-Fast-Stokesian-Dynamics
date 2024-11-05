@@ -71,12 +71,13 @@ class Initialization(NamedTuple):
     def get_parameters(self, box_x, n_particles, numpy_file = None):
         if self.position_source_type == "random_hardsphere":
             positions = create_hardsphere_configuration(box_x, n_particles, self.init_seed, 0.001)
-        elif self.position_source_type == "file":
-            if numpy_file is None:
-                raise ValueError("Please supply the numpy file if using the source_type 'file'.")
-            positions = np.load(numpy_file)
+        #elif self.position_source_type == "file":
+        #    if numpy_file is None:
+        #        raise ValueError("Please supply the numpy file if using the source_type 'file'.")
+        #    positions = np.load(numpy_file)
         else:
-            raise ValueError(f"Unknown source_type {self.position_source_type}")
+            positions = np.load(self.position_source_type)
+            #raise ValueError(f"Unknown source_type {self.position_source_type}")
         return {
             "positions": positions,
             "a": 1,  # Colloid radius
@@ -89,6 +90,7 @@ class Vector(NamedTuple):
 
 class Physics(NamedTuple):
     dynamics_type: str = "brownian"
+    boundary_conditions: str = "periodic"
     kT: float = 0.005305165
     interaction_strength: float = 0.0
     interaction_cutoff: float = 0.0
@@ -110,12 +112,22 @@ class Physics(NamedTuple):
         else:
             raise ValueError(f"Unknown dynamics type: {self.dynamics_type}, choose from:"
                              " brownian, rpy or stokesian.")
+            
+        if self.boundary_conditions.lower() == "periodic":
+            boundary_flag = 0
+        elif self.boundary_conditions.lower() == "open":
+            boundary_flag = 1
+        else:
+            raise ValueError(f"Unknown boundary conditions: {self.boundary_conditions}, choose from:"
+                             " periodic or open.")
+        
         constant_forces = np.zeros((n_particles, 3))
         constant_forces[:, :] = self.constant_force
         constant_torques = np.zeros((n_particles, 3))
         constant_torques[:, :] = self.constant_torque
         return {
             "HIs_flag": HIs_flag,
+            "boundary_flag": boundary_flag,
             "T": self.kT,
             "U": self.interaction_strength,
             "U_cutoff": self.interaction_cutoff,

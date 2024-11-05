@@ -8,7 +8,7 @@ def interactive_main():
     print()
 
     HIs_flag = int(input('First, insert 0 for Brownian Dynamics, 1 for Rotne-Prager-Yamakawa, or 2 for Stokesian Dynamics and press enter: '))
-
+    boundary_flag = int(input('Insert 0 for periodic boundary conditions, or 1 for open (infinite) boundaries and press enter: '))
     Nsteps = int(input('Insert number of simulation timesteps to perform and press enter: '))
 
     writing_period = int(input('Insert storing period (periodicity of saving data) and press enter: '))
@@ -110,7 +110,7 @@ def interactive_main():
             0.001,  # error tolerance
             U,  # strength of bonds
             0,  # buoyancy
-            0, # potential cutoff
+            U_cutoff, # potential cutoff
             positions,
             seed_RFD, seed_ffwave, seed_ffreal, seed_nf,
             shear_rate_0, shear_freq,
@@ -121,4 +121,5 @@ def interactive_main():
             constant_applied_forces,
             constant_applied_torques,
             HIs_flag,
+            boundary_flag,
             0,alpha_fric,h0_fric)
