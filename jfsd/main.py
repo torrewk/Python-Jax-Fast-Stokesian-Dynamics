@@ -122,7 +122,7 @@ def main(Nsteps: int,
         trajectory, stresslet_history, velocities, test_result
 
     """
-    trajectory = stresslet_history= velocities=test_result=0
+    trajectory = stresslet_history= velocities=test_result= None
     if(writing_period>Nsteps):
         raise ValueError(
             "Error: writing-to-file period greater than number of simulation steps. Abort!")
@@ -130,13 +130,11 @@ def main(Nsteps: int,
         if((N<2) and (HIs_flag>0)):
             raise ValueError(
                 "Error: trying to use open boundaries hydrodynamic for a single particle. Select 'brownian' and re-run. Abort!")
-        Lx = Ly = Lz = 999999 #set system size to 'infinite' (does not impact performances)
-        config.update("jax_enable_x64", True)  # enable double precision: needed to resolve long-range hydrodynamics
+        Lx = Ly = Lz = 999999 #set system size to 'infinite' (does not impact performance)
+        config.update("jax_enable_x64", True)  # enable double precision: needed to resolve long-range hydrodynamics completely in real space
         
     print('jfsd is running on device: ',(xla_bridge.get_backend().platform))
-    
-    # positions = positions.astype(np.float64) #need float64 to be the same dtype of arrays used in jax with double precision
-    
+        
     if (HIs_flag==0):
         trajectory, velocities = wrap_BD(Nsteps, writing_period,
                  dt,Lx, Ly, Lz, N, T,U,buoyancy_flag,U_cutoff,positions,
@@ -310,7 +308,6 @@ def wrap_SD(
         displacements_vector_matrix = (space.map_product(displacement))(positions, positions)
         return positions, displacements_vector_matrix
 
-    # start_time = time.time()  # perfomances evaluation
     if output is not None:
         output = Path(output)
         output.mkdir(exist_ok=True, parents=True)
@@ -335,13 +332,13 @@ def wrap_SD(
     ResTable_min = 0.0001000000000000
     ResTable_dr = 0.0043050000000000 #table discretization (log space), i.e. ind * dr.set(log10( h[ind] / min )
     
-    #  set INITIAL Periodic Space and Displacement Metric
+    # set INITIAL Periodic Space and Displacement Metric
     displacement, shift = space.periodic_general(jnp.array([[Lx, Ly*xy, Lz*0.], [4., Ly, Lz*0.], [0., 0., Lz]]), fractional_coordinates=False)
     # compute matrix of INITIAL displacements between particles (each element is a vector from particle j to i)
     displacements_vector_matrix = (space.map_product(displacement))(positions, positions)
     
     # initialize near-field hydrodynamics neighborlists (used also by pair potentials)
-    lub_neighbor_fn = utils.initialize_single_neighborlist(4., Lx, Ly, Lz, displacement) #for near-field hydrodynamics and pair potential
+    lub_neighbor_fn = utils.initialize_single_neighborlist(3.99, Lx, Ly, Lz, displacement) #for near-field hydrodynamics and pair potential
     nbrs_lub = lub_neighbor_fn.allocate(positions+jnp.array([Lx, Ly, Lz])/2) # allocate neighborlist for first time
     nl_lub = np.array(nbrs_lub.idx) # convert to array
     
@@ -380,13 +377,12 @@ def wrap_SD(
     if(np.count_nonzero(constant_applied_torques) > 0):  # apply external torques
         AppliedTorques += jnp.ravel(constant_applied_torques)
 
-    #Check if particles overlap
+    # Check if particles overlap
     overlaps = utils.check_overlap(
         displacements_vector_matrix, 2.)
     if(overlaps > 0):
         print('Warning: initial overlaps are ', (overlaps))
     print('Starting: compiling the code... This should not take more than 1-2 minutes.')
-
     for step in tqdm(range(Nsteps),mininterval=0.5): #use tqdm to have progress bar and TPS 
         
         # check that neighborlists buffers did not overflow, if so, re-allocate the lists
@@ -400,10 +396,10 @@ def wrap_SD(
             nbrs_lub_prec = utils.allocate_nlist(
                 positions, prec_lub_neighbor_fn)
 
-        # initialize Brownian drift (6*N array, for linear and angular components)
+        # Initialize Brownian drift (6*N array, for linear and angular components)
         brownian_drift = jnp.zeros(6*N, float)
 
-        if((stresslet_flag > 0) and ((step % writing_period) == 0)):
+        if( (stresslet_flag > 0) and ((step % writing_period) == 0) ):
             stresslet = jnp.zeros((N, 5), float) # reset stresslet to zero
 
         # define rhs array of the linear system Ax=b (with A the saddle point matrix)
@@ -420,7 +416,7 @@ def wrap_SD(
                                                                                   ewald_n, ewald_dr, ewald_cut, ewaldC1,
                                                                                   ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals, alpha_friction, ho_friction)
         elif(boundary_flag==1):
-           (r,indices_i, indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunction) = utils.precompute_open(positions,nl_ff, nl_lub, displacements_vector_matrix,                                                                               
+           (r,indices_i, indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunction,mobil_scalar) = utils.precompute_open(positions,nl_ff, nl_lub, displacements_vector_matrix,                                                                               
                                                                                  ResTable_min, ResTable_dr, ResTable_dist, ResTable_vals, alpha_friction, ho_friction)
         # set projector needed to compute thermal fluctuations given by lubrication
         diagonal_zeroes_for_brownian = thermal.Number_of_neigh(
@@ -521,14 +517,14 @@ def wrap_SD(
 
             # compute the near-field hydrodynamic stresslet from the saddle point solution velocity
             if((stresslet_flag > 0) and ((step % writing_period) == 0)):
-                buffer_stresslet = (resistance.compute_RSU(
+                buffer_stresslet = resistance.compute_RSU(
                         jnp.zeros((N, 5), float),
                         saddle_x.at[11*N:].get(),
                         indices_i_lub,
                         indices_j_lub,
                         output_precompute[18],
                         r_lub,
-                        N))
+                        N)
 
             # TAKE THE DIFFERENCE AND APPLY SCALING
             brownian_drift += (-saddle_x.at[11*N:].get())
@@ -545,7 +541,7 @@ def wrap_SD(
                                                   indices_i_lub, indices_j_lub, displacements_vector_matrix,
                                                   U_cutoff, 2, dt)
 
-        # add (-) the ambient rate of strain to the right-hand side (if full hydrodynamics are switched on)
+        # add (-) the ambient rate of strain to the right-hand side
         if(shear_rate_0 != 0):
             saddle_b = saddle_b.at[(6*N+1):(11*N):5].add(-shear_rate)
             # compute near field shear contribution R_FE and add it to the rhs of the system
@@ -588,18 +584,18 @@ def wrap_SD(
             elif(boundary_flag == 1):
                     rs_linvel, rs_angvel_strain, stepnormff, diag_ff = thermal.compute_real_space_slipvelocity_open(
                         N, T, dt, int(n_iter_Lanczos_ff),
-                        random_array_real, r)
-                    while((stepnormff > 1e-3) and (n_iter_Lanczos_ff < 150)):
-                        n_iter_Lanczos_ff += 20
+                        random_array_real, r, indices_i, indices_j, mobil_scalar)
+                    while((stepnormff > 0.01) and (n_iter_Lanczos_ff < 150)):
+                        n_iter_Lanczos_ff += 5
                         rs_linvel, rs_angvel_strain, stepnormff, diag_ff = thermal.compute_real_space_slipvelocity_open(
                             N, T, dt, int(n_iter_Lanczos_ff),
-                            random_array_real, r)
+                            random_array_real, r, indices_i, indices_j, mobil_scalar)
                     saddle_b = saddle_b.at[:11*N].add(thermal.convert_to_generalized(
                             N, jnp.zeros_like(rs_linvel), rs_linvel, jnp.zeros_like(rs_angvel_strain), rs_angvel_strain))
             
             
             # check that far-field real space thermal fluctuation calculation went well
-            if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.0001))):
+            if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.02))):
                 overlaps = utils.check_overlap(
                     displacements_vector_matrix, 2.)
                 if(overlaps > 0):
@@ -608,8 +604,7 @@ def wrap_SD(
                 raise ValueError(
                     f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Overlapping pairs are {overlaps}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!")
 
-            
-            # compute lubrication contribution only if there is more than 1 particle (and full SD is switched on)
+            # compute lubrication contribution only if there is more than 1 particle
             stepnormnf = 0.
             if(N > 1):
                 # compute near-field random forces 
@@ -641,7 +636,7 @@ def wrap_SD(
                                                                                               )
                 saddle_b = saddle_b.at[11*N:].add(-buffer) # set in rhs of linear system
                 # check that far-field real space thermal fluctuation calculation went well
-                if ((not math.isfinite(stepnormnf)) or ((n_iter_Lanczos_nf > 150) and (stepnormnf > 0.0001))):
+                if ((not math.isfinite(stepnormnf)) or ((n_iter_Lanczos_nf > 250) and (stepnormnf > 1e-3))):
                     overlaps = utils.check_overlap(
                         displacements_vector_matrix, 2.)
                     if(overlaps > 0):
@@ -660,7 +655,7 @@ def wrap_SD(
                                                      Nx,Ny,Nz,gaussP,m_self)
         elif(boundary_flag==1):
             saddle_x, exitcode_gmres = solver.solver_open(N,saddle_b,  # rhs vector of the linear system
-                                                     R_fu_prec_lower_triang, [r, indices_i, indices_j, r_lub, indices_i_lub, indices_j_lub, ResFunction],
+                                                     R_fu_prec_lower_triang, [r, indices_i, indices_j, r_lub, indices_i_lub, indices_j_lub, ResFunction, mobil_scalar],
                                                      displacements_vector_matrix.at[nl_ff[0, :], nl_ff[1, :]].get())
         if(exitcode_gmres > 0):
                 raise ValueError(
@@ -901,7 +896,6 @@ def wrap_RPY(
         displacements_vector_matrix = (space.map_product(displacement))(positions, positions)
         return positions, displacements_vector_matrix
     
-    # start_time = time.time()  # perfomances evaluation
     if output is not None:
         output = Path(output)
         output.mkdir(exist_ok=True, parents=True)
@@ -979,7 +973,7 @@ def wrap_RPY(
                                                                                         int(gaussP), gaussPd2,
                                                                                         ewald_n, ewald_dr, ewald_cut, ewaldC1)
         elif(boundary_flag==1):
-            (r, indices_i, indices_j) = utils.precomputeRPY_open(positions,nl_ff,displacements_vector_matrix)
+            (r, indices_i, indices_j,mobil_scalar) = utils.precomputeRPY_open(positions,nl_ff,displacements_vector_matrix)
         # compute shear-rate for current timestep: simple(shear_freq=0) or oscillatory(shear_freq>0)
         shear_rate = shear.update_shear_rate(
             dt, step, shear_rate_0, shear_freq, phase=0)
@@ -1023,18 +1017,18 @@ def wrap_RPY(
             elif(boundary_flag == 1):
                 rs_linvel, rs_angvel_strain, stepnormff, diag_ff = thermal.compute_real_space_slipvelocity_open(
                     N, T, dt, int(n_iter_Lanczos_ff),
-                    random_array_real, r)
-                while((stepnormff > 1e-3) and (n_iter_Lanczos_ff < 150)):
+                    random_array_real, r,indices_i, indices_j,mobil_scalar)
+                while((stepnormff > 0.003) and (n_iter_Lanczos_ff < 150)):
                     n_iter_Lanczos_ff += 20
                     rs_linvel, rs_angvel_strain, stepnormff, diag_ff = thermal.compute_real_space_slipvelocity_open(
                         N, T, dt, int(n_iter_Lanczos_ff),
-                        random_array_real, r)
+                        random_array_real, r,indices_i, indices_j,mobil_scalar)
                 #convert real-space part of thermal fluctuation into a generalized velocity
                 saddle_b = saddle_b.at[:11*N].add(thermal.convert_to_generalized(
                     N, jnp.zeros_like(rs_linvel), rs_linvel, jnp.zeros_like(rs_angvel_strain), rs_angvel_strain))
 
             # check that thermal fluctuation calculation went well
-            if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.0001))):
+            if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff >  0.003))):
                 overlaps = utils.check_overlap(
                     displacements_vector_matrix, 2.)
                 if(overlaps > 0):
@@ -1055,7 +1049,7 @@ def wrap_RPY(
                                                            -saddle_b[11*N:])
         elif(boundary_flag == 1):
             general_velocity += mobility.Mobility_open(N, r, displacements_vector_matrix.at[nl_ff[0, :], nl_ff[1, :]].get(),
-                                                           indices_i, indices_j,-saddle_b[11*N:])
+                                                           indices_i, indices_j,-saddle_b[11*N:],mobil_scalar)
         # update positions and neighborlists
         (positions, displacements_vector_matrix) = update_positions(shear_rate, positions,
                                                                         displacements_vector_matrix,
@@ -1225,8 +1219,7 @@ def wrap_BD(
         # Compute new relative displacements between particles
         displacements_vector_matrix = (space.map_product(displacement))(positions, positions)
         return positions, displacements_vector_matrix
-    
-    # start_time = time.time()  # perfomances evaluation
+
     if output is not None:
         output = Path(output)
         output.mkdir(exist_ok=True, parents=True)

@@ -190,7 +190,7 @@ def solver_open(
 
             # compute far-field contribution (M * F): output velocities+torques (first 6N) and strain rates (last 5N)
             
-            Ax = Ax.at[:11*N].add(mobility.GeneralizedMobility_open(N,r,dist,indices_i,indices_j,x.at[:11*N].get()))
+            Ax = Ax.at[:11*N].add(mobility.GeneralizedMobility_open(N,r,indices_i,indices_j,x.at[:11*N].get(),mobil_funct))
             
             # add B*U to M*F (modify only the first 6N entries of output because of projector B)
             Ax = Ax.at[:6*N].add(x.at[11*N:].get())
@@ -249,9 +249,7 @@ def solver_open(
             return Px
 
         #Extract the quantities for the calculation, from input
-        (r,indices_i,indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunctions) = precomputed
-        
-        dist = compute_distances()
+        (r,indices_i,indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunctions,mobil_funct) = precomputed
         
         #Solve the linear system Ax= b
         x, exitCode = jscipy.sparse.linalg.gmres(

@@ -298,7 +298,6 @@ def initialize_single_neighborlist(
                                               capacity_multiplier=1.1,
                                               format=partition.NeighborListFormat.OrderedSparse,
                                               disable_cell_list=True)
-    
     return neighbor_fn
 
 def allocate_nlist(
@@ -449,10 +448,8 @@ def create_hardsphere_configuration(
     phi_eff = N/(L*L*L)*(sigma*sigma*sigma)*np.pi/6
     phi_actual = ((np.pi/6) * (2*2*2) * N) / (L*L*L)
     brow_time = sigma*sigma / (4*T)
-    if(phi_actual>0.45):
-        dt = brow_time / (1e5)
-    else:
-        dt = brow_time / (1e4)    
+    
+    dt = brow_time / (1e5)    
     
     Nsteps = int(brow_time / dt)
     key, random_coord = generate_random_array(key, (N*3))  
@@ -471,8 +468,6 @@ def create_hardsphere_configuration(
     nl = np.array(nbrs.idx)
 
     overlaps = check_overlap(displacements,2.002)
-    # buffer = (displacements[nl[0, :],nl[1, :],:])
-    # buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
     k = 30*np.sqrt(6*T/(sigma*sigma*dt))  # spring constant
     
     if(phi_eff > 0.6754803226762013):
@@ -516,10 +511,7 @@ def create_hardsphere_configuration(
                 nl = np.array(nbrs.idx)
                 displacements = new_displacements
 
-        # buffer = (displacements[nl[0, :],nl[1, :],:])
-        # buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
-        overlaps = check_overlap(displacements,2.)
-        # print("Overlaps after some thermalization: ", overlaps, 'k and dt are  ',k, dt)
+        overlaps = check_overlap(displacements,2.002)
         if((time.time() - start_time) > 1800): #interrupt if too computationally expensive
             raise ValueError(
                     "Creation of initial configuration failed. Abort!")
@@ -915,7 +907,7 @@ def precompute_open(
     -------
     all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
      r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
-     r_lub, indices_i_lub, indices_j_lub,ResFunc
+     r_lub, indices_i_lub, indices_j_lub,ResFunc,mobil_scalar
 
     """ 
     #Real Space (far-field) calculation quantities
@@ -925,6 +917,20 @@ def precompute_open(
     R = displacements_vector_matrix.at[indices_i, indices_j].get()
     dist = space.distance(R)  # distances between particles i and j
     r = -R / dist.at[:, None].get()  # unit vector from particle j to i
+    
+    #compute mobility scalar functions in open boundaries (this should be moved to a separate module, and performed in double precision)
+    xa12 =  3 / (2*dist) - 1 / (dist*dist*dist)
+    ya12 = 3 / (4*dist) + 1 / (2*dist*dist*dist)
+    yb12 = -3/(4*dist*dist)
+    xc12 = 3 / (4*dist*dist*dist)
+    yc12 = -3 / (8*dist*dist*dist)    
+    xm12 = -9/(2*dist*dist*dist) + 54/(5*dist*dist*dist*dist*dist)
+    ym12 = 9/(4*dist*dist*dist) - 36/(5*dist*dist*dist*dist*dist)
+    zm12 = 9/(5*dist*dist*dist*dist*dist)
+    xg12 = 9 / (4*dist*dist) - 18 / (5*dist*dist*dist*dist)
+    yg12 = 6/(5*dist*dist*dist*dist) 
+    yh12 = -9/(8*dist*dist*dist)
+    mobil_scalar = [xa12,ya12,yb12,xc12,yc12,xm12,ym12,zm12,xg12,yg12,yh12]
     
     #Lubrication calculation quantities
     indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
@@ -1032,7 +1038,7 @@ def precompute_open(
     ResFunc = ResFunc.at[8,:].add(alpha[4]*buffer)
     ResFunc = ResFunc.at[9,:].add(alpha[5]*buffer)
 
-    return (r,indices_i,indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunc)
+    return (r,indices_i,indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunc,mobil_scalar)
 
 @partial(jit, static_argnums=[5, 15])
 def precomputeRPY(
@@ -1209,7 +1215,7 @@ def precomputeRPY_open(
     
     Returns
     -------
-    r, indices_i, indices_j
+    r, indices_i, indices_j,mobil_scalar
 
     """     
     indices_i = nl_ff[0, :]  # Pair indices (i<j always)
@@ -1218,7 +1224,22 @@ def precomputeRPY_open(
     R = displacements_vector_matrix.at[indices_i, indices_j].get()
     dist = space.distance(R)  # distances between particles i and j
     r = -R / dist.at[:, None].get()  # unit vector from particle j to i
-    return (r, indices_i, indices_j)
+    
+    #compute mobility scalar functions in open boundaries (this should be moved to a separate module, and performed in double precision)
+    xa12 =  3 / (2*dist) - 1 / (dist*dist*dist)
+    ya12 = 3 / (4*dist) + 1 / (2*dist*dist*dist)
+    yb12 = -3/(4*dist*dist)
+    xc12 = 3 / (4*dist*dist*dist)
+    yc12 = -3 / (8*dist*dist*dist)    
+    xm12 = -9/(2*dist*dist*dist) + 54/(5*dist*dist*dist*dist*dist)
+    ym12 = 9/(4*dist*dist*dist) - 36/(5*dist*dist*dist*dist*dist)
+    zm12 = 9/(5*dist*dist*dist*dist*dist)
+    xg12 = 9 / (4*dist*dist) - 18 / (5*dist*dist*dist*dist)
+    yg12 = 6/(5*dist*dist*dist*dist) 
+    yh12 = -9/(8*dist*dist*dist)
+    mobil_scalar = [xa12,ya12,yb12,xc12,yc12,xm12,ym12,zm12,xg12,yg12,yh12]
+    
+    return (r, indices_i, indices_j,mobil_scalar)
                                     
 @partial(jit, static_argnums=[3])
 def precomputeBD(

@@ -925,10 +925,10 @@ def Mobility_periodic(
 def GeneralizedMobility_open(
     N: int,
     r: ArrayLike,
-    dist: ArrayLike,
     indices_i: ArrayLike,
     indices_j: ArrayLike,
-    generalized_forces: ArrayLike) -> Array:
+    generalized_forces: ArrayLike,
+    mobil_scal: ArrayLike) -> Array:
 
     """Compute the matrix-vector product of the grandmobility matrix with a generalized force vector (and stresslet), in open boundary conditions.
 
@@ -938,14 +938,14 @@ def GeneralizedMobility_open(
         Number of particles
     r: (float)
         Array (N*(N-1)/2) ,3) containing the interparticle unit vectors for each pair of particle
-    dists: (float)
-        Array (,N*(N-1)/2)) containing the interparticle the distance of each pair of particle
     indices_i: (int)
         Array (,N*(N-1)/2) of indices of first particle in open boundaries list of pairs 
     indices_j: (int)
         Array (,N*(N-1)/2) of indices of second particle in open boundaries list of pairs 
     generalized_forces: (float)
         Array (,11*N) containing input generalized forces (force/torque/stresslet)
+    mobil_scal: (float)
+        Array (11,N*(N-1)/2)) containing mobility functions evaluated for the current particle configuration
     
     Returns
     -------
@@ -1026,61 +1026,43 @@ def GeneralizedMobility_open(
     epsrdSdrj = jnp.array([epsr[0,0,:]*Sdrj[0,:]+epsr[0,1,:]*Sdrj[1,:]+epsr[0,2,:]*Sdrj[2,:],
                            epsr[1,0,:]*Sdrj[0,:]+epsr[1,1,:]*Sdrj[1,:]+epsr[1,2,:]*Sdrj[2,:],
                            epsr[2,0,:]*Sdrj[0,:]+epsr[2,1,:]*Sdrj[1,:]+epsr[2,2,:]*Sdrj[2,:]])
-    
-    xa11 = ya11 = jnp.ones(len(dist))
-    xa12 =  3 / (2*dist) - 1 / (dist*dist*dist)
-    ya12 = 3 / (4*dist) + 1 / (2*dist*dist*dist)
-    yb12 = -3/(4*dist*dist)
-    yb21 = -yb12
-    xc11 = yc11 = 3/4 * jnp.ones(len(dist))
-    xc12 = 3 / (4*dist*dist*dist)
-    yc12 = -3 / (8*dist*dist*dist)    
-    xm12 = -9/(2*dist*dist*dist) + 54/(5*dist*dist*dist*dist*dist)
-    ym12 = 9/(4*dist*dist*dist) - 36/(5*dist*dist*dist*dist*dist)
-    zm12 = 9/(5*dist*dist*dist*dist*dist)
-    xm11 = ym11 = zm11 = 9/10*jnp.ones(len(dist))
-    xg12 = 9 / (4*dist*dist) - 18 / (5*dist*dist*dist*dist)
-    yg12 = 6/(5*dist*dist*dist*dist) 
-    yh12 = -9/(8*dist*dist*dist)
-    xg21 = -xg12
-    yg21 = -yg12
-    yh21 = yh12
 
-    #normalize self terms
+    xa12 = mobil_scal[0]; ya12 = mobil_scal[1]
+    yb12 = mobil_scal[2]; 
+    xc12 = mobil_scal[3]; yc12 = mobil_scal[4]
+    xm12 = mobil_scal[5]; ym12 = mobil_scal[6]; zm12 = mobil_scal[7]
+    xg12 = mobil_scal[8]; yg12 = mobil_scal[9]
+    yh12 = mobil_scal[10]; 
+    n_pairs = int(N*(N-1)/2)
+    
+    #normalize self terms (avoid double counting)
     normaliz_factor = jnp.where(N>1, N-1, 1)
-    xa11 /= normaliz_factor
-    ya11 /= normaliz_factor
-    xc11 /= normaliz_factor
-    yc11 /= normaliz_factor
-    xm11 /= normaliz_factor
-    ym11 /= normaliz_factor
-    zm11 /= normaliz_factor
     
     #M_UF * F
     
     # Compute the contributions to the force for particles i (Fi = A11*Ui + A12*Uj + BT11*Wi + BT12*Wj)
-    u = (  ya11.at[:, None].get() * (ft_i.at[:, :3].get()) 
+    u = (  (jnp.ones(n_pairs)).at[:, None].get() * (ft_i.at[:, :3].get() / normaliz_factor)
           + (xa12 - ya12).at[:, None].get() * rdfj.at[:, None].get() * r 
           + ya12.at[:, None].get() * ft_j.at[:, :3].get()
-          + yb21.at[:, None].get() * (-epsrdtj.T)
+          + (-yb12).at[:, None].get() * (-epsrdtj.T)
           )
     velocities = velocities.at[indices_i, :3].add(u)
     # Compute the contributions to the force for particles j (Fj = A11*Uj + A12*Ui + BT11*Wj + BT12*Wi)
-    u = (  ya11.at[:, None].get() * (ft_j.at[:, :3].get()) 
+    u = (  (jnp.ones(n_pairs)).at[:, None].get() * (ft_j.at[:, :3].get() / normaliz_factor)
           + (xa12 - ya12).at[:, None].get() * rdfi.at[:, None].get() * r 
           + ya12.at[:, None].get() * ft_i.at[:, :3].get()
-          + yb21.at[:, None].get() * ( epsrdti.T)
+          + (-yb12).at[:, None].get() * ( epsrdti.T)
           )
     velocities = velocities.at[indices_j, :3].add(u)
     # Compute the contributions to the torque for particles i (Li = B11*Ui + B12*Uj + C11*Wi + C12*Wj)
-    w = (  yc11.at[:, None].get() * (ft_i.at[:, 3:].get() )
+    w = (  (3/4*jnp.ones(n_pairs)).at[:, None].get() * (ft_i.at[:, 3:].get() / normaliz_factor)
           + yb12.at[:, None].get() * epsrdfj.T
           + (xc12 - yc12).at[:, None].get() * rdtj.at[:, None].get() * r
           + yc12.at[:, None].get() * ft_j.at[:, 3:].get()
            )
     velocities = velocities.at[indices_i, 3:].add(w)
     # Compute the contributions to the torque for particles j (Lj = B11*Uj + B12*Ui + C11*Wj + C12*Wi)
-    w = ( yc11.at[:, None].get() *(ft_j.at[:, 3:].get())
+    w = ( (3/4*jnp.ones(n_pairs)).at[:, None].get() *(ft_j.at[:, 3:].get() / normaliz_factor)
           - yb12.at[:, None].get() * epsrdfi.T 
           + (xc12 - yc12).at[:, None].get() * rdti.at[:, None].get() * r
           + yc12.at[:, None].get() * ft_i.at[:, 3:].get()
@@ -1090,19 +1072,19 @@ def GeneralizedMobility_open(
     #M_US * S 
     
     u = (
-        (xg21 - 2.0*yg21).at[:, None].get() * (rdSdrj.at[:, None].get()) * r
-            + 2.*yg21.at[:, None].get() * (Sdrj.T)
+        ((-xg12) - 2.0*(-yg12)).at[:, None].get() * (rdSdrj.at[:, None].get()) * r
+            + 2.*(-yg12).at[:, None].get() * (Sdrj.T)
             )
-    w = yh21.at[:, None].get() * (2.0 * epsrdSdrj.T)
+    w = yh12.at[:, None].get() * (2.0 * epsrdSdrj.T)
 
     velocities = velocities.at[indices_i, :3].add(u)
     velocities = velocities.at[indices_i, 3:].add(w)
 
     u = (
-        (xg21 - 2.0*yg21).at[:, None].get() * (rdSdri.at[:, None].get()) * (-r)
-            + 2.*yg21.at[:, None].get() * (-Sdri.T)
+        ((-xg12) - 2.0*(-yg12)).at[:, None].get() * (rdSdri.at[:, None].get()) * (-r)
+            + 2.*(-yg12).at[:, None].get() * (-Sdri.T)
           )
-    w = yh21.at[:, None].get() * (2.0 * epsrdSdri.T)
+    w = yh12.at[:, None].get() * (2.0 * epsrdSdri.T)
 
     velocities = velocities.at[indices_j, :3].add(u)
     velocities = velocities.at[indices_j, 3:].add(w)
@@ -1221,7 +1203,7 @@ def GeneralizedMobility_open(
     #compute strain for particles i
     #strain_xx component
     strain_xx_i = ((
-          zm11 * ( s_i[0,0,:]) 
+          9/10*jnp.ones(n_pairs) * ( s_i[0,0,:]) / normaliz_factor 
         + 1.5*xm12 * (  r[:, 0]*r[:, 0] - 1./3.) * rdSdrj
         + 0.5*ym12 * (  4.*r[:, 0]*Sdrj[0] 
                       - 4.*rdSdrj*r[:, 0]*r[:, 0])
@@ -1230,7 +1212,7 @@ def GeneralizedMobility_open(
                       - 4.*r[:, 0]*Sdrj[0])
         ))
     strain_xx_j = ((
-        zm11 * (s_j[0,0,:])
+        9/10*jnp.ones(n_pairs) * (s_j[0,0,:]) / normaliz_factor
         + 1.5*xm12 * (r[:, 0]*r[:, 0] - 1./3.) * rdSdri
         + 0.5*ym12 * (  4.*r[:, 0]*Sdri[0]
                       - 4.*rdSdri*r[:, 0]*r[:, 0])
@@ -1241,7 +1223,7 @@ def GeneralizedMobility_open(
     
     #strain_xy component
     strain_xy_i = ((
-          zm11 * ( s_i[0,1,:] )
+          9/10*jnp.ones(n_pairs) * ( s_i[0,1,:] ) / normaliz_factor
         + 1.5*xm12 * (  r[:, 0]*r[:, 1]) * rdSdrj
         + 0.5*ym12 * (  2.*r[:, 0]*Sdrj[1] 
                       + 2.*r[:, 1]*Sdrj[0]
@@ -1252,7 +1234,7 @@ def GeneralizedMobility_open(
                         - 2.*r[:, 1]*Sdrj[0])
         ))
     strain_xy_j = ((
-        zm11 * (s_j[0,1,:])
+        9/10*jnp.ones(n_pairs) * (s_j[0,1,:]) / normaliz_factor
         + 1.5*xm12 * (r[:, 0]*r[:, 1]) * rdSdri
         + 0.5*ym12 * (  2.*r[:, 0]*Sdri[1] 
                         + 2.*r[:, 1]*Sdri[0]
@@ -1265,7 +1247,7 @@ def GeneralizedMobility_open(
     
     #strain_xz component
     strain_xz_i = ((
-        zm11 * (s_i[0,2,:])
+        9/10*jnp.ones(n_pairs) * (s_i[0,2,:]) / normaliz_factor
         + 1.5*xm12 * (r[:, 0]*r[:, 2]) * rdSdrj
         + 0.5*ym12 * (  2.*r[:, 0]*Sdrj[2] 
                         + 2.*r[:, 2]*Sdrj[0]
@@ -1276,7 +1258,7 @@ def GeneralizedMobility_open(
                       - 2.*r[:, 2]*Sdrj[0])
         ))
     strain_xz_j = ((
-        zm11 * (s_j[0,2,:]) 
+        9/10*jnp.ones(n_pairs) * (s_j[0,2,:])  / normaliz_factor
         + 1.5*xm12 * (r[:, 0]*r[:, 2]) * rdSdri
         + 0.5*ym12 * (  2.*r[:, 0]*Sdri[2] 
                       + 2.*r[:, 2]*Sdri[0]
@@ -1290,7 +1272,7 @@ def GeneralizedMobility_open(
     
     #strain_yz component
     strain_yz_i = ((
-        zm11 * (s_i[1,2,:])
+        9/10*jnp.ones(n_pairs) * (s_i[1,2,:]) / normaliz_factor
         + 1.5*xm12 * (r[:, 1]*r[:, 2]) * rdSdrj
         + 0.5*ym12 * (  2.*r[:, 1]*Sdrj[2] 
                       + 2.*r[:, 2]*Sdrj[1]
@@ -1301,7 +1283,7 @@ def GeneralizedMobility_open(
                         - 2.*r[:, 2]*Sdrj[1])
         ))
     strain_yz_j = ((
-        zm11 * (s_j[1,2,:])
+        9/10*jnp.ones(n_pairs) * (s_j[1,2,:]) / normaliz_factor
         + 1.5*xm12 * (r[:, 1]*r[:, 2]) * rdSdri
         + 0.5*ym12 * (  2.*r[:, 1]*Sdri[2] 
                       + 2.*r[:, 2]*Sdri[1]
@@ -1314,7 +1296,7 @@ def GeneralizedMobility_open(
     
     #strain_yy component
     strain_yy_i = ((
-        zm11 * (s_i[1,1,:])
+        9/10*jnp.ones(n_pairs) * (s_i[1,1,:]) / normaliz_factor
         + 1.5*xm12 * (  r[:, 1]*r[:, 1] - 1./3.) * rdSdrj
         + 0.5*ym12 * (  4.*r[:, 1]*Sdrj[1] 
                       - 4.*rdSdrj*r[:, 1]*r[:, 1])
@@ -1323,7 +1305,7 @@ def GeneralizedMobility_open(
                       - 4.*r[:, 1]*Sdrj[1] )
         ))
     strain_yy_j = ((
-        zm11 * (s_j[1,1,:])
+        9/10*jnp.ones(n_pairs) * (s_j[1,1,:]) / normaliz_factor
         + 1.5*xm12 * (r[:, 1]*r[:, 1] - 1./3.) * rdSdri
         + 0.5*ym12 * (  4.*r[:, 1]*Sdri[1] 
                       - 4.*rdSdri*r[:, 1]*r[:, 1])
@@ -1360,10 +1342,10 @@ def GeneralizedMobility_open(
 def Mobility_open(
     N: int,
     r: ArrayLike,
-    dist: ArrayLike,
     indices_i: ArrayLike,
     indices_j: ArrayLike,
-    generalized_forces: ArrayLike) -> Array:
+    generalized_forces: ArrayLike,
+    mobil_scal: ArrayLike) -> Array:
 
     """Compute the matrix-vector product of the mobility matrix with a generalized force vector, in open boundary conditions.
 
@@ -1373,21 +1355,20 @@ def Mobility_open(
         Number of particles
     r: (float)
         Array (N*(N-1)/2) ,3) containing the interparticle unit vectors for each pair of particle
-    dists: (float)
-        Array (,N*(N-1)/2)) containing the interparticle the distance of each pair of particle
     indices_i: (int)
         Array (,N*(N-1)/2) of indices of first particle in open boundaries list of pairs 
     indices_j: (int)
         Array (,N*(N-1)/2) of indices of second particle in open boundaries list of pairs 
     generalized_forces: (float)
         Array (,6*N) containing input generalized forces (force/torque)
+    mobil_scal: (float)
+        Array (11,N*(N-1)/2)) containing mobility functions evaluated for the current particle configuration
     
     Returns
     -------
     generalized_velocities (linear/angular velocities) 
 
     """
-    dist = jnp.linalg.norm(dist, axis=1)
     
     velocities = jnp.zeros((N, 6), float)
     forces_torques = generalized_forces[:6*N]
@@ -1417,46 +1398,43 @@ def Mobility_open(
                         -r.at[:, 2].get() * ft_j.at[:, 3].get() + r.at[:, 0].get() * ft_j.at[:, 5].get(),
                          r.at[:, 1].get() * ft_j.at[:, 3].get() - r.at[:, 0].get() * ft_j.at[:, 4].get()])
     
-    # xa11 = 
-    ya11 = jnp.ones(len(dist))
-    xa12 =  3 / (2*dist) - 1 / (dist*dist*dist)
-    ya12 = 3 / (4*dist) + 1 / (2*dist*dist*dist)
-    yb12 = -3/(4*dist*dist)
-    yb21 = -yb12
-    yc11 = 3/4 * jnp.ones(len(dist))
-    xc12 = 3 / (4*dist*dist*dist)
-    yc12 = -3 / (8*dist*dist*dist)
-    
-    #normalize self terms
+    #normalize self terms (avoid double counting)
     normaliz_factor = jnp.where(N>1, N-1, 1)
-    ya11 /= normaliz_factor
-    yc11 /= normaliz_factor
 
+    xa12 = mobil_scal[0]; ya12 = mobil_scal[1]
+    yb12 = mobil_scal[2]; 
+    xc12 = mobil_scal[3]; yc12 = mobil_scal[4]
+    n_pairs = int(N*(N-1)/2)    
+    
     #M_UF * F
+    
     # Compute the contributions to the force for particles i (Fi = A11*Ui + A12*Uj + BT11*Wi + BT12*Wj)
-    u = (  ya11.at[:, None].get() * ft_i.at[:, :3].get() 
-         + (xa12 - ya12).at[:, None].get() * rdfj.at[:, None].get() * r 
-         + ya12.at[:, None].get() * ft_j.at[:, :3].get()
-         + yb21.at[:, None].get() * (-epsrdtj.T))
+    u = (  (jnp.ones(n_pairs)).at[:, None].get() * (ft_i.at[:, :3].get() / normaliz_factor)
+          + (xa12 - ya12).at[:, None].get() * rdfj.at[:, None].get() * r 
+          + ya12.at[:, None].get() * ft_j.at[:, :3].get()
+          + (-yb12).at[:, None].get() * (-epsrdtj.T)
+          )
     velocities = velocities.at[indices_i, :3].add(u)
     # Compute the contributions to the force for particles j (Fj = A11*Uj + A12*Ui + BT11*Wj + BT12*Wi)
-    u = (  ya11.at[:, None].get() * ft_j.at[:, :3].get() 
-         + (xa12 - ya12).at[:, None].get() * rdfi.at[:, None].get() * r 
-         + ya12.at[:, None].get() * ft_i.at[:, :3].get()
-         + yb21.at[:, None].get() * ( epsrdti.T))
+    u = (  (jnp.ones(n_pairs)).at[:, None].get() * (ft_j.at[:, :3].get() / normaliz_factor)
+          + (xa12 - ya12).at[:, None].get() * rdfi.at[:, None].get() * r 
+          + ya12.at[:, None].get() * ft_i.at[:, :3].get()
+          + (-yb12).at[:, None].get() * ( epsrdti.T)
+          )
     velocities = velocities.at[indices_j, :3].add(u)
-    
     # Compute the contributions to the torque for particles i (Li = B11*Ui + B12*Uj + C11*Wi + C12*Wj)
-    w = (yb12.at[:, None].get() * epsrdfj.T  
-         + yc11.at[:, None].get() * ft_i.at[:, 3:].get() 
-         + (xc12 - yc12).at[:, None].get() * rdtj.at[:, None].get() * r
-         + yc12.at[:, None].get() * ft_j.at[:, 3:].get())
+    w = (  (3/4*jnp.ones(n_pairs)).at[:, None].get() * (ft_i.at[:, 3:].get() / normaliz_factor)
+          + yb12.at[:, None].get() * epsrdfj.T
+          + (xc12 - yc12).at[:, None].get() * rdtj.at[:, None].get() * r
+          + yc12.at[:, None].get() * ft_j.at[:, 3:].get()
+           )
     velocities = velocities.at[indices_i, 3:].add(w)
     # Compute the contributions to the torque for particles j (Lj = B11*Uj + B12*Ui + C11*Wj + C12*Wi)
-    w = (- yb12.at[:, None].get() * epsrdfi.T 
-         + yc11.at[:, None].get() * ft_j.at[:, 3:].get()
-         + (xc12 - yc12).at[:, None].get() * rdti.at[:, None].get() * r
-         + yc12.at[:, None].get() * ft_i.at[:, 3:].get())
+    w = ( (3/4*jnp.ones(n_pairs)).at[:, None].get() *(ft_j.at[:, 3:].get() / normaliz_factor)
+          - yb12.at[:, None].get() * epsrdfi.T 
+          + (xc12 - yc12).at[:, None].get() * rdti.at[:, None].get() * r
+          + yc12.at[:, None].get() * ft_i.at[:, 3:].get()
+           )
     velocities = velocities.at[indices_j, 3:].add(w)
     
     return jnp.ravel(velocities)
