@@ -1,15 +1,10 @@
-import os
 import jax.numpy as jnp
 import numpy as np
 import scipy
-import jax.scipy as jscipy
 from jax import jit, Array
-from jax.config import config
 from functools import partial
 from jax.typing import ArrayLike
 from jfsd import lanczos
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
-config.update("jax_enable_x64", False) #disable double precision
 
 def Random_force_on_grid_indexing(
         Nx: int,
@@ -534,7 +529,493 @@ def compute_real_space_slipvelocity(
     lin_vel = M12_psi.at[:3*N].get()
     ang_vel_and_strain = M12_psi.at[3*N:].get()
     
-    # return lin_vel, ang_vel_and_strain, stepnorm, (jnp.linalg.eigh(trid))[0]
+    return lin_vel, ang_vel_and_strain, stepnorm, trid
+
+@partial(jit, static_argnums=[0,1,2,3])
+def compute_real_space_slipvelocity_open(
+        N: int,
+        kT: float,
+        dt: float,
+        n_iter_Lanczos_ff: int,
+        random_array_real: ArrayLike,
+        r: ArrayLike,
+        indices_i: ArrayLike,
+        indices_j: ArrayLike,
+        mobil_scal: ArrayLike) -> tuple[Array,float,Array]:
+    
+    """Compute real space far-field thermal fluctuation in open boundary conditions. 
+    
+    Here, the square root of the mobility operator is performed using Lanczos decomposition.
+
+    Parameters
+    ----------
+    N: (int)
+        Number of particles
+    kT: (float)
+        Thermal energy
+    dt: (float)
+        Time step
+    n_iter_Lanczos_ff: (int)
+        Number of Lanczos iteration to perform
+    random_array_real: (float)
+        Array (,11*N) of random numbers with the proper variance
+    r: (float)
+        Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
+    indices_i: (int)
+        Array (n_pair_ff) of indices of first particle in neighbor list pairs 
+    indices_j: (int)
+        Array (n_pair_ff) of indices of second particle in neighbor list pairs 
+    mobil_scal: (float)
+        Array (11,N*(N-1)/2)) containing mobility functions evaluated for the current particle configuration
+    Returns
+    -------
+    lin_vel, ang_vel_and_strain, stepnorm, trid
+
+    """  
+    
+    def helper_Mpsi(
+        generalized_forces: ArrayLike) -> Array:
+
+        """Thermal helper: compute matrix-vector product of the grandmobility matrix with a generalized force vector (and stresslet), in open boundary conditions.
+
+        Parameters
+        ----------
+        generalized_forces: (float)
+            Array (,11*N) containing input generalized forces (force/torque/stresslet)
+ 
+        Returns
+        -------
+        generalized_velocities (linear/angular velocities and rateOfStrain) 
+
+        """
+        strain = jnp.zeros((N, 5), float)
+        velocities = jnp.zeros((N, 6), float)
+        
+        forces_torques = generalized_forces[:6*N]
+        forces_torques = -forces_torques
+        ft_i = (jnp.reshape(forces_torques, (N, 6))).at[indices_i].get()
+        ft_j = (jnp.reshape(forces_torques, (N, 6))).at[indices_j].get()
+        stresslets = generalized_forces[6*N:] #stresslet in vector form has the format [Sxx,Sxy,Sxz,Syz,Syy]
+        s_i = (jnp.reshape(stresslets, (N, 5))).at[indices_i].get() 
+        s_i = jnp.array([[s_i[:,0],s_i[:,1],s_i[:,2]],
+                          [s_i[:,1],s_i[:,4],s_i[:,3]],   
+                          [s_i[:,2],s_i[:,3],-s_i[:,0]-s_i[:,4]]])
+        s_j = (jnp.reshape(stresslets, (N, 5))).at[indices_j].get()
+        s_j = jnp.array([[s_j[:,0],s_j[:,1],s_j[:,2]],
+                            [s_j[:,1],s_j[:,4],s_j[:,3]],   
+                            [s_j[:,2],s_j[:,3],-s_j[:,0]-s_j[:,4]]])
+        
+        # Dot product of levi-civita-symbol and r
+        epsr = jnp.array(
+            [ [jnp.zeros(int(N*(N-1)/2)), r[:, 2], -r[:, 1]],
+                [-r[:, 2], jnp.zeros(int(N*(N-1)/2)), r[:, 0]],
+                [r[:, 1], -r[:, 0], jnp.zeros(int(N*(N-1)/2))]
+            ])
+        
+        # Dot product of r and U, i.e. axisymmetric projection 
+        rdfi = r.at[:, 0].get()*ft_i.at[:, 0].get() + r.at[:, 1].get()*ft_i.at[:, 1].get() + r.at[:, 2].get()*ft_i.at[:, 2].get()
+        rdfj = r.at[:, 0].get()*ft_j.at[:, 0].get() + r.at[:, 1].get()*ft_j.at[:, 1].get() + r.at[:, 2].get()*ft_j.at[:, 2].get()
+        rdti = r.at[:, 0].get()*ft_i.at[:, 3].get() + r.at[:, 1].get()*ft_i.at[:, 4].get() + r.at[:, 2].get()*ft_i.at[:, 5].get()
+        rdtj = r.at[:, 0].get()*ft_j.at[:, 3].get() + r.at[:, 1].get()*ft_j.at[:, 4].get() + r.at[:, 2].get()*ft_j.at[:, 5].get()
+
+        # Cross product of U and r, i.e. eps_ijk*r_k*U_j = Px dot U, (eps_ijk is the Levi-Civita symbol)
+        epsrdfi = jnp.array([r.at[:, 2].get() * ft_i.at[:, 1].get() - r.at[:, 1].get() * ft_i.at[:, 2].get(),
+                            -r.at[:, 2].get() * ft_i.at[:, 0].get() + r.at[:, 0].get() * ft_i.at[:, 2].get(),
+                             r.at[:, 1].get() * ft_i.at[:, 0].get() - r.at[:, 0].get() * ft_i.at[:, 1].get()])
+
+        epsrdti = jnp.array([r.at[:, 2].get() * ft_i.at[:, 4].get() - r.at[:, 1].get() * ft_i.at[:, 5].get(),
+                            -r.at[:, 2].get() * ft_i.at[:, 3].get() + r.at[:, 0].get() * ft_i.at[:, 5].get(),
+                             r.at[:, 1].get() * ft_i.at[:, 3].get() - r.at[:, 0].get() * ft_i.at[:, 4].get()])
+
+        epsrdfj = jnp.array([r.at[:, 2].get() * ft_j.at[:, 1].get() - r.at[:, 1].get() * ft_j.at[:, 2].get(),
+                            -r.at[:, 2].get() * ft_j.at[:, 0].get() + r.at[:, 0].get() * ft_j.at[:, 2].get(),
+                             r.at[:, 1].get() * ft_j.at[:, 0].get() - r.at[:, 0].get() * ft_j.at[:, 1].get()])
+
+        epsrdtj = jnp.array([r.at[:, 2].get() * ft_j.at[:, 4].get() - r.at[:, 1].get() * ft_j.at[:, 5].get(),
+                            -r.at[:, 2].get() * ft_j.at[:, 3].get() + r.at[:, 0].get() * ft_j.at[:, 5].get(),
+                             r.at[:, 1].get() * ft_j.at[:, 3].get() - r.at[:, 0].get() * ft_j.at[:, 4].get()])
+        
+        Sdri = jnp.array([s_i.at[0,0,:].get()*r.at[:,0].get()+s_i.at[0,1,:].get()*r.at[:,1].get()+s_i.at[0,2,:].get()*r.at[:,2].get(),
+                          s_i.at[1,0,:].get()*r.at[:,0].get()+s_i.at[1,1,:].get()*r.at[:,1].get()+s_i.at[1,2,:].get()*r.at[:,2].get(), 
+                          s_i.at[2,0,:].get()*r.at[:,0].get()+s_i.at[2,1,:].get()*r.at[:,1].get()+s_i.at[2,2,:].get()*r.at[:,2].get()])
+
+        Sdrj = jnp.array([s_j.at[0,0,:].get()*r.at[:,0].get()+s_j.at[0,1,:].get()*r.at[:,1].get()+s_j.at[0,2,:].get()*r.at[:,2].get(),
+                          s_j.at[1,0,:].get()*r.at[:,0].get()+s_j.at[1,1,:].get()*r.at[:,1].get()+s_j.at[1,2,:].get()*r.at[:,2].get(), 
+                          s_j.at[2,0,:].get()*r.at[:,0].get()+s_j.at[2,1,:].get()*r.at[:,1].get()+s_j.at[2,2,:].get()*r.at[:,2].get()])
+
+
+        rdSdri = r.at[:, 0].get() * Sdri.at[0].get() + r.at[:, 1].get() * Sdri.at[1].get() + r.at[:, 2].get() * Sdri.at[2].get()
+        rdSdrj = r.at[:, 0].get() * Sdrj.at[0].get() + r.at[:, 1].get() * Sdrj.at[1].get() + r.at[:, 2].get() * Sdrj.at[2].get()
+
+        
+        epsrdSdri = jnp.array([epsr[0,0,:]*Sdri[0,:]+epsr[0,1,:]*Sdri[1,:]+epsr[0,2,:]*Sdri[2,:],
+                               epsr[1,0,:]*Sdri[0,:]+epsr[1,1,:]*Sdri[1,:]+epsr[1,2,:]*Sdri[2,:],
+                               epsr[2,0,:]*Sdri[0,:]+epsr[2,1,:]*Sdri[1,:]+epsr[2,2,:]*Sdri[2,:]])
+        epsrdSdrj = jnp.array([epsr[0,0,:]*Sdrj[0,:]+epsr[0,1,:]*Sdrj[1,:]+epsr[0,2,:]*Sdrj[2,:],
+                               epsr[1,0,:]*Sdrj[0,:]+epsr[1,1,:]*Sdrj[1,:]+epsr[1,2,:]*Sdrj[2,:],
+                               epsr[2,0,:]*Sdrj[0,:]+epsr[2,1,:]*Sdrj[1,:]+epsr[2,2,:]*Sdrj[2,:]])
+        
+        xa12 = mobil_scal[0]; ya12 = mobil_scal[1]
+        yb12 = mobil_scal[2]; 
+        xc12 = mobil_scal[3]; yc12 = mobil_scal[4]
+        xm12 = mobil_scal[5]; ym12 = mobil_scal[6]; zm12 = mobil_scal[7]
+        xg12 = mobil_scal[8]; yg12 = mobil_scal[9]
+        yh12 = mobil_scal[10]; 
+        n_pairs = int(N*(N-1)/2)
+        
+        #normalize self terms (avoid double counting)
+        normaliz_factor = jnp.where(N>1, N-1, 1)
+        
+        #M_UF * F
+        
+        # Compute the contributions to the force for particles i (Fi = A11*Ui + A12*Uj + BT11*Wi + BT12*Wj)
+        u = (  (jnp.ones(n_pairs)).at[:, None].get() * (ft_i.at[:, :3].get() / normaliz_factor)
+              + (xa12 - ya12).at[:, None].get() * rdfj.at[:, None].get() * r 
+              + ya12.at[:, None].get() * ft_j.at[:, :3].get()
+              + (-yb12).at[:, None].get() * (-epsrdtj.T)
+              )
+        velocities = velocities.at[indices_i, :3].add(u)
+        # Compute the contributions to the force for particles j (Fj = A11*Uj + A12*Ui + BT11*Wj + BT12*Wi)
+        u = (  (jnp.ones(n_pairs)).at[:, None].get() * (ft_j.at[:, :3].get() / normaliz_factor)
+              + (xa12 - ya12).at[:, None].get() * rdfi.at[:, None].get() * r 
+              + ya12.at[:, None].get() * ft_i.at[:, :3].get()
+              + (-yb12).at[:, None].get() * ( epsrdti.T)
+              )
+        velocities = velocities.at[indices_j, :3].add(u)
+        # Compute the contributions to the torque for particles i (Li = B11*Ui + B12*Uj + C11*Wi + C12*Wj)
+        w = (  (3/4*jnp.ones(n_pairs)).at[:, None].get() * (ft_i.at[:, 3:].get() / normaliz_factor)
+              + yb12.at[:, None].get() * epsrdfj.T
+              + (xc12 - yc12).at[:, None].get() * rdtj.at[:, None].get() * r
+              + yc12.at[:, None].get() * ft_j.at[:, 3:].get()
+               )
+        velocities = velocities.at[indices_i, 3:].add(w)
+        # Compute the contributions to the torque for particles j (Lj = B11*Uj + B12*Ui + C11*Wj + C12*Wi)
+        w = ( (3/4*jnp.ones(n_pairs)).at[:, None].get() *(ft_j.at[:, 3:].get() / normaliz_factor)
+              - yb12.at[:, None].get() * epsrdfi.T 
+              + (xc12 - yc12).at[:, None].get() * rdti.at[:, None].get() * r
+              + yc12.at[:, None].get() * ft_i.at[:, 3:].get()
+               )
+        velocities = velocities.at[indices_j, 3:].add(w)
+
+        #M_US * S 
+        
+        u = (
+            ((-xg12) - 2.0*(-yg12)).at[:, None].get() * (rdSdrj.at[:, None].get()) * r
+                + 2.*(-yg12).at[:, None].get() * (Sdrj.T)
+                )
+        w = yh12.at[:, None].get() * (2.0 * epsrdSdrj.T)
+
+        velocities = velocities.at[indices_i, :3].add(u)
+        velocities = velocities.at[indices_i, 3:].add(w)
+
+        u = (
+            ((-xg12) - 2.0*(-yg12)).at[:, None].get() * (rdSdri.at[:, None].get()) * (-r)
+                + 2.*(-yg12).at[:, None].get() * (-Sdri.T)
+              )
+        w = yh12.at[:, None].get() * (2.0 * epsrdSdri.T)
+
+        velocities = velocities.at[indices_j, :3].add(u)
+        velocities = velocities.at[indices_j, 3:].add(w)
+        
+        # #M_EF * F
+        #translational part
+        
+        #strain_xx component
+        strain_xx_i =((
+            + xg12 * (r[:, 0]*r[:, 0] - 1./3.) * rdfj
+            + yg12 * (  2 * ft_j[:, 0] * r[:, 0]
+                      - 2. * r[:, 0] * r[:, 0] * rdfj)))
+        #strain_xy component
+        strain_xy_i =((
+            + xg12 * (r[:, 0]*r[:, 1]) * rdfj
+            + yg12 * (ft_j[:, 0] * r[:, 1] 
+                      + r[:, 0] * ft_j[:, 1] 
+                      - 2. * r[:, 0] * r[:, 1] * rdfj)))
+        #strain_xz component
+        strain_xz_i = ((
+            + xg12 * (r[:, 0]*r[:, 2]) * rdfj
+            + yg12 * (ft_j[:, 0] * r[:, 2] 
+                      + r[:, 0] * ft_j[:, 2]
+                      - 2. * r[:, 0] * r[:, 2] * rdfj)))
+        #strain_yz component
+        strain_yz_i = ((
+            + xg12 * (r[:, 1]*r[:, 2]) * rdfj
+            + yg12 * (ft_j[:, 1] * r[:, 2] 
+                      + r[:, 1] * ft_j[:, 2]
+                      - 2. * r[:, 1] * r[:, 2] * rdfj)))
+        #strain_yy component
+        strain_yy_i = ((
+            + xg12 * (r[:, 1]*r[:, 1] - 1./3.) * rdfj
+            + yg12 * (  2 * ft_j[:, 1] * r[:, 1] 
+                      - 2. * r[:, 1] * r[:, 1] * rdfj)))
+        #compute strain for particles j
+        #strain_xx component
+        strain_xx_j = ((
+            + xg12 * (r[:, 0]*r[:, 0] - 1./3.) * (-rdfi)
+            + yg12 * (  2. *ft_i[:, 0] * (-r[:, 0])  
+                      - 2. * r[:, 0] * r[:, 0] * (-rdfi))))
+        #strain_xy component
+        strain_xy_j = ((
+            + xg12 * (r[:, 0]*r[:, 1]) * (-rdfi)
+            + yg12 * ( ft_i[:, 0] * (-r[:, 1]) 
+                      + (-r[:, 0]) * ft_i[:, 1]
+                      - 2. * r[:, 0] * r[:, 1] * (-rdfi))))
+        #strain_xz component
+        strain_xz_j = ((
+            + xg12 * (r[:, 0]*r[:, 2]) * (-rdfi)
+            + yg12 * (ft_i[:, 0] * (-r[:, 2]) 
+                      + (-r[:, 0]) * ft_i[:, 2] 
+                      - 2. * r[:, 0] * r[:, 2] * (-rdfi))))
+        #strain_yz component
+        strain_yz_j = ((
+            + xg12 * (r[:, 1]*r[:, 2]) * (-rdfi)
+            + yg12 * (ft_i[:, 1] * (-r[:, 2])
+                      + (-r[:, 1]) * ft_i[:, 2]
+                      - 2. * r[:, 1] * r[:, 2] * (-rdfi))))
+        #strain_yy component
+        strain_yy_j = ((
+            + xg12 * (r[:, 1]*r[:, 1] - 1./3.) * (-rdfi)
+            + yg12 * (  2. * ft_i[:, 1] * (-r[:, 1])
+                      - 2. * r[:, 1]    *  r[:, 1] * (-rdfi))))
+        
+        #rotational part
+        
+        #compute strain for particles i
+        strain_xx_i += ((
+            yh12 * (r[:, 0] * epsrdtj[0] + epsrdtj[0] * r[:, 0]))
+        )
+        strain_xy_i += ((
+            yh12 * (r[:, 0] * epsrdtj[1] + epsrdtj[0] * r[:, 1]))
+        )
+        strain_xz_i += ((
+            yh12 * (r[:, 0] * epsrdtj[2] + epsrdtj[0] * r[:, 2]))
+        )
+        strain_yz_i +=((
+            yh12 * (r[:, 1] * epsrdtj[2] + epsrdtj[1] * r[:, 2]))
+        )
+        strain_yy_i += ((
+            yh12 * (r[:, 1] * epsrdtj[1] + epsrdtj[1] * r[:, 1]))
+        )
+
+        #compute strain for particles j
+        strain_xx_j += ((
+            yh12 * (r[:, 0] * epsrdti[0] + epsrdti[0] * r[:, 0]))
+        )
+        strain_xy_j += ((
+            yh12 * (r[:, 0] * epsrdti[1] + epsrdti[0] * r[:, 1]))
+        )
+        strain_xz_j += ((
+            yh12 * (r[:, 0] * epsrdti[2] + epsrdti[0] * r[:, 2]))
+        )
+        strain_yz_j += ((
+            yh12 * (r[:, 1] * epsrdti[2] + epsrdti[1] * r[:, 2]))
+        )
+        strain_yy_j += ((
+            yh12 * (r[:, 1] * epsrdti[1] + epsrdti[1] * r[:, 1]))
+        )
+
+        strain = strain.at[indices_i, 0].add( (2.*strain_xx_i + strain_yy_i) )  
+        strain = strain.at[indices_i, 1].add(2. * strain_xy_i)
+        strain = strain.at[indices_i, 2].add(2. * strain_xz_i)
+        strain = strain.at[indices_i, 3].add(2. * strain_yz_i)
+        strain = strain.at[indices_i, 4].add( (strain_xx_i + 2. * strain_yy_i) ) 
+        
+        strain = strain.at[indices_j, 0].add( (2.*strain_xx_j + strain_yy_j) ) 
+        strain = strain.at[indices_j, 1].add(2. * strain_xy_j)
+        strain = strain.at[indices_j, 2].add(2. * strain_xz_j)
+        strain = strain.at[indices_j, 3].add(2. * strain_yz_j)
+        strain = strain.at[indices_j, 4].add( (strain_xx_j + 2. * strain_yy_j) ) 
+
+        #M_ES * S 
+
+        #compute strain for particles i
+        #strain_xx component
+        strain_xx_i = ((
+              9/10*jnp.ones(n_pairs) * ( s_i[0,0,:]) / normaliz_factor 
+            + 1.5*xm12 * (  r[:, 0]*r[:, 0] - 1./3.) * rdSdrj
+            + 0.5*ym12 * (  4.*r[:, 0]*Sdrj[0] 
+                          - 4.*rdSdrj*r[:, 0]*r[:, 0])
+            + 0.5*zm12 * (  2.*s_j[0,0,:] 
+                          + (1.0 + r[:, 0]*r[:, 0]) * rdSdrj 
+                          - 4.*r[:, 0]*Sdrj[0])
+            ))
+        strain_xx_j = ((
+            9/10*jnp.ones(n_pairs) * (s_j[0,0,:]) / normaliz_factor
+            + 1.5*xm12 * (r[:, 0]*r[:, 0] - 1./3.) * rdSdri
+            + 0.5*ym12 * (  4.*r[:, 0]*Sdri[0]
+                          - 4.*rdSdri*r[:, 0]*r[:, 0])
+            + 0.5*zm12 * (2.*s_i[0,0,:] 
+                          + (1.0 + r[:, 0]*r[:, 0])*rdSdri
+                          - 4.*r[:, 0]*Sdri[0])
+            ))
+        
+        #strain_xy component
+        strain_xy_i = ((
+              9/10*jnp.ones(n_pairs) * ( s_i[0,1,:] ) / normaliz_factor
+            + 1.5*xm12 * (  r[:, 0]*r[:, 1]) * rdSdrj
+            + 0.5*ym12 * (  2.*r[:, 0]*Sdrj[1] 
+                          + 2.*r[:, 1]*Sdrj[0]
+                            - 4.*rdSdrj*r[:, 0]*r[:, 1])
+            + 0.5*zm12 * (2.*s_j[0,1,:] 
+                          + (r[:, 0]*r[:, 1])* rdSdrj 
+                          - 2.*r[:, 0]*Sdrj[1] 
+                            - 2.*r[:, 1]*Sdrj[0])
+            ))
+        strain_xy_j = ((
+            9/10*jnp.ones(n_pairs) * (s_j[0,1,:]) / normaliz_factor
+            + 1.5*xm12 * (r[:, 0]*r[:, 1]) * rdSdri
+            + 0.5*ym12 * (  2.*r[:, 0]*Sdri[1] 
+                            + 2.*r[:, 1]*Sdri[0]
+                            - 4.*rdSdri*r[:, 0]*r[:, 1])
+            + 0.5*zm12 * (2.*s_i[0,1,:] 
+                          + (r[:, 0]*r[:, 1])*rdSdri 
+                          - 2.*r[:, 0]*Sdri[1] 
+                          - 2.*r[:, 1]*Sdri[0])
+            ))
+        
+        #strain_xz component
+        strain_xz_i = ((
+            9/10*jnp.ones(n_pairs) * (s_i[0,2,:]) / normaliz_factor
+            + 1.5*xm12 * (r[:, 0]*r[:, 2]) * rdSdrj
+            + 0.5*ym12 * (  2.*r[:, 0]*Sdrj[2] 
+                            + 2.*r[:, 2]*Sdrj[0]
+                          - 4.*rdSdrj*r[:, 0]*r[:, 2])
+            + 0.5*zm12 * (  2.*s_j[0,2,:] 
+                          + (r[:, 0]*r[:, 2]) * rdSdrj
+                          - 2.*r[:, 0]*Sdrj[2]
+                          - 2.*r[:, 2]*Sdrj[0])
+            ))
+        strain_xz_j = ((
+            9/10*jnp.ones(n_pairs) * (s_j[0,2,:])  / normaliz_factor
+            + 1.5*xm12 * (r[:, 0]*r[:, 2]) * rdSdri
+            + 0.5*ym12 * (  2.*r[:, 0]*Sdri[2] 
+                          + 2.*r[:, 2]*Sdri[0]
+                          - 4.*rdSdri*r[:, 0]*r[:, 2])
+            + 0.5*zm12 * (2.*s_i[0,2,:] 
+                          + (r[:, 0]*r[:, 2])*rdSdri
+                          - 2.*r[:, 0]*Sdri[2]
+                          - 2.*r[:, 2]*Sdri[0])
+            ))
+        
+        
+        #strain_yz component
+        strain_yz_i = ((
+            9/10*jnp.ones(n_pairs) * (s_i[1,2,:]) / normaliz_factor
+            + 1.5*xm12 * (r[:, 1]*r[:, 2]) * rdSdrj
+            + 0.5*ym12 * (  2.*r[:, 1]*Sdrj[2] 
+                          + 2.*r[:, 2]*Sdrj[1]
+                          - 4.*rdSdrj*r[:, 1]*r[:, 2])
+            + 0.5*zm12 * (2.*s_j[1,2,:] 
+                          + (r[:, 1]*r[:, 2])*rdSdrj
+                          - 2.*r[:, 1]*Sdrj[2]
+                            - 2.*r[:, 2]*Sdrj[1])
+            ))
+        strain_yz_j = ((
+            9/10*jnp.ones(n_pairs) * (s_j[1,2,:]) / normaliz_factor
+            + 1.5*xm12 * (r[:, 1]*r[:, 2]) * rdSdri
+            + 0.5*ym12 * (  2.*r[:, 1]*Sdri[2] 
+                          + 2.*r[:, 2]*Sdri[1]
+                          - 4.*rdSdri*r[:, 1]*r[:, 2])
+            + 0.5*zm12 * (2.*s_i[1,2,:] 
+                          + (r[:, 1]*r[:, 2])*rdSdri
+                          - 2.*r[:, 1]*Sdri[2] 
+                          - 2.*r[:, 2]*Sdri[1])
+            ))
+        
+        #strain_yy component
+        strain_yy_i = ((
+            9/10*jnp.ones(n_pairs) * (s_i[1,1,:]) / normaliz_factor
+            + 1.5*xm12 * (  r[:, 1]*r[:, 1] - 1./3.) * rdSdrj
+            + 0.5*ym12 * (  4.*r[:, 1]*Sdrj[1] 
+                          - 4.*rdSdrj*r[:, 1]*r[:, 1])
+            + 0.5*zm12 * (  2.*s_j[1,1,:] 
+                          + (1.0 + r[:, 1]*r[:, 1]) * rdSdrj 
+                          - 4.*r[:, 1]*Sdrj[1] )
+            ))
+        strain_yy_j = ((
+            9/10*jnp.ones(n_pairs) * (s_j[1,1,:]) / normaliz_factor
+            + 1.5*xm12 * (r[:, 1]*r[:, 1] - 1./3.) * rdSdri
+            + 0.5*ym12 * (  4.*r[:, 1]*Sdri[1] 
+                          - 4.*rdSdri*r[:, 1]*r[:, 1])
+            + 0.5*zm12 * (2.*s_i[1,1,:] 
+                          + (1.0 + r[:, 1]*r[:, 1])*rdSdri 
+                          - 4.*r[:, 1]*Sdri[1])
+            ))
+        
+        strain = strain.at[indices_i, 0].add( (2.*strain_xx_i + strain_yy_i) )  
+        strain = strain.at[indices_i, 1].add(2. * strain_xy_i)
+        strain = strain.at[indices_i, 2].add(2. * strain_xz_i)
+        strain = strain.at[indices_i, 3].add(2. * strain_yz_i)
+        strain = strain.at[indices_i, 4].add( (strain_xx_i + 2. * strain_yy_i) ) 
+        
+        strain = strain.at[indices_j, 0].add( (2.*strain_xx_j + strain_yy_j) ) 
+        strain = strain.at[indices_j, 1].add(2. * strain_xy_j)
+        strain = strain.at[indices_j, 2].add(2. * strain_xz_j)
+        strain = strain.at[indices_j, 3].add(2. * strain_yz_j)
+        strain = strain.at[indices_j, 4].add( (strain_xx_j + 2. * strain_yy_j) ) 
+
+        velocities = jnp.ravel(velocities)
+        strain = jnp.ravel(strain)
+        gen_vel = jnp.zeros(11*N)
+        #mobility is build to return the particle velocity (instead of -velocity)
+        #this is because of the input 'r' and 'forces/torques' signs
+        gen_vel = gen_vel.at[:6*N].set(-velocities)
+        gen_vel = gen_vel.at[6*N:].set(strain)
+        
+        return gen_vel
+    
+    def helper_compute_M12psi(
+            n_iter_Lanczos_ff: int, 
+            tridiagonal: ArrayLike, 
+            vectors: ArrayLike,
+            norm: float) -> ArrayLike:
+        
+        """
+        
+        Parameters
+        ----------
+        n_iter_Lanczos_ff:
+            Number of Lanczos iteration performed
+        tridiagonal:
+            Tridiagonal matrix obtained from Lanczos decomposition
+        vectors:
+            Vectors spanning Krylov subspace, obtained from Lanczos decomposition
+        norm:
+            Norm of initial random array
+
+        Returns
+        -------
+        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+        
+        """ 
+        
+        betae1 = jnp.zeros(n_iter_Lanczos_ff)
+        betae1 = betae1.at[0].add(1*norm)
+        
+        a,b = jnp.linalg.eigh(tridiagonal)
+        a = jnp.where( a<0 , 0., a)
+        a = jnp.dot((jnp.dot(b,jnp.diag(jnp.sqrt(a)))),b.T)
+        return jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+    
+    
+    r = -r #change sign of r go get correct output from helper_Mpsi (do this only once)
+    
+    random_array_real = (2.*random_array_real-1.)*jnp.sqrt(3.)
+    trid, vectors = lanczos.lanczos_alg(helper_Mpsi, 11*N, n_iter_Lanczos_ff, random_array_real)
+    
+    psinorm = jnp.linalg.norm(random_array_real)
+    M12_psi_old = helper_compute_M12psi((n_iter_Lanczos_ff-1), trid[:(n_iter_Lanczos_ff-1),:(n_iter_Lanczos_ff-1)], vectors[:(n_iter_Lanczos_ff-1),:],psinorm)
+    M12_psi = helper_compute_M12psi(n_iter_Lanczos_ff, trid, vectors,psinorm)
+    buff = jnp.linalg.norm(M12_psi)
+    stepnorm = jnp.linalg.norm(M12_psi-M12_psi_old)
+    stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)
+    
+    #combine w_lin_velocities, w_ang_vel_and_strain
+    lin_vel = M12_psi.at[:3*N].get()
+    ang_vel_and_strain = M12_psi.at[3*N:].get()
+    
+    r = -r #restore sign of r
+    
     return lin_vel, ang_vel_and_strain, stepnorm, trid
 
 @partial(jit, static_argnums=[0,1,2,3,4])

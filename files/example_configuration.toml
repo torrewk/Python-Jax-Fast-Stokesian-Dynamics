@@ -9,6 +9,7 @@ init_seed = 7238659235 #seed to generate initial configuration on non-overlappin
 
 [physics]
 dynamics_type = "stokesian"  # Options: brownian, rpy, stokesian
+boundary_conditions = "periodic"  # Options: periodic, open
 kT = 0.005305165 # 1/6pi (resulting brownian time = 60pi)
 interaction_strength = 0.0 #in units of kBT
 interaction_cutoff = 0.0 #in units of particle radius

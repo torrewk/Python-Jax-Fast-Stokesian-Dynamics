@@ -1,13 +1,7 @@
-import os
 from functools import partial
 from jax.typing import ArrayLike
 import jax.numpy as jnp
 from jax import jit, Array
-from jax.config import config
-
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false' # avoid JAX allocating most of the GPU memory even if not needed
-config.update("jax_enable_x64", False) # disable double precision
-
 
 @partial(jit, static_argnums=[0])
 def sumAppliedForces(
@@ -260,8 +254,4 @@ def sumAppliedForces(
     saddle_b = saddle_b.at[(11*N+4)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+4)::6].get(), saddle_b.at[(11*N+4)::6].get()*3/4)) 
     saddle_b = saddle_b.at[(11*N+5)::6].set(jnp.where(HIs_flag>0, saddle_b.at[(11*N+5)::6].get(), saddle_b.at[(11*N+5)::6].get()*3/4)) 
 
-
     return saddle_b
-
-
-

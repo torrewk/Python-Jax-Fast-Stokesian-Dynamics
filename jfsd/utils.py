@@ -2,11 +2,11 @@ import math
 import numpy as np
 from functools import partial
 import jax.numpy as jnp
-from jax import jit, dtypes, Array
+from jax import jit, dtypes, Array, random
 from jax import random as jrandom
 from jfsd import jaxmd_partition as partition
 from jfsd import jaxmd_space as space
-from jfsd import thermal
+from jfsd import thermal, ewaldTables, shear
 from jax.typing import ArrayLike
 from typing import Callable, Any
 import time
@@ -298,7 +298,6 @@ def initialize_single_neighborlist(
                                               capacity_multiplier=1.1,
                                               format=partition.NeighborListFormat.OrderedSparse,
                                               disable_cell_list=True)
-    
     return neighbor_fn
 
 def allocate_nlist(
@@ -449,10 +448,8 @@ def create_hardsphere_configuration(
     phi_eff = N/(L*L*L)*(sigma*sigma*sigma)*np.pi/6
     phi_actual = ((np.pi/6) * (2*2*2) * N) / (L*L*L)
     brow_time = sigma*sigma / (4*T)
-    if(phi_actual>0.45):
-        dt = brow_time / (1e5)
-    else:
-        dt = brow_time / (1e4)    
+    
+    dt = brow_time / (1e5)    
     
     Nsteps = int(brow_time / dt)
     key, random_coord = generate_random_array(key, (N*3))  
@@ -471,8 +468,6 @@ def create_hardsphere_configuration(
     nl = np.array(nbrs.idx)
 
     overlaps = check_overlap(displacements,2.002)
-    # buffer = (displacements[nl[0, :],nl[1, :],:])
-    # buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
     k = 30*np.sqrt(6*T/(sigma*sigma*dt))  # spring constant
     
     if(phi_eff > 0.6754803226762013):
@@ -516,10 +511,7 @@ def create_hardsphere_configuration(
                 nl = np.array(nbrs.idx)
                 displacements = new_displacements
 
-        # buffer = (displacements[nl[0, :],nl[1, :],:])
-        # buffer = jnp.sqrt(buffer[:,0]*buffer[:,0]+buffer[:,1]*buffer[:,1]+buffer[:,2]*buffer[:,2])
-        overlaps = check_overlap(displacements,2.)
-        # print("Overlaps after some thermalization: ", overlaps, 'k and dt are  ',k, dt)
+        overlaps = check_overlap(displacements,2.002)
         if((time.time() - start_time) > 1800): #interrupt if too computationally expensive
             raise ValueError(
                     "Creation of initial configuration failed. Abort!")
@@ -867,12 +859,192 @@ def precompute(
             r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
             r_lub, indices_i_lub, indices_j_lub,ResFunc)
 
-@partial(jit, static_argnums=[6, 16])
+@jit
+def precompute_open(
+        positions: ArrayLike, 
+        nl_ff: ArrayLike, 
+        nl_lub: ArrayLike, 
+        displacements_vector_matrix: ArrayLike, 
+        ResTable_min: float, 
+        ResTable_dr: float, 
+        ResTable_dist: ArrayLike, 
+        ResTable_vals: ArrayLike,
+        alpha: float,
+        h0: float) -> tuple[Array,Array,Array,Array,Array,Array,Array,Array
+                            ,Array,Array,Array,Array,Array,Array,Array,
+                            Array,Array,Array,
+                            tuple[Array,Array,Array,Array,Array,Array,Array,Array,
+                                  Array,Array,Array,Array,Array,Array,Array,Array,
+                                  Array,Array,Array,Array,Array,Array,Array]]:
+    """Compute all the necessary quantities needed to update the particle position at a given timestep.
+
+    Parameters
+    ----------
+    positions: (float)
+        Array (N,3) of current particles positions
+    gaussian_grid_spacing: (float)
+        Array (,gaussP*gaussP*gaussP) containing distances from support center to each gridpoint in the gaussian support  
+    nl_ff: (int)
+        Array (2,n_pairs_ff) containing far-field neighborlist indices
+    nl_lub: (int)
+        Array (2,n_pairs_nf) containing near-field neighborlist indices
+    displacements_vector_matrix: (float)
+        Array (N,N,3) of current displacements between particles, with each element a vector
+    ResTable_min: (float)
+        Minimum distance resolved for lubrication interactions
+    ResTable_dr: (float)
+        Resistance table discretization parameter
+    ResTable_dist: (float)
+        Array (,1000) containing tabulated distances for resistance functions
+    ResTable_vals: (float)
+        Array (,1000*22) containing tabulated resistance scalar functions values
+    alpha_friction: (float)
+        strength of hydrodynamic friction
+    h0_friction: (float)
+        range of hydrodynamic friction
+        
+    Returns
+    -------
+    all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
+     r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
+     r_lub, indices_i_lub, indices_j_lub,ResFunc,mobil_scalar
+
+    """ 
+    #Real Space (far-field) calculation quantities
+    indices_i = nl_ff[0, :]  # Pair indices (i<j always)
+    indices_j = nl_ff[1, :]
+    # array of vectors from particles i to j (size = npairs)
+    R = displacements_vector_matrix.at[indices_i, indices_j].get()
+    dist = space.distance(R)  # distances between particles i and j
+    r = -R / dist.at[:, None].get()  # unit vector from particle j to i
+    
+    #compute mobility scalar functions in open boundaries (this should be moved to a separate module, and performed in double precision)
+    xa12 =  3 / (2*dist) - 1 / (dist*dist*dist)
+    ya12 = 3 / (4*dist) + 1 / (2*dist*dist*dist)
+    yb12 = -3/(4*dist*dist)
+    xc12 = 3 / (4*dist*dist*dist)
+    yc12 = -3 / (8*dist*dist*dist)    
+    xm12 = -9/(2*dist*dist*dist) + 54/(5*dist*dist*dist*dist*dist)
+    ym12 = 9/(4*dist*dist*dist) - 36/(5*dist*dist*dist*dist*dist)
+    zm12 = 9/(5*dist*dist*dist*dist*dist)
+    xg12 = 9 / (4*dist*dist) - 18 / (5*dist*dist*dist*dist)
+    yg12 = 6/(5*dist*dist*dist*dist) 
+    yh12 = -9/(8*dist*dist*dist)
+    mobil_scalar = [xa12,ya12,yb12,xc12,yc12,xm12,ym12,zm12,xg12,yg12,yh12]
+    
+    #Lubrication calculation quantities
+    indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
+    indices_j_lub = nl_lub[1, :]
+    # array of vectors from particle i to j (size = npairs)
+    R_lub = displacements_vector_matrix.at[nl_lub[0, :], nl_lub[1, :]].get()
+    dist_lub = space.distance(R_lub)  # distance between particle i and j
+    # unit vector from particle j to i
+    r_lub = R_lub / dist_lub.at[:, None].get()
+
+    # # Indices in resistance table
+    ind = (jnp.log10((dist_lub - 2.) / ResTable_min) / ResTable_dr)
+    ind = ind.astype(int)
+    dist_lub_lower = ResTable_dist.at[ind].get()
+    dist_lub_upper = ResTable_dist.at[ind+1].get()
+    # # Linear interpolation of the Table values
+    fac_lub = jnp.where(dist_lub_upper - dist_lub_lower > 0.,
+                        (dist_lub - dist_lub_lower) / (dist_lub_upper - dist_lub_lower), 0.)
+
+    XA11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+0] + (
+        ResTable_vals[22*(ind+1)+0]-ResTable_vals[22*(ind)+0]) * fac_lub), ResTable_vals[0])
+
+    XA12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+1] + (
+        ResTable_vals[22*(ind+1)+1]-ResTable_vals[22*(ind)+1]) * fac_lub), ResTable_vals[1])
+
+    YA11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+2] + (
+        ResTable_vals[22*(ind+1)+2]-ResTable_vals[22*(ind)+2]) * fac_lub), ResTable_vals[2])
+
+    YA12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+3] + (
+        ResTable_vals[22*(ind+1)+3]-ResTable_vals[22*(ind)+3]) * fac_lub), ResTable_vals[3])
+
+    YB11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+4] + (
+        ResTable_vals[22*(ind+1)+4]-ResTable_vals[22*(ind)+4]) * fac_lub), ResTable_vals[4])
+
+    YB12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+5] + (
+        ResTable_vals[22*(ind+1)+5]-ResTable_vals[22*(ind)+5]) * fac_lub), ResTable_vals[5])
+
+    XC11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+6] + (
+        ResTable_vals[22*(ind+1)+6]-ResTable_vals[22*(ind)+6]) * fac_lub), ResTable_vals[6])
+
+    XC12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+7] + (
+        ResTable_vals[22*(ind+1)+7]-ResTable_vals[22*(ind)+7]) * fac_lub), ResTable_vals[7])
+
+    YC11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+8] + (
+        ResTable_vals[22*(ind+1)+8]-ResTable_vals[22*(ind)+8]) * fac_lub), ResTable_vals[8])
+
+    YC12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+9] + (
+        ResTable_vals[22*(ind+1)+9]-ResTable_vals[22*(ind)+9]) * fac_lub), ResTable_vals[9])
+
+    YB21 = -YB12  # symmetry condition
+
+    XG11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+10] + (
+        ResTable_vals[22*(ind+1)+10]-ResTable_vals[22*(ind)+10]) * fac_lub), ResTable_vals[10])
+
+    XG12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+11] + (
+        ResTable_vals[22*(ind+1)+11]-ResTable_vals[22*(ind)+11]) * fac_lub), ResTable_vals[11])
+
+    YG11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+12] + (
+        ResTable_vals[22*(ind+1)+12]-ResTable_vals[22*(ind)+12]) * fac_lub), ResTable_vals[12])
+
+    YG12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+13] + (
+        ResTable_vals[22*(ind+1)+13]-ResTable_vals[22*(ind)+13]) * fac_lub), ResTable_vals[13])
+
+    YH11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+14] + (
+        ResTable_vals[22*(ind+1)+14]-ResTable_vals[22*(ind)+14]) * fac_lub), ResTable_vals[14])
+
+    YH12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+15] + (
+        ResTable_vals[22*(ind+1)+15]-ResTable_vals[22*(ind)+15]) * fac_lub), ResTable_vals[15])
+
+    XM11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+16] + (
+        ResTable_vals[22*(ind+1)+16]-ResTable_vals[22*(ind)+16]) * fac_lub), ResTable_vals[16])
+
+    XM12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+17] + (
+        ResTable_vals[22*(ind+1)+17]-ResTable_vals[22*(ind)+17]) * fac_lub), ResTable_vals[17])
+
+    YM11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+18] + (
+        ResTable_vals[22*(ind+1)+18]-ResTable_vals[22*(ind)+18]) * fac_lub), ResTable_vals[18])
+
+    YM12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+19] + (
+        ResTable_vals[22*(ind+1)+19]-ResTable_vals[22*(ind)+19]) * fac_lub), ResTable_vals[19])
+
+    ZM11 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+20] + (
+        ResTable_vals[22*(ind+1)+20]-ResTable_vals[22*(ind)+20]) * fac_lub), ResTable_vals[20])
+
+    ZM12 = jnp.where(dist_lub >= 2+ResTable_min, (ResTable_vals[22*(ind)+21] + (
+        ResTable_vals[22*(ind+1)+21]-ResTable_vals[22*(ind)+21]) * fac_lub), ResTable_vals[21])
+
+    ResFunc = jnp.array([XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12, YB21,
+                         XG11, XG12, YG11, YG12, YH11, YH12, XM11, XM12, YM11, YM12, ZM11, ZM12])
+    
+    # If particles are not smooth, add o(1/surf_dist) terms to tangential modes of lubrication
+    # This mimics the presence of asperities at the particle surface.
+    # See https://arxiv.org/pdf/2203.06300 for more detail
+    alpha = jnp.array([alpha,alpha,alpha,alpha,alpha]) # set the friction coeff. for the 6 modes augmented
+    surf_dist = dist_lub - 2.
+    surf_dist_sqr = surf_dist * surf_dist
+    h02 = h0 * h0
+    h03 = h0 * h02
+    buffer = jnp.where(surf_dist <= h0, 2.0 / h03 * surf_dist_sqr - 3.0 / h02 * surf_dist + 1.0 / surf_dist, 0.)
+    
+    ResFunc = ResFunc.at[2,:].add(alpha[0]*buffer)
+    ResFunc = ResFunc.at[3,:].add(-alpha[1]*buffer)
+    ResFunc = ResFunc.at[4,:].add(-alpha[2]*buffer)
+    ResFunc = ResFunc.at[5,:].add(alpha[3]*buffer)
+    ResFunc = ResFunc.at[8,:].add(alpha[4]*buffer)
+    ResFunc = ResFunc.at[9,:].add(alpha[5]*buffer)
+
+    return (r,indices_i,indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunc,mobil_scalar)
+
+@partial(jit, static_argnums=[5, 15])
 def precomputeRPY(
         positions: ArrayLike, 
         gaussian_grid_spacing: ArrayLike, 
         nl_ff: ArrayLike, 
-        nl_lub: ArrayLike, 
         displacements_vector_matrix: ArrayLike, 
         tilt_factor: float,
         N: int, 
@@ -905,8 +1077,6 @@ def precomputeRPY(
         Array (,gaussP*gaussP*gaussP) containing distances from support center to each gridpoint in the gaussian support 
     nl_ff: (int)
         Array (2,n_pairs_ff) containing far-field neighborlist indices
-    nl_lub: (int)
-        Array (2,n_pairs_nf) containing near-field neighborlist indices
     displacements_vector_matrix: (float)
         Array (N,N,3) of current displacements between particles, with each element a vector
     tilt_factor: (float)
@@ -947,8 +1117,7 @@ def precomputeRPY(
     Returns
     -------
     all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
-     r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
-     indices_i_lub, indices_j_lub
+     r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3
 
     """ 
 
@@ -1023,15 +1192,54 @@ def precomputeRPY(
     h3 = tewaldC2m.at[:, 2].get() + (tewaldC2p.at[:, 2].get() -
                                      tewaldC2m.at[:, 2].get()) * fac_ff
 
-    ###################################################################################################################
-    #Lubrication calculation quantities
-    indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
-    indices_j_lub = nl_lub[1, :]
-    # array of vectors from particle i to j (size = npairs)
-
     return ((all_indices_x), (all_indices_y), (all_indices_z), gaussian_grid_spacing1, gaussian_grid_spacing2,
-            r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
-            indices_i_lub, indices_j_lub)
+            r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3)
+
+@jit
+def precomputeRPY_open(
+        positions: ArrayLike, 
+        nl_ff: ArrayLike, 
+        displacements_vector_matrix: ArrayLike, 
+        ) -> tuple[Array,Array,Array]:
+    
+    """Compute all the necessary quantities needed to update the particle position at a given timestep.
+
+    Parameters
+    ----------
+    positions: (float)
+        Array (N,3) of current particles positions 
+    nl_ff: (int)
+        Array (2,n_pairs_ff) containing far-field neighborlist indices
+    displacements_vector_matrix: (float)
+        Array (N,N,3) of current displacements between particles, with each element a vector
+    
+    Returns
+    -------
+    r, indices_i, indices_j,mobil_scalar
+
+    """     
+    indices_i = nl_ff[0, :]  # Pair indices (i<j always)
+    indices_j = nl_ff[1, :]
+    # array of vectors from particles i to j (size = npairs)
+    R = displacements_vector_matrix.at[indices_i, indices_j].get()
+    dist = space.distance(R)  # distances between particles i and j
+    r = -R / dist.at[:, None].get()  # unit vector from particle j to i
+    
+    #compute mobility scalar functions in open boundaries (this should be moved to a separate module, and performed in double precision)
+    xa12 =  3 / (2*dist) - 1 / (dist*dist*dist)
+    ya12 = 3 / (4*dist) + 1 / (2*dist*dist*dist)
+    yb12 = -3/(4*dist*dist)
+    xc12 = 3 / (4*dist*dist*dist)
+    yc12 = -3 / (8*dist*dist*dist)    
+    xm12 = -9/(2*dist*dist*dist) + 54/(5*dist*dist*dist*dist*dist)
+    ym12 = 9/(4*dist*dist*dist) - 36/(5*dist*dist*dist*dist*dist)
+    zm12 = 9/(5*dist*dist*dist*dist*dist)
+    xg12 = 9 / (4*dist*dist) - 18 / (5*dist*dist*dist*dist)
+    yg12 = 6/(5*dist*dist*dist*dist) 
+    yh12 = -9/(8*dist*dist*dist)
+    mobil_scalar = [xa12,ya12,yb12,xc12,yc12,xm12,ym12,zm12,xg12,yg12,yh12]
+    
+    return (r, indices_i, indices_j,mobil_scalar)
                                     
 @partial(jit, static_argnums=[3])
 def precomputeBD(
@@ -1067,7 +1275,6 @@ def precomputeBD(
      r, indices_i, indices_j
 
     """ 
-#######################################################################################################
     #Brownian Dynamics calculation quantities
     indices_i = nl[0, :]  # Pair indices (i<j always)
     indices_j = nl[1, :]
@@ -1076,9 +1283,128 @@ def precomputeBD(
     dist_lub = space.distance(R)  # distance between particle i and j
     # unit vector from particle j to i
     r = R / dist_lub.at[:, None].get()
-
     
-
     return (r, indices_i, indices_j)
 
+@partial(jit, static_argnums=[0])
+def compute_distinct_pairs(
+        N: int) -> ArrayLike:
+    """Generate list of distinct pairs of particles, and order it as a neighbor list.
 
+    Parameters
+    ----------
+    N: (int)
+        Number of particles in the system.
+        
+    Returns
+    -------
+    nl_ff 
+
+    """ 
+
+    return jnp.stack(jnp.triu_indices(N, 1), axis=1).T #creates indices
+
+def init_periodic_box(error,
+                      xi,
+                      Lx,Ly,Lz,
+                      ewald_cut,
+                      max_strain,
+                      xy,
+                      positions,
+                      N,
+                      T,
+                      seed_ffwave):
+    """Initialize quantities needed to perform hydrodynamic calculations with periodic boundary conditions
+
+    Parameters
+    ----------
+    xi: (float)
+        Ewald split parameter
+    Lx,Ly,Lz: (float)
+        Box size
+    ewald_cut: (float)
+        Cutoff for real-space hydrodynamics
+    max_strain: (float)
+        Max strain allowed by simulation
+    xy: (float)
+        Box strain
+    positions: (float)
+        Positions of particles
+    N: (float)
+        Number of particles
+    T: (float)
+        Temperature
+    seed_ffwave: (float)
+        Seed for thermal fluctuation in wave space
+        
+    Returns
+    -------
+    nl_ff 
+
+    """ 
+    # parameter needed to make Chol. decomposition of R_FU converge (initially to 1)
+    kmax = int(2.0 * jnp.sqrt(- jnp.log(error)) * xi) + 1  # Max wave number
+    xisq = xi * xi
+    # compute number of grid points in k space
+    Nx, Ny, Nz = Compute_k_gridpoint_number(kmax, Lx, Ly, Lz)
+    gridh = jnp.array([Lx, Ly, Lz]) / \
+        jnp.array([Nx, Ny, Nz])  # Set Grid Spacing
+    quadW = gridh[0] * gridh[1] * gridh[2]
+    # check that ewald_cut is small enough to avoid interaction with periodic images)
+    Check_ewald_cut(ewald_cut, Lx, Ly, Lz, error)
+    # check maximum eigenvalue of A'*A to scale support, P, for spreading on deformed grids
+    eta, gaussP = Check_max_shear(
+            gridh, xisq, Nx, Ny, Nz, max_strain, error)
+    prefac = (2.0 * xisq / jnp.pi / eta) * \
+            jnp.sqrt(2.0 * xisq / jnp.pi / eta)
+    expfac = 2.0 * xisq / eta
+    gaussPd2 = jnp.array(gaussP/2, int)
+    # get list of reciprocal space vectors, and scaling factor for the wave space calculation
+    gridk = shear.compute_sheared_grid(int(Nx), int(Ny), int(Nz), xy, Lx, Ly, Lz, eta, xisq)
+
+    # store the coefficients for the real space part of Ewald summation
+    # will precompute scaling factors for real space component of summation for a given discretization to speed up GPU calculations
+    # NOTE: Potential sensitivity of real space functions at small xi, tabulation computed in double prec., then truncated to single
+    ewald_dr = 0.001  # Distance resolution
+    ewald_n = ewald_cut / ewald_dr - 1  # Number of entries in tabulation
+    # factors needed to compute mobility self contribution
+    pi = jnp.pi  # pi
+    pi12 = jnp.sqrt(pi)  # square root of pi
+    a = 1.0  # radius
+    axi = a * xi  # a * xi
+    # compute mobility self contribution
+    m_self = jnp.zeros(2, float)
+    m_self = m_self.at[0].set(
+            (1 + 4*pi12*axi*math.erfc(2.*axi) - math.exp(-4.*(axi * axi)))/(4.*pi12*axi*a))
+    m_self = m_self.at[1].set((-3.*math.erfc(2.*a*xi)*math.pow(a, -3.))/10. - (3.*math.pow(a, -6.)*math.pow(pi, -0.5)*math.pow(xi, -3.))/80.
+                                  - (9.*math.pow(a, -4)*math.pow(pi, -0.5)
+                                     * math.pow(xi, -1))/40
+                                  + (3.*math.exp(-4 * math.pow(a, 2)*math.pow(xi, 2))*math.pow(a, -6)*math.pow(pi, -0.5)*math.pow(xi, -3)
+                                     * (1+10 * math.pow(a, 2)*math.pow(xi, 2))) / 80)
+    # create real space Ewald table
+    nR = int(ewald_n + 1)  # number of entries in ewald table
+    ewaldC1 = ewaldTables.Compute_real_space_ewald_table(nR, a, xi)  # this version uses numpy long float
+    ewaldC1 = jnp.array(ewaldC1)  # convert to single precision (32-bit)
+    
+    # precompute grid distances for FFT (same for each gaussian support)
+    gaussian_grid_spacing = Precompute_grid_distancing(
+        gaussP, gridh[0], xy, positions, N, Nx, Ny, Nz, Lx, Ly, Lz)
+    
+    # create indices list for spreading random forces on the wave space grid (far field brownian velocity, wave space calculation)
+    wave_bro_ind = wave_bro_nyind = 0.
+    if(T > 0):
+        (normal_indices_x, normal_indices_y, normal_indices_z,
+         normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z,
+         nyquist_indices_x, nyquist_indices_y, nyquist_indices_z) = thermal.Random_force_on_grid_indexing(Nx, Ny, Nz)
+    
+        #regroup indices in a unique array (this is done only once)
+        wave_bro_ind = np.zeros((len(normal_indices_x),2,3),int)
+        wave_bro_ind[:,0,0] = normal_indices_x; wave_bro_ind[:,0,1] = normal_indices_y; wave_bro_ind[:,0,2] = normal_indices_z 
+        wave_bro_ind[:,1,0] = normal_conj_indices_x; wave_bro_ind[:,1,1] = normal_conj_indices_y; wave_bro_ind[:,1,2] = normal_conj_indices_z
+        wave_bro_nyind = np.zeros((len(nyquist_indices_x),3),int)
+        wave_bro_nyind[:,0] = nyquist_indices_x; wave_bro_nyind[:,1] = nyquist_indices_y; wave_bro_nyind[:,2] = nyquist_indices_z
+        
+    # create RNG state for wave-space thermal fluctuations
+    key_ffwave = random.PRNGKey(seed_ffwave)
+    
+    return quadW,prefac,expfac,gaussPd2,gridk,gridh,gaussian_grid_spacing,key_ffwave,ewaldC1,m_self,Nx,Ny,Nz,gaussP,ewald_n,ewald_dr,eta,xisq,wave_bro_ind,wave_bro_nyind

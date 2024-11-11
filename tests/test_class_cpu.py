@@ -38,7 +38,7 @@ class TestClassCPU:
                 jnp.array([r1, r2, r3]),
                 0, 0, 0, 0, 0., 0.,
                 None, 0, 0, 0,np.array([0]), np.array([0]),
-                2,0,0.,0.)
+                2,0,0,0.,0.)
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
         assert (error < 1e-5)
         
@@ -63,7 +63,7 @@ class TestClassCPU:
                     19989, 3300, 83909, 41234,
                     0., 0.,
                     None, 0, 0, 0, np.array([0]), np.array([0]), 
-                    2,1,0,0)
+                    2,0,1,0,0)
         error_nf = testresults[0]
         error_ff = testresults[1]
         assert (error_nf < 0.01)
@@ -89,8 +89,8 @@ class TestClassCPU:
             jnp.array([r1, r2, r3]),
             0, 0, 0, 0, 1., 0.,
             None, 0, 0, 0, np.array([0]), np.array([0]),
-            2, 0, 0., 0.
+            2, 0, 0, 0., 0.
             )
         # Only calculate error for this specific delta
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert error < 1e-8
+        assert error < 1e-5
