@@ -24,6 +24,12 @@ def cli_main():
         default=None,
     )
     parser.add_argument(
+        "-s", "--start-configuration",
+        help="Provide a starting configuration of the particles.",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
         "-i", "--interactive",
         help="Set the parameters interactively with questions.",
         action="store_true",
@@ -43,7 +49,7 @@ def cli_main():
     else:
         config_fp = args.config
 
-    config = JfsdConfiguration.from_toml(config_fp)
+    config = JfsdConfiguration.from_toml(config_fp, args.start_configuration)
 
     main(**config.parameters, output=args.output)
 
