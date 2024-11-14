@@ -1,4 +1,5 @@
-from typing import NamedTuple
+from pathlib import Path
+from typing import NamedTuple, Optional
 
 import numpy as np
 
@@ -11,16 +12,18 @@ from jfsd.utils import create_hardsphere_configuration
 
 
 class JfsdConfiguration():
-    def __init__(self, general, initialization, physics, box, seeds, output):
+    def __init__(self, general, initialization, physics, box, seeds, output,
+                 start_configuration):
         self.general = general
         self.physics = physics
         self.box = box
         self.initialization = initialization
         self.output = output
         self.seeds = seeds
+        self.start_configuration = start_configuration
 
     @classmethod
-    def from_toml(cls, config_fp):
+    def from_toml(cls, config_fp, start_configuration: Optional[Path] = None):
         # def _parse_config(config):
         # final_dict = {}
         # for key, value in config.items():
@@ -30,31 +33,43 @@ class JfsdConfiguration():
                 # final_dict[key] = value
         with open(config_fp, "rb") as handle:
             config_data = tomllib.load(handle)
-        return cls(
-            General(**config_data["general"]),
-            Initialization(**config_data.get("initialization", {})),
-            Physics(**config_data.get("physics", {})),
-            Box(**config_data.get("box", {})),
-            Seeds(**config_data.get("seeds", {})),
-            Output(**config_data.get("output", {}))
+        print(config_data.get("initialization", {}))
+        new_config = cls(
+            General(**config_data.pop("general")),
+            Initialization(**config_data.pop("initialization", {})),
+            Physics(**config_data.pop("physics", {})),
+            Box(**config_data.pop("box", {})),
+            Seeds(**config_data.pop("seeds", {})),
+            Output(**config_data.pop("output", {})),
+            start_configuration,
         )
+        if len(config_data) > 0:
+            raise ValueError(f"Unknown configuration directive(s) detected: {list(config_data)}")
+        return new_config
 
 
     @property
     def parameters(self):
+        print(self.start_configuration)
         params = {}
         params.update(self.general.get_parameters())
-        params.update(self.physics.get_parameters(self.general.n_particles))
-        params.update(self.box.get_parameters())
         params.update(self.initialization.get_parameters(self.box.Lx,
-                                                         self.general.n_particles))
+                                                         self.general.n_particles,
+                                                         self.start_configuration))
+        if self.general.n_particles is None:
+            n_particles = params["positions"].shape[0]
+            params["N"] = n_particles
+        else:
+            n_particles = self.general.n_particles
+        params.update(self.physics.get_parameters(n_particles))
+        params.update(self.box.get_parameters())
         params.update(self.output.get_parameters())
         params.update(self.seeds.get_parameters())
         return params
 
 class General(NamedTuple):
     n_steps: int
-    n_particles: int
+    n_particles: Optional[int] = None
     dt: float = 0.01
 
     def get_parameters(self):
@@ -70,14 +85,23 @@ class Initialization(NamedTuple):
 
     def get_parameters(self, box_x, n_particles, numpy_file = None):
         if self.position_source_type == "random_hardsphere":
+            if n_particles is None:
+                raise ValueError("Please supply a number of particles or initial positions file"
+                                 " and set source_type to 'file'.")
+            if numpy_file is not None:
+                raise ValueError("Starting configuration was supplied while 'random_hardsphere' "
+                                 "source_type was selected. Leave the starting configuration empty "
+                                 "or switch to 'file' source type.")
             positions = create_hardsphere_configuration(box_x, n_particles, self.init_seed, 0.001)
-        #elif self.position_source_type == "file":
-        #    if numpy_file is None:
-        #        raise ValueError("Please supply the numpy file if using the source_type 'file'.")
-        #    positions = np.load(numpy_file)
+        elif self.position_source_type == "file":
+            if n_particles is not None:
+                raise ValueError("An initial position file has been supplied, remove the number of"
+                                 " particles from the configuration file.")
+            if numpy_file is None:
+               raise ValueError("Please supply the numpy file if using the source_type 'file'.")
+            positions = np.load(numpy_file)
         else:
-            positions = np.load(self.position_source_type)
-            #raise ValueError(f"Unknown source_type {self.position_source_type}")
+            raise ValueError(f"Unknown source_type {self.position_source_type}")
         return {
             "positions": positions,
             "a": 1,  # Colloid radius
@@ -184,7 +208,7 @@ class Output(NamedTuple):
             "velocity_flag": self.store_velocity,
             "orient_flag": self.store_orientation,
             "writing_period": self.writing_period,
-            "thermal_test_flag": self.thermal_fluctuation_test,
+            "thermal_test_flag": thermal_fluct,
         }
 
 

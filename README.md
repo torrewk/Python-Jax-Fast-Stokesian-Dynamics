@@ -52,11 +52,16 @@ pytest tests/test_class.py
 ## How to Run Simulations
 
 ### 1 - Create a configuration .toml in files/ (use "files/example_configuration.toml" as reference)	
-### 2 - Run the main code, from the project directory, via:
+### 2a - Run the main code, from the project directory, via:
 ```bash
 jfsd -c files/<your_config_file.toml> -o <directory_name_for_output>
 ```
 Replace <your_config_file.toml> with the name of the file created in step (1), and <directory_name_for_output> with the name of the folder where you want to store the trajetory data.
+### 2b - To provide initial particle positions to jfsd, run it via:
+```bash
+jfsd -c files/<your_config_file.toml> -s <initial_particle_positions.npy> -o <directory_name_for_output>
+```
+Replace <initial_particle_positions.npy> with the name of your initial configuration, and modify <your_config_file.toml> to accept initial positions from file (instead of randomly creating it, see 'example_configuration.toml'). Note that this file must be a numpy array of shape (N<sub>p</sub>, 3), with N<sub>p</sub> the number of particles.
 
 
 ## Analyzing Trajectory Data
