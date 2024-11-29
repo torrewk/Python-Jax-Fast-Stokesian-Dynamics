@@ -467,7 +467,7 @@ def create_hardsphere_configuration(
     nbrs = allocate_nlist(positions+jnp.array([L, L, L])/2, neighbor_fn)
     nl = np.array(nbrs.idx)
 
-    overlaps, _ = check_overlap(displacements,2.002)
+    overlaps, _ = check_overlap(displacements,2.002,N)
     k = 30*np.sqrt(6*T/(sigma*sigma*dt))  # spring constant
     
     if(phi_eff > 0.6754803226762013):
@@ -511,7 +511,7 @@ def create_hardsphere_configuration(
                 nl = np.array(nbrs.idx)
                 displacements = new_displacements
 
-        overlaps, _ = check_overlap(displacements,2.002)
+        overlaps, _ = check_overlap(displacements,2.002,N)
         if((time.time() - start_time) > 1800): #interrupt if too computationally expensive
             raise ValueError(
                     "Creation of initial configuration failed. Abort!")

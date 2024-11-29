@@ -387,7 +387,7 @@ def wrap_SD(
 
     # Check if particles overlap
     overlaps, overlaps_indices = utils.check_overlap(
-        displacements_vector_matrix, 2.)
+        displacements_vector_matrix, 2., N)
     if(overlaps > 0):
         print('Warning: initial overlaps are ', (overlaps))
     print('Starting: compiling the code... This should not take more than 1-2 minutes.')
@@ -945,7 +945,7 @@ def wrap_RPY(
 
     # check if particles overlap
     overlaps, overlaps_indices = utils.check_overlap(
-        displacements_vector_matrix, 2.)
+        displacements_vector_matrix, 2., N)
     if(overlaps > 0):
         print('Warning: initial overlaps are ', (overlaps))
     print('Starting: compiling the code... This should not take more than 1-2 minutes.')
@@ -1252,7 +1252,7 @@ def wrap_BD(
 
     # check if particles overlap
     overlaps, overlaps_indices = utils.check_overlap(
-        displacements_vector_matrix, 2.)
+        displacements_vector_matrix, 2.,N)
     if(overlaps > 0):
         print('Warning: initial overlaps are ', (overlaps))
     print('Starting: compiling the code... This should not take more than 1-2 minutes.')
