@@ -513,7 +513,7 @@ def compute_real_space_slipvelocity(
         a,b = jnp.linalg.eigh(tridiagonal)
         a = jnp.where( a<0 , 0., a)
         a = jnp.dot((jnp.dot(b,jnp.diag(jnp.sqrt(a)))),b.T)
-        return jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+        return jnp.dot(vectors.T,jnp.dot(a,betae1)) 
     
     random_array_real = (2.*random_array_real-1.)*jnp.sqrt(3.)
     trid, vectors = lanczos.lanczos_alg(helper_Mpsi, 11*N, n_iter_Lanczos_ff, random_array_real)
@@ -524,7 +524,7 @@ def compute_real_space_slipvelocity(
     buff = jnp.linalg.norm(M12_psi)
     stepnorm = jnp.linalg.norm(M12_psi-M12_psi_old)
     stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)
-    
+    M12_psi = M12_psi * jnp.sqrt(2.0*kT/dt)
     #combine w_lin_velocities, w_ang_vel_and_strain
     lin_vel = M12_psi.at[:3*N].get()
     ang_vel_and_strain = M12_psi.at[3*N:].get()
@@ -995,7 +995,7 @@ def compute_real_space_slipvelocity_open(
         a,b = jnp.linalg.eigh(tridiagonal)
         a = jnp.where( a<0 , 0., a)
         a = jnp.dot((jnp.dot(b,jnp.diag(jnp.sqrt(a)))),b.T)
-        return jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+        return jnp.dot(vectors.T,jnp.dot(a,betae1))
     
     
     r = -r #change sign of r go get correct output from helper_Mpsi (do this only once)
@@ -1009,7 +1009,7 @@ def compute_real_space_slipvelocity_open(
     buff = jnp.linalg.norm(M12_psi)
     stepnorm = jnp.linalg.norm(M12_psi-M12_psi_old)
     stepnorm = jnp.where(buff>1.,  stepnorm/buff, stepnorm)
-    
+    M12_psi = M12_psi * jnp.sqrt(2.0*kT/dt)
     #combine w_lin_velocities, w_ang_vel_and_strain
     lin_vel = M12_psi.at[:3*N].get()
     ang_vel_and_strain = M12_psi.at[3*N:].get()
@@ -1569,7 +1569,7 @@ def compute_nearfield_brownianforce(
         a = jnp.where(a<0., 0., a) #numerical cutoff to avoid small negative values
         a = jnp.dot((jnp.dot(b,jnp.diag(jnp.sqrt(a)))),b.T)
         
-        return jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+        return jnp.dot(vectors.T,jnp.dot(a,betae1))
 
     #Scale random numbers from [0,1] to [-sqrt(3),sqrt(3)]
     random_array = (2*random_array-1)*jnp.sqrt(3.)
@@ -1582,7 +1582,7 @@ def compute_nearfield_brownianforce(
     
     buff = jnp.linalg.norm(R_FU12psi)
     stepnorm = jnp.linalg.norm((R_FU12psi-R_FU12psi_old)) / buff
-    
+    R_FU12psi = R_FU12psi * jnp.sqrt(2.0*kT/dt)
     R_FU12psi = Precondition_Brownian_Undo(R_FU12psi)
     return R_FU12psi, stepnorm, trid
 
@@ -1624,7 +1624,7 @@ def compute_BD_randomforce(
     drag_coeff = drag_coeff.at[5::6].set(4/3)
     
     # scale by proper factor to satisfy fluctuation-dissipation theorem
-    random_velocity = random_velocity * jnp.sqrt(2.0*kT/dt * 3. / drag_coeff) 
+    random_velocity = random_velocity * jnp.sqrt(2.0*kT/dt  / drag_coeff) 
         
     return random_velocity
 

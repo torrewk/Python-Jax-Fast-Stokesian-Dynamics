@@ -1,0 +1,41 @@
+[general]
+n_steps = 1000
+n_particles = 250
+dt = 0.01
+
+[initialization]
+position_source_type = "random_hardsphere"  # Other option: file
+init_seed = 7238659235 #seed to generate initial configuration on non-overlapping sphere
+
+[physics]
+dynamics_type = "stokesian"  # Options: brownian, rpy, stokesian
+boundary_conditions = "periodic"  # Options: periodic, open
+kT = 0.005305165 # 1/6pi (resulting brownian time = 60pi)
+interaction_strength = 10.0 #in units of kBT
+interaction_cutoff = 3.0 #in units of particle radius
+shear_rate = 0.0 #shear is applied in the xy plane, flow in the x-direction, gradient of the flow in the y-direction, vorticity in the z-direction
+shear_frequency = 0.0
+friction_coefficient = 0.0 #this should be zero for smooth particles
+friction_range = 0.0 #range of interparticle friction due to surface roughness
+constant_force = [0.0, 0.0, 0.0]
+constant_torque = [0.0, 0.0, 0.0]
+buoyancy = false
+
+[box]
+Lx = 21.85
+Ly = 21.85
+Lz = 21.85
+max_strain = 0.5 #max strain that can be applied to the simulation box before resetting it in the opposite direction 
+
+[seeds]
+RFD = 43175675 #seed for Random-Finite-Difference method, used in computing the Brownian drift and needed only in 'stokesian' dynamics type simulations
+ffwave = 6357442 #seed for far-field wave space contribution to thermal fluctuations
+ffreal = 6474524532 #seed for far-field real space contribution to thermal fluctuations
+nf = 325425435 #seed for near-field contribution to thermal fluctuations
+
+[output]
+store_stresslet = false
+store_velocity = false
+store_orientation = false
+writing_period = 10
+thermal_fluctuation_test = "none"  # Other options: far-field, lubrication #this should be 'none'
