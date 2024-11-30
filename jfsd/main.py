@@ -154,9 +154,26 @@ def main(Nsteps: int,
                  boundary_flag,thermal_test_flag,alpha_friction,ho_friction)
     return trajectory, stresslet_history, velocities, test_result
     
-def overlap_monitor(displacements_vector_matrix,N):
+def check_overlap(
+        displacements_vector_matrix: ArrayLike,
+        N: int) -> bool:
+    """Check for overlapping particles in the current configuration.
+    
+    Print indices and distances of overlapping pairs.
+
+    Parameters
+    ----------
+    N: (int)
+        Number of particles
+    displacements_vector_matrix: (float)
+        Array (N,N,3) of relative displacements between particles
+    Returns
+    -------
+        overlaps>0
+
+    """
     # check that current configuration does not have overlapping particles
-    overlaps, overlaps_indices = utils.check_overlap(displacements_vector_matrix, 2., N)
+    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2., N)
     if (overlaps > 0):
         print('Warning: ', (overlaps), ' particles are overlapping. Reducing the timestep might help prevent unphysical overlaps.')
         print('Indices of overlapping particles are', overlaps_indices[0][:int(overlaps)], overlaps_indices[1][:int(overlaps)] )
@@ -386,7 +403,7 @@ def wrap_SD(
         AppliedTorques += jnp.ravel(constant_applied_torques)
 
     # Check if particles overlap
-    overlaps, overlaps_indices = utils.check_overlap(
+    overlaps, overlaps_indices = utils.find_overlaps(
         displacements_vector_matrix, 2., N)
     if(overlaps > 0):
         print('Warning: initial overlaps are ', (overlaps))
@@ -604,7 +621,7 @@ def wrap_SD(
             
             # check that far-field real space thermal fluctuation calculation went well
             if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff > 0.02))):
-                overlap_monitor(displacements_vector_matrix,N)
+                check_overlap(displacements_vector_matrix, N)
                 raise ValueError(
                     f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!")
 
@@ -641,7 +658,7 @@ def wrap_SD(
                 saddle_b = saddle_b.at[11*N:].add(-buffer) # set in rhs of linear system
                 # check that far-field real space thermal fluctuation calculation went well
                 if ((not math.isfinite(stepnormnf)) or ((n_iter_Lanczos_nf > 250) and (stepnormnf > 1e-3))):
-                    overlap_monitor(displacements_vector_matrix,N)
+                    check_overlap(displacements_vector_matrix, N)
                     raise ValueError(
                         f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!")
 
@@ -718,7 +735,7 @@ def wrap_SD(
                     "Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            overlap_monitor(displacements_vector_matrix,N)
+            check_overlap(displacements_vector_matrix, N)
 
             # save trajectory to file
             trajectory[int(step/writing_period), :, :] = positions
@@ -944,7 +961,7 @@ def wrap_RPY(
     key_ffreal = random.PRNGKey(seed_ffreal)
 
     # check if particles overlap
-    overlaps, overlaps_indices = utils.check_overlap(
+    overlaps, overlaps_indices = utils.find_overlaps(
         displacements_vector_matrix, 2., N)
     if(overlaps > 0):
         print('Warning: initial overlaps are ', (overlaps))
@@ -1027,7 +1044,7 @@ def wrap_RPY(
 
             # check that thermal fluctuation calculation went well
             if ((not math.isfinite(stepnormff)) or ((n_iter_Lanczos_ff > 150) and (stepnormff >  0.003))):
-                overlap_monitor(displacements_vector_matrix,N)
+                check_overlap(displacements_vector_matrix, N)
                 raise ValueError(
                     f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!")
 
@@ -1076,7 +1093,7 @@ def wrap_RPY(
                     "Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            overlap_monitor(displacements_vector_matrix,N)
+            check_overlap(displacements_vector_matrix, N)
 
             # save trajectory to file
             trajectory[int(step/writing_period), :, :] = positions
@@ -1251,8 +1268,8 @@ def wrap_BD(
     key = random.PRNGKey(seed)
 
     # check if particles overlap
-    overlaps, overlaps_indices = utils.check_overlap(
-        displacements_vector_matrix, 2.,N)
+    overlaps, overlaps_indices = utils.find_overlaps(
+        displacements_vector_matrix, 2., N)
     if(overlaps > 0):
         print('Warning: initial overlaps are ', (overlaps))
     print('Starting: compiling the code... This should not take more than 1-2 minutes.')
@@ -1320,7 +1337,7 @@ def wrap_BD(
                     "Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            overlap_monitor(displacements_vector_matrix,N)
+            check_overlap(displacements_vector_matrix, N)
 
             # save trajectory to file
             trajectory[int(step/writing_period), :, :] = positions
