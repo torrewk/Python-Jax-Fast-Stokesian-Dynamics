@@ -467,7 +467,7 @@ def create_hardsphere_configuration(
     nbrs = allocate_nlist(positions+jnp.array([L, L, L])/2, neighbor_fn)
     nl = np.array(nbrs.idx)
 
-    overlaps = check_overlap(displacements,2.002)
+    overlaps, _ = find_overlaps(displacements,2.002,N)
     k = 30*np.sqrt(6*T/(sigma*sigma*dt))  # spring constant
     
     if(phi_eff > 0.6754803226762013):
@@ -511,17 +511,18 @@ def create_hardsphere_configuration(
                 nl = np.array(nbrs.idx)
                 displacements = new_displacements
 
-        overlaps = check_overlap(displacements,2.002)
+        overlaps, _ = find_overlaps(displacements,2.002,N)
         if((time.time() - start_time) > 1800): #interrupt if too computationally expensive
             raise ValueError(
                     "Creation of initial configuration failed. Abort!")
     print("Initial configuration created. Volume fraction is ", phi_actual)
     return positions
 
-@jit
-def check_overlap(
+@partial(jit, static_argnums=[2])
+def find_overlaps(
         dist: ArrayLike,
-        sigma: float) -> tuple[int,float]:
+        sigma: float,
+        N: int) -> tuple[int,float]:
     
     """Check overlaps between particles and returns number of overlaps + number of particles.
     
@@ -535,6 +536,8 @@ def check_overlap(
         Array (N*N,3) of distance vectors between particles in neighbor list
     sigma: (float)
         Particle diameter
+    N: (int)
+        Particle number
         
     Returns
     -------
@@ -545,9 +548,11 @@ def check_overlap(
     sigma_sq = sigma*sigma
     dist_sq = (dist[:, :, 0]*dist[:, :, 0]+dist[:, :, 1]
                * dist[:, :, 1]+dist[:, :, 2]*dist[:, :, 2])
-    output = jnp.where(dist_sq < sigma_sq, 1., 0.)
-    output = jnp.sum(output) 
-    return ( output - (len(dist[:,:])) )/2 # subtract number of particles, and divide by 2 to avoid overcounting
+    mask = jnp.where(dist_sq < sigma_sq, 1., 0.) #build mask from distances < cutoff
+    mask = mask - np.eye(len(mask)) #remove diagonal mask (self-overlaps)
+    total_overlaps = jnp.sum(mask) / 2 #divide by 2 to avoid overcounting
+    indices = jnp.nonzero(mask,size = N, fill_value=N) 
+    return total_overlaps, indices
 
 @partial(jit, static_argnums=[1])
 def generate_random_array(
