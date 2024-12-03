@@ -1,8 +1,10 @@
+from functools import partial
+
 import jax.numpy as jnp
 import jax.scipy as jscipy
-from functools import partial
+from jax import Array, jit
 from jax.typing import ArrayLike
-from jax import jit, Array
+
 from jfsd import mobility, resistance
 
 
@@ -76,7 +78,6 @@ def solver(
         Ax
 
         """
-
         # set output to zero to start
         Ax = jnp.zeros(N * 17, float)
 
@@ -139,7 +140,6 @@ def solver(
         Px
 
         """
-
         # set output to zero to start
         Px = jnp.zeros(17 * N, float)
 
@@ -218,7 +218,6 @@ def solver_open(
         Ax
 
         """
-
         # set output to zero to start
         Ax = jnp.zeros(N * 17, float)
 
@@ -260,7 +259,6 @@ def solver_open(
         Px
 
         """
-
         # set output to zero to start
         Px = jnp.zeros(17 * N, float)
 

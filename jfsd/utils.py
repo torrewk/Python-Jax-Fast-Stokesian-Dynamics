@@ -1,15 +1,17 @@
 import math
-import numpy as np
+import time
 from functools import partial
+from typing import Any, Callable
+
 import jax.numpy as jnp
-from jax import jit, dtypes, Array, random
+import numpy as np
+from jax import Array, dtypes, jit, random
 from jax import random as jrandom
+from jax.typing import ArrayLike
+
+from jfsd import ewaldTables, shear, thermal
 from jfsd import jaxmd_partition as partition
 from jfsd import jaxmd_space as space
-from jfsd import thermal, ewaldTables, shear
-from jax.typing import ArrayLike
-from typing import Callable, Any
-import time
 
 # Define types for the functions
 DisplacementFn = Callable[[Any, Any], Any]
@@ -29,7 +31,6 @@ def chol_fac(A: ArrayLike) -> Array:
     Lower triangle Cholesky factor of input matrix A
 
     """
-
     return jnp.linalg.cholesky(A)
 
 
@@ -53,7 +54,6 @@ def Check_ewald_cut(ewald_cut: float, Lx: float, Ly: float, Lz: float, error: fl
     -------
 
     """
-
     if (ewald_cut > Lx / 2) or (ewald_cut > Ly / 2) or (ewald_cut > Lz / 2):
         max_cut = max([Lx, Ly, Lz]) / 2.0
         new_xi = np.sqrt(-np.log(error)) / max_cut
@@ -90,7 +90,6 @@ def Check_max_shear(
     eta, gaussP
 
     """
-
     gamma = max_strain
     lambdaa = 1 + gamma * gamma / 2 + gamma * np.sqrt(1 + gamma * gamma / 4)
 
@@ -131,7 +130,6 @@ def Compute_k_gridpoint_number(
     Nx, Ny, Nz
 
     """
-
     # Set initial number of grid points in wave space
     Nx = int(kmax * Lx / (2.0 * jnp.pi) * 2.0) + 1
     Ny = int(kmax * Ly / (2.0 * jnp.pi) * 2.0) + 1
@@ -224,7 +222,6 @@ def Precompute_grid_distancing(
     grid
 
     """
-
     grid = np.zeros((gaussP, gaussP, gaussP, N))
     # center_offsets = (jnp.array(positions)+jnp.array([Lx,Ly,Lz])/2)*jnp.array([Nx,Ny,Nz])/jnp.array([Lx,Ly,Lz])
     center_offsets = np.array(positions) + np.array([Lx, Ly, Lz]) / 2
@@ -282,7 +279,6 @@ def initialize_single_neighborlist(
     neighbor_fn
 
     """
-
     # For Lubrication Hydrodynamic Forces Calculation
     neighbor_fn = partition.neighbor_list(
         displacement,
@@ -562,7 +558,6 @@ def generate_random_array(key: dtypes.prng_key, size: int) -> tuple[dtypes.prng_
     subkey,  (jrandom.uniform(subkey, (size,)))
 
     """
-
     # advance RNG state (otherwise will get same random numbers)
     key, subkey = jrandom.split(key)
     return subkey, (jrandom.uniform(subkey, (size,)))
@@ -711,7 +706,6 @@ def precompute(
      r_lub, indices_i_lub, indices_j_lub,ResFunc
 
     """
-
     ###Wave Space calculation quantities
 
     # Compute fractional coordinates
@@ -1562,7 +1556,6 @@ def precomputeRPY(
      r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3
 
     """
-
     ###Wave Space calculation quantities
 
     # Compute fractional coordinates
@@ -1763,7 +1756,6 @@ def compute_distinct_pairs(N: int) -> ArrayLike:
     nl_ff
 
     """
-
     return jnp.stack(jnp.triu_indices(N, 1), axis=1).T  # creates indices
 
 

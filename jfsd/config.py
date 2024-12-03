@@ -216,7 +216,7 @@ class Output(NamedTuple):
         }
         try:
             thermal_fluct = _rf_convert[self.thermal_fluctuation_test]
-        except KeyError as exc:
+        except KeyError:
             raise ValueError(
                 "Wrong parameter for thermal fluctuation test, choose one"
                 " of none, far-field or lubrication"

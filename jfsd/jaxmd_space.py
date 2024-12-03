@@ -49,14 +49,13 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
     `[n, neighbors, spatial_dim]`.
 """
 
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
-import jax
 import jax.numpy as jnp
 from jax import custom_jvp, eval_shape, vmap
 from jax.core import ShapedArray
 
-from jfsd.jaxmd_util import Array, f32, f64, safe_mask
+from jfsd.jaxmd_util import Array, f32, safe_mask
 
 # Types
 
@@ -102,11 +101,14 @@ def raw_transform(box: Box, R: Array) -> Array:
     See `periodic_general` for a description of the semantics of `box`.
 
     Args:
+    ----
       box: An affine transformation described in `periodic_general`.
       R: Array of positions. Should have  shape `(..., spatial_dimension)`.
 
     Returns:
+    -------
       A transformed array positions of shape `(..., spatial_dimension)`.
+
     """
     if jnp.isscalar(box) or box.size == 1:
         return R * box
@@ -128,11 +130,14 @@ def transform(box: Box, R: Array) -> Array:
     See `periodic_general` for a description of the semantics of `box`.
 
     Args:
+    ----
       box: An affine transformation described in `periodic_general`.
       R: Array of positions. Should have  shape `(..., spatial_dimension)`.
 
     Returns:
+    -------
       A transformed array positions of shape `(..., spatial_dimension)`.
+
     """
     return raw_transform(box, R)
 
@@ -148,11 +153,14 @@ def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
     """Compute a matrix of pairwise displacements given two sets of positions.
 
     Args:
+    ----
       Ra: Vector of positions; `ndarray(shape=[spatial_dim])`.
       Rb: Vector of positions; `ndarray(shape=[spatial_dim])`.
 
     Returns:
+    -------
       Matrix of displacements; `ndarray(shape=[spatial_dim])`.
+
     """
     if len(Ra.shape) != 1:
         msg = (
@@ -172,12 +180,16 @@ def periodic_displacement(side: Box, dR: Array) -> Array:
     """Wraps displacement vectors into a hypercube.
 
     Args:
+    ----
       side: Specification of hypercube size. Either,
         (a) float if all sides have equal length.
         (b) ndarray(spatial_dim) if sides have different lengths.
       dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
+
     Returns:
+    -------
       Matrix of wrapped displacements; `ndarray(shape=[..., spatial_dim])`.
+
     """
     return jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side
 
@@ -186,9 +198,13 @@ def square_distance(dR: Array) -> Array:
     """Computes square distances.
 
     Args:
+    ----
       dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
+
     Returns:
+    -------
       Matrix of squared distances; `ndarray(shape=[...])`.
+
     """
     return jnp.sum(dR**2, axis=-1)
 
@@ -197,9 +213,13 @@ def distance(dR: Array) -> Array:
     """Computes distances.
 
     Args:
+    ----
       dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
+
     Returns:
+    -------
       Matrix of distances; `ndarray(shape=[...])`.
+
     """
     dr = square_distance(dR)
     return safe_mask(dr > 0, jnp.sqrt, dr)
@@ -234,12 +254,14 @@ def periodic(side: Box, wrapped: bool = True) -> Space:
     """Periodic boundary conditions on a hypercube of sidelength side.
 
     Args:
+    ----
       side: Either a float or an ndarray of shape [spatial_dimension] specifying
         the size of each side of the periodic box.
       wrapped: A boolean specifying whether or not particle positions are
         remapped back into the box after each step
     Returns:
       `(displacement_fn, shift_fn)` tuple.
+
     """
 
     def displacement_fn(
@@ -288,7 +310,7 @@ def periodic(side: Box, wrapped: bool = True) -> Space:
 
 
 def periodic_general(box: Box, fractional_coordinates: bool = True, wrapped: bool = True) -> Space:
-    """Periodic boundary conditions on a parallelepiped.
+    r"""Periodic boundary conditions on a parallelepiped.
 
     This function defines a simulation on a parallelepiped, :math:`X`, formed by
     applying an affine transformation, :math:`T`, to the unit hypercube
@@ -327,6 +349,7 @@ def periodic_general(box: Box, fractional_coordinates: bool = True, wrapped: boo
          is defined so that :math:`R` and :math:`dR` should both lie in :math:`X`.
 
     Example:
+    -------
 
     .. code-block:: python
 
@@ -364,6 +387,7 @@ def periodic_general(box: Box, fractional_coordinates: bool = True, wrapped: boo
     checking. In the meantime caution is recommended.
 
     Args:
+    ----
       box: A `(spatial_dim, spatial_dim)` affine transformation.
       fractional_coordinates: A boolean specifying whether positions are stored
         in the parallelepiped or the unit cube.
@@ -371,6 +395,7 @@ def periodic_general(box: Box, fractional_coordinates: bool = True, wrapped: boo
         remapped back into the box after each step
     Returns:
       `(displacement_fn, shift_fn)` tuple.
+
     """
     inv_box = inverse(box)
 

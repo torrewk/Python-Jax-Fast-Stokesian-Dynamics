@@ -1,6 +1,7 @@
 from functools import partial
-from jax import jit, Array
+
 import jax.numpy as jnp
+from jax import Array, jit
 from jax.typing import ArrayLike
 
 
@@ -1447,12 +1448,10 @@ def Mobility_periodic(
     h3: ArrayLike,
     generalized_forces: ArrayLike,
 ) -> Array:
-    """
-    Compute the matrix-vector product of the mobility matrix with a generalized force vector, in periodic boundary conditions..
+    """Compute the matrix-vector product of the mobility matrix with a generalized force vector, in periodic boundary conditions..
 
     Parameters
     ----------
-
     N: (int)
         Number of particles
     Nx: (int)
@@ -2531,7 +2530,6 @@ def Mobility_open(
     generalized_velocities (linear/angular velocities)
 
     """
-
     velocities = jnp.zeros((N, 6), float)
     forces_torques = generalized_forces[: 6 * N]
     ft_i = (jnp.reshape(forces_torques, (N, 6))).at[indices_i].get()

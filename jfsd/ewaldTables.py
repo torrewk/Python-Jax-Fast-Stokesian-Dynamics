@@ -1,6 +1,7 @@
-import numpy as np
 import math
 from decimal import Decimal
+
+import numpy as np
 from jax.typing import ArrayLike
 
 
@@ -25,7 +26,6 @@ def Compute_real_space_ewald_table(nR: int, a: float, xi: float) -> ArrayLike:
     ewaldC
 
     """
-
     # table discretization in extended precision (80-bit)
     dr_string = (
         "0.00100000000000000000000000000000"  # pass value as a string with arbitrary precision

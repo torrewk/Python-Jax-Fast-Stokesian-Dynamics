@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import lax, Array
+from jax import Array, lax
 from jax.typing import ArrayLike
 
 
@@ -46,7 +46,6 @@ def lanczos_alg(
         (beta, vecs, tridiag), (beta, vecs, tridiag)
 
         """
-
         beta, vecs, tridiag = args
         v = vecs[i, :].reshape((dim))
         w = matrix_vector_product(v)

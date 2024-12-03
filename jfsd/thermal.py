@@ -1,9 +1,11 @@
+from functools import partial
+
 import jax.numpy as jnp
 import numpy as np
 import scipy
-from jax import jit, Array
-from functools import partial
+from jax import Array, jit
 from jax.typing import ArrayLike
+
 from jfsd import lanczos
 
 
@@ -28,7 +30,6 @@ def Random_force_on_grid_indexing(
     normal_indices_x,normal_indices_y,normal_indices_z, normal_conj_indices_x,normal_conj_indices_y,normal_conj_indices_z, nyquist_indices_x,nyquist_indices_y,nyquist_indices_z
 
     """
-
     normal_indices = []
     normal_conj_indices = []
     nyquist_indices = []
@@ -104,7 +105,6 @@ def Random_force_on_grid_indexing(
 def Number_of_neigh(N: int, indices_i_lub: ArrayLike, indices_j_lub: ArrayLike) -> Array:
     """Count number of neighbors for each particle.
 
-
     Use result to construct projector needed for thermal fluctuation calculations.
 
     Parameters
@@ -121,7 +121,6 @@ def Number_of_neigh(N: int, indices_i_lub: ArrayLike, indices_j_lub: ArrayLike) 
     brow_lub_precondition
 
     """
-
     brow_lub_precondition = np.zeros(N)
     for i in range(N):
         brow_lub_precondition[i] = np.sum(np.where(indices_i_lub == i, 1, 0))
@@ -187,6 +186,7 @@ def compute_real_space_slipvelocity(
         Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
     h3: (float)
         Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
+
     Returns
     -------
     lin_vel, ang_vel_and_strain, stepnorm, trid
@@ -206,7 +206,6 @@ def compute_real_space_slipvelocity(
         slip_velocity
 
         """
-
         # input is already in the format: [Forces, Torque+Stresslet] (not in the generalized format [Force+Torque,Stresslet] like in the saddle point solver)
         forces = random_array.at[: 3 * N].get()
 
@@ -948,9 +947,7 @@ def compute_real_space_slipvelocity(
     def helper_compute_M12psi(
         n_iter_Lanczos_ff: int, tridiagonal: ArrayLike, vectors: ArrayLike, norm: float
     ) -> ArrayLike:
-        """
-
-        Parameters
+        """Parameters
         ----------
         n_iter_Lanczos_ff:
             Number of Lanczos iteration performed
@@ -966,7 +963,6 @@ def compute_real_space_slipvelocity(
         jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
 
         """
-
         betae1 = jnp.zeros(n_iter_Lanczos_ff)
         betae1 = betae1.at[0].add(1 * norm)
 
@@ -1033,6 +1029,7 @@ def compute_real_space_slipvelocity_open(
         Array (n_pair_ff) of indices of second particle in neighbor list pairs
     mobil_scal: (float)
         Array (11,N*(N-1)/2)) containing mobility functions evaluated for the current particle configuration
+
     Returns
     -------
     lin_vel, ang_vel_and_strain, stepnorm, trid
@@ -1511,9 +1508,7 @@ def compute_real_space_slipvelocity_open(
     def helper_compute_M12psi(
         n_iter_Lanczos_ff: int, tridiagonal: ArrayLike, vectors: ArrayLike, norm: float
     ) -> ArrayLike:
-        """
-
-        Parameters
+        """Parameters
         ----------
         n_iter_Lanczos_ff:
             Number of Lanczos iteration performed
@@ -1529,7 +1524,6 @@ def compute_real_space_slipvelocity_open(
         jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
 
         """
-
         betae1 = jnp.zeros(n_iter_Lanczos_ff)
         betae1 = betae1.at[0].add(1 * norm)
 
@@ -1649,7 +1643,6 @@ def compute_wave_space_slipvelocity(
     w_lin_vel, w_ang_vel_and_strain
 
     """
-
     gridX = jnp.zeros((Nx, Ny, Nz))
     gridY = jnp.zeros((Nx, Ny, Nz))
     gridZ = jnp.zeros((Nx, Ny, Nz))
@@ -2037,7 +2030,6 @@ def compute_nearfield_brownianforce(
     R_FU12psi, stepnorm, trid
 
     """
-
     # def Precondition_DiagMult_kernel(
     #         x: float,
     #         diag: float,
@@ -2079,7 +2071,6 @@ def compute_nearfield_brownianforce(
         x
 
         """
-
         identity = jnp.where(
             (jnp.arange(6 * N) - 6 * (jnp.repeat(jnp.arange(N), 6))) < 3, 1, 1.333333333
         )
@@ -2103,7 +2094,6 @@ def compute_nearfield_brownianforce(
         x
 
         """
-
         x = jnp.where(diagonal_zeroes_for_brownian == 0.0, 0.0, x)
         return x
 
@@ -2169,7 +2159,6 @@ def compute_nearfield_brownianforce(
         jnp.ravel(forces)
 
         """
-
         vel_i = (jnp.reshape(velocities, (N, 6))).at[indices_i_lub].get()
         vel_j = (jnp.reshape(velocities, (N, 6))).at[indices_j_lub].get()
 
@@ -2288,9 +2277,7 @@ def compute_nearfield_brownianforce(
     def helper_compute_R12psi(
         n_iter_Lanczos_nf: ArrayLike, trid: ArrayLike, vectors: ArrayLike
     ) -> ArrayLike:
-        """
-
-        Parameters
+        """Parameters
         ----------
         n_iter_Lanczos_nf:
             Number of Lanczos iteration performed
@@ -2304,7 +2291,6 @@ def compute_nearfield_brownianforce(
         jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
 
         """
-
         betae1 = jnp.zeros(n_iter_Lanczos_nf)
         betae1 = betae1.at[0].add(1 * psinorm)
         a, b = jnp.linalg.eigh(trid)
@@ -2355,7 +2341,6 @@ def compute_BD_randomforce(N: int, kT: float, dt: float, random_array: ArrayLike
     random_velocity
 
     """
-
     # scale random numbers from [0,1] to [-sqrt(3),sqrt(3)] to obtain
     # a random variable with zero mean and unit variance
     random_velocity = (2 * random_array - 1) * jnp.sqrt(3.0)
@@ -2401,7 +2386,6 @@ def convert_to_generalized(
     generalized_velocities
 
     """
-
     lin_vel = ws_lin_vel + rs_lin_vel
     ang_vel_and_strain = ws_ang_vel_strain + rs_ang_vel_strain
 
@@ -2475,7 +2459,6 @@ def compute_exact_thermals(
 ) -> tuple[Array, Array]:
     """Compute square root of real-space granmobility and lubrication resistance using scipy functions.
 
-
     These are then used to test the correctness of the square roots (of these operators) obtained from Lanczos decomposition.
 
     Parameters
@@ -2527,6 +2510,7 @@ def compute_exact_thermals(
         Returns
         -------
         generalized_velocities
+
         """
         # combine w_lin_velocities, w_ang_vel_and_strain
         lin_vel = M12psi.at[: 3 * N].get()
@@ -2584,6 +2568,7 @@ def compute_exact_thermals(
         Returns
         -------
         generalized_velocities
+
         """
         lin_vel = Mpsi[0]
         ang_vel_and_strain = Mpsi[1]

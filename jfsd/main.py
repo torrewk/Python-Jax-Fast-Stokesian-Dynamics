@@ -1,15 +1,17 @@
 import math
 import os
 from pathlib import Path
-from jax.lib import xla_bridge
+
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, jit, random
 from jax.config import config
+from jax.lib import xla_bridge
 from jax.typing import ArrayLike
+from tqdm import tqdm
+
 from jfsd import appliedForces, mobility, resistance, shear, solver, thermal, utils
 from jfsd import jaxmd_space as space
-from tqdm import tqdm
 
 config.update("jax_enable_x64", False)  # disable double precision by default
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = (
@@ -247,6 +249,7 @@ def check_overlap(displacements_vector_matrix: ArrayLike, N: int) -> bool:
         Number of particles
     displacements_vector_matrix: (float)
         Array (N,N,3) of relative displacements between particles
+
     Returns
     -------
         overlaps>0
@@ -395,7 +398,6 @@ def wrap_SD(
 
         Parameters
         ----------
-
         shear_rate: (float)
             Shear rate at current time step
         positions: (float)
@@ -412,7 +414,6 @@ def wrap_SD(
         positions, displacements_vector_matrix
 
         """
-
         # Define array of displacement r(t+dt)-r(t)
         dR = jnp.zeros((N, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
@@ -1400,7 +1401,6 @@ def wrap_RPY(
 
         Parameters
         ----------
-
         shear_rate: (float)
             Shear rate at current time step
         positions: (float)
@@ -1417,7 +1417,6 @@ def wrap_RPY(
         positions, displacements_vector_matrix
 
         """
-
         # Define array of displacement r(t+dt)-r(t)
         dR = jnp.zeros((N, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
@@ -1898,7 +1897,6 @@ def wrap_BD(
 
         Parameters
         ----------
-
         shear_rate: (float)
             Shear rate at current time step
         positions: (float)
@@ -1915,7 +1913,6 @@ def wrap_BD(
         positions, displacements_vector_matrix
 
         """
-
         # Define array of displacement r(t+dt)-r(t)
         dR = jnp.zeros((N, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)

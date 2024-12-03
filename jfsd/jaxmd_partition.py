@@ -18,21 +18,17 @@
 
 """Code to transform functions on individual tuples of particles to sets."""
 
-import math
-from collections import namedtuple
 from enum import Enum, IntEnum
 from functools import partial, reduce
 from operator import mul
 from typing import Any, Callable, Dict, Generator, Optional, Tuple, Union
 
-import jax
 import jax.numpy as jnp
 import jraph
 import numpy as onp
 from absl import logging
 from jax import eval_shape, jit, lax, ops, tree_map, vmap
 from jax.core import ShapedArray
-from jax.interpreters import partial_eval as pe
 
 from jfsd import jaxmd_dataclasses as dataclasses
 from jfsd import jaxmd_space as space
@@ -69,7 +65,8 @@ class CellList:
     in two- and three-dimensions respectively. It is assumed that each cell has
     the same capacity.
 
-    Attributes:
+    Attributes
+    ----------
       position_buffer: An ndarray of floating point positions with shape
         `S + [spatial_dimension]`.
       id_buffer: An ndarray of int32 particle ids of shape `S`. Note that empty
@@ -82,6 +79,7 @@ class CellList:
       cell_capacity: An integer specifying the maximum capacity of each cell in
         the cell list.
       update_fn: A function that updates the cell list at a fixed capacity.
+
     """
 
     position_buffer: Array
@@ -261,6 +259,7 @@ def cell_list(
     will be set to True.
 
     Args:
+    ----
       box_size: A float or an ndarray of shape `[spatial_dimension]` specifying
         the size of the system. Note, this code is written for the case where the
         boundaries are periodic. If this is not the case, then the current code
@@ -270,14 +269,16 @@ def cell_list(
       buffer_size_multiplier: A floating point multiplier that multiplies the
         estimated cell capacity to allow for fluctuations in the maximum cell
         occupancy.
+
     Returns:
+    -------
       A `CellListFns` object that contains two methods, one to allocate the cell
       list and one to update the cell list. The update function can be called
       with either a cell list from which the capacity can be inferred or with
       an explicit integer denoting the capacity. Note that an existing cell list
       can also be updated by calling `cell_list.update(position)`.
-    """
 
+    """
     if util.is_array(box_size):
         box_size = onp.array(box_size)
         if len(box_size.shape) == 1:
@@ -412,7 +413,8 @@ def cell_list(
 class PartitionErrorCode(IntEnum):
     """An enum specifying different error codes.
 
-    Attributes:
+    Attributes
+    ----------
       NONE: Means that no error was encountered during simulation.
       NEIGHBOR_LIST_OVERFLOW: Indicates that the neighbor list was not large
         enough to contain all of the particles. This should indicate that it is
@@ -426,6 +428,7 @@ class PartitionErrorCode(IntEnum):
         cells.
       MALFORMED_BOX: Indicates that a box matrix was not properly upper
         triangular.
+
     """
 
     NONE = 0
@@ -442,9 +445,11 @@ PEC = PartitionErrorCode
 class PartitionError:
     """A struct containing error codes while building / updating neighbor lists.
 
-    Attributes:
+    Attributes
+    ----------
       code: An array storing the error code. See `PartitionErrorCode` for
         details.
+
     """
 
     code: Array
@@ -552,7 +557,8 @@ def _fractional_cell_size(box, cutoff):
 class NeighborListFormat(Enum):
     """An enum listing the different neighbor list formats.
 
-    Attributes:
+    Attributes
+    ----------
       Dense: A dense neighbor list where the ids are a square matrix
         of shape `(N, max_neighbors_per_atom)`. Here the capacity of the neighbor
         list must scale with the highest connectivity neighbor.
@@ -561,6 +567,7 @@ class NeighborListFormat(Enum):
         of each neighbor pair.
       OrderedSparse: A sparse neighbor list whose format is the same as `Sparse`
         where only bonds with i < j are included.
+
     """
 
     Dense = 0
@@ -591,7 +598,8 @@ def is_box_valid(box: Array) -> bool:
 class NeighborList:
     """A struct containing the state of a Neighbor List.
 
-    Attributes:
+    Attributes
+    ----------
       idx: For an N particle system this is an `[N, max_occupancy]` array of
         integers such that `idx[i, j]` is the j-th neighbor of particle i.
       reference_position: The positions of particles when the neighbor list was
@@ -610,6 +618,7 @@ class NeighborList:
         in cell list construction.
       cell_list_fn: The function used to construct the cell list.
       update_fn: A static python function used to update the neighbor list.
+
     """
 
     idx: Array
@@ -643,11 +652,13 @@ class NeighborList:
 class NeighborListFns:
     """A struct containing functions to allocate and update neighbor lists.
 
-    Attributes:
+    Attributes
+    ----------
       allocate: A function to allocate a new neighbor list. This function cannot
         be compiled, since it uses the values of positions to infer the shapes.
       update: A function to update a neighbor list given a new set of positions
         and a previously allocated neighbor list.
+
     """
 
     allocate: Callable[..., NeighborList] = dataclasses.static_field()
@@ -663,13 +674,17 @@ class NeighborListFns:
         """A function for backward compatibility with previous neighbor lists.
 
         Args:
+        ----
           position: An `(N, dim)` array of particle positions.
           neighbors: An optional neighbor list object. If it is provided then
             the function updates the neighbor list, otherwise it allocates a new
             neighbor list.
           extra_capacity: Extra capacity to add if allocating the neighbor list.
+
         Returns:
+        -------
           A neighbor list object.
+
         """
         logging.warning(
             "Using a deprecated code path to create / update neighbor "
@@ -744,6 +759,7 @@ def neighbor_list(
            step += 1
 
     Args:
+    ----
       displacement: A function `d(R_a, R_b)` that computes the displacement
         between pairs of points.
       box: Either a float specifying the size of the box, an array of
@@ -774,9 +790,12 @@ def neighbor_list(
         for details about the different choices for formats. Defaults to `Dense`.
       **static_kwargs: kwargs that get threaded through the calculation of
         example positions.
+
     Returns:
+    -------
       A NeighborListFns object that contains a method to allocate a new neighbor
       list and a method to update an existing neighbor list.
+
     """
     is_format_valid(format)
     box = lax.stop_gradient(box)
@@ -1013,12 +1032,15 @@ def to_jraph(
     single node.
 
     Args:
+    ----
       neighbor: A neighbor list that we will convert to the jraph format. Must be
         sparse.
       mask: An optional mask on the edges.
 
     Returns:
+    -------
       A `jraph.GraphsTuple` that contains the topology of the neighbor list.
+
     """
     if not is_sparse(neighbor.format):
         raise ValueError(

@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import argparse
-import sys
 from collections.abc import Mapping
 from importlib.resources import files
 from pathlib import Path

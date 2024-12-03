@@ -1,7 +1,8 @@
 from functools import partial
-from jax.typing import ArrayLike
+
 import jax.numpy as jnp
-from jax import jit, Array
+from jax import Array, jit
+from jax.typing import ArrayLike
 
 
 @partial(jit, static_argnums=[0])

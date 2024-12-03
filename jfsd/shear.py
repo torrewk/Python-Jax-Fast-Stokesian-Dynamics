@@ -1,6 +1,7 @@
 from functools import partial
-from jax import jit, Array
+
 import jax.numpy as jnp
+from jax import Array, jit
 
 
 def update_box_tilt_factor(
@@ -28,7 +29,6 @@ def update_box_tilt_factor(
     tilt_factor
 
     """
-
     current_time = step * dt
     tilt_factor = jnp.where(
         omega == 0,
@@ -63,7 +63,6 @@ def update_shear_rate(
     shear_rate
 
     """
-
     current_time = step * dt
     shear_rate = shear_rate_0 * jnp.cos(omega * current_time + phase)
     return shear_rate
@@ -109,7 +108,6 @@ def compute_sheared_grid(
     gridk
 
     """
-
     gridk = jnp.zeros((Nx * Ny * Nz, 4), float)
     # Here create arrays that store the indices that we would have if this function was not vectorized (using for loop instead)
     Nxx = jnp.repeat(jnp.repeat(jnp.arange(Nz), Ny), Nx)

@@ -1,7 +1,9 @@
 from functools import partial
+
 import jax.numpy as jnp
-from jax import jit, Array
+from jax import Array, jit
 from jax.typing import ArrayLike
+
 from jfsd import jaxmd_space as space
 
 
@@ -25,12 +27,12 @@ def RFU_Precondition(
         Number of particle pairs to include in the lubrication matrix
     nl_lub_prec: (int)
         Array (2,n_pairs_nf) containing near-field precondition neighborlist indices
+
     Returns
     -------
     R_fu_precondition, diagonal_elements_for_brownian
 
     """
-
     # Load resistance table
     ResTable_dist = jnp.load("files/ResTableDist.npy")
     ResTable_vals = jnp.load("files/ResTableVals.npy")
@@ -504,7 +506,6 @@ def ComputeLubricationFU(
     jnp.ravel(forces)
 
     """
-
     XA11 = ResFunctions[0]
     YA11 = ResFunctions[2]
     XA12 = ResFunctions[1]
@@ -697,7 +698,6 @@ def compute_RFE(
     jnp.ravel(forces)
 
     """
-
     # symmetry conditions
     # XG21 = -XG12
     # YG21 = -YG12
@@ -811,7 +811,6 @@ def compute_RSE(
     stresslet
 
     """
-
     # symmetry conditions
     # XG21 = -XG12
     # YG21 = -YG12
@@ -1236,7 +1235,6 @@ def compute_RSU(
     stresslet
 
     """
-
     XG11 = ResFunctions[11]
     XG12 = ResFunctions[12]
     YG11 = ResFunctions[13]

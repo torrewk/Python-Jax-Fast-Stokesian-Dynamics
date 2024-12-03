@@ -24,6 +24,7 @@ Accessed on 04/29/2020.
 """
 
 import dataclasses
+
 import jax
 
 
@@ -37,9 +38,13 @@ def dataclass(clz):
     passed safely to Jax.
 
     Args:
+    ----
       clz: the class that will be transformed by the decorator.
+
     Returns:
+    -------
       The new class.
+
     """
     clz.set = lambda self, **kwargs: dataclasses.replace(self, **kwargs)
     data_clz = dataclasses.dataclass(frozen=True)(clz)
