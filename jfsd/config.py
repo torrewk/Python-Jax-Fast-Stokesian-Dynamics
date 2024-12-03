@@ -11,9 +11,8 @@ except ImportError:
 from jfsd.utils import create_hardsphere_configuration
 
 
-class JfsdConfiguration():
-    def __init__(self, general, initialization, physics, box, seeds, output,
-                 start_configuration):
+class JfsdConfiguration:
+    def __init__(self, general, initialization, physics, box, seeds, output, start_configuration):
         self.general = general
         self.physics = physics
         self.box = box
@@ -27,10 +26,10 @@ class JfsdConfiguration():
         # def _parse_config(config):
         # final_dict = {}
         # for key, value in config.items():
-            # if isinstance(value, Mapping):
-                # final_dict.update(_parse_config(value))
-            # else:
-                # final_dict[key] = value
+        # if isinstance(value, Mapping):
+        # final_dict.update(_parse_config(value))
+        # else:
+        # final_dict[key] = value
         with open(config_fp, "rb") as handle:
             config_data = tomllib.load(handle)
         print(config_data.get("initialization", {}))
@@ -47,15 +46,16 @@ class JfsdConfiguration():
             raise ValueError(f"Unknown configuration directive(s) detected: {list(config_data)}")
         return new_config
 
-
     @property
     def parameters(self):
         print(self.start_configuration)
         params = {}
         params.update(self.general.get_parameters())
-        params.update(self.initialization.get_parameters(self.box.Lx,
-                                                         self.general.n_particles,
-                                                         self.start_configuration))
+        params.update(
+            self.initialization.get_parameters(
+                self.box.Lx, self.general.n_particles, self.start_configuration
+            )
+        )
         if self.general.n_particles is None:
             n_particles = params["positions"].shape[0]
             params["N"] = n_particles
@@ -66,6 +66,7 @@ class JfsdConfiguration():
         params.update(self.output.get_parameters())
         params.update(self.seeds.get_parameters())
         return params
+
 
 class General(NamedTuple):
     n_steps: int
@@ -79,26 +80,33 @@ class General(NamedTuple):
             "dt": self.dt,
         }
 
+
 class Initialization(NamedTuple):
     position_source_type: str = "random_hardsphere"
     init_seed: int = 210398423
 
-    def get_parameters(self, box_x, n_particles, numpy_file = None):
+    def get_parameters(self, box_x, n_particles, numpy_file=None):
         if self.position_source_type == "random_hardsphere":
             if n_particles is None:
-                raise ValueError("Please supply a number of particles or initial positions file"
-                                 " and set source_type to 'file'.")
+                raise ValueError(
+                    "Please supply a number of particles or initial positions file"
+                    " and set source_type to 'file'."
+                )
             if numpy_file is not None:
-                raise ValueError("Starting configuration was supplied while 'random_hardsphere' "
-                                 "source_type was selected. Leave the starting configuration empty "
-                                 "or switch to 'file' source type.")
+                raise ValueError(
+                    "Starting configuration was supplied while 'random_hardsphere' "
+                    "source_type was selected. Leave the starting configuration empty "
+                    "or switch to 'file' source type."
+                )
             positions = create_hardsphere_configuration(box_x, n_particles, self.init_seed, 0.001)
         elif self.position_source_type == "file":
             if n_particles is not None:
-                raise ValueError("An initial position file has been supplied, remove the number of"
-                                 " particles from the configuration file.")
+                raise ValueError(
+                    "An initial position file has been supplied, remove the number of"
+                    " particles from the configuration file."
+                )
             if numpy_file is None:
-               raise ValueError("Please supply the numpy file if using the source_type 'file'.")
+                raise ValueError("Please supply the numpy file if using the source_type 'file'.")
             positions = np.load(numpy_file)
         else:
             raise ValueError(f"Unknown source_type {self.position_source_type}")
@@ -107,10 +115,12 @@ class Initialization(NamedTuple):
             "a": 1,  # Colloid radius
         }
 
+
 class Vector(NamedTuple):
     x: float
     y: float
     z: float
+
 
 class Physics(NamedTuple):
     dynamics_type: str = "brownian"
@@ -134,17 +144,21 @@ class Physics(NamedTuple):
         elif self.dynamics_type.lower() == "stokesian":
             HIs_flag = 2
         else:
-            raise ValueError(f"Unknown dynamics type: {self.dynamics_type}, choose from:"
-                             " brownian, rpy or stokesian.")
-            
+            raise ValueError(
+                f"Unknown dynamics type: {self.dynamics_type}, choose from:"
+                " brownian, rpy or stokesian."
+            )
+
         if self.boundary_conditions.lower() == "periodic":
             boundary_flag = 0
         elif self.boundary_conditions.lower() == "open":
             boundary_flag = 1
         else:
-            raise ValueError(f"Unknown boundary conditions: {self.boundary_conditions}, choose from:"
-                             " periodic or open.")
-        
+            raise ValueError(
+                f"Unknown boundary conditions: {self.boundary_conditions}, choose from:"
+                " periodic or open."
+            )
+
         constant_forces = np.zeros((n_particles, 3))
         constant_forces[:, :] = self.constant_force
         constant_torques = np.zeros((n_particles, 3))
@@ -163,7 +177,7 @@ class Physics(NamedTuple):
             "constant_applied_torques": constant_torques,
             "buoyancy_flag": int(self.buoyancy),
             "xi": 0.5,  # Ewald parameter
-            "error": 0.001  # Error tolerance
+            "error": 0.001,  # Error tolerance
         }
 
 
@@ -176,6 +190,7 @@ class Box(NamedTuple):
     def get_parameters(self):
         return dict(zip(self._fields, self))
 
+
 class Seeds(NamedTuple):
     RFD: int = 9237412
     ffwave: int = 30498522
@@ -184,6 +199,7 @@ class Seeds(NamedTuple):
 
     def get_parameters(self):
         return {f"seed_{f}": getattr(self, f) for f in self._fields}
+
 
 class Output(NamedTuple):
     store_stresslet: bool = False
@@ -201,8 +217,10 @@ class Output(NamedTuple):
         try:
             thermal_fluct = _rf_convert[self.thermal_fluctuation_test]
         except KeyError as exc:
-            raise ValueError("Wrong parameter for thermal fluctuation test, choose one"
-                             " of none, far-field or lubrication")
+            raise ValueError(
+                "Wrong parameter for thermal fluctuation test, choose one"
+                " of none, far-field or lubrication"
+            )
         return {
             "stresslet_flag": self.store_stresslet,
             "velocity_flag": self.store_velocity,
@@ -211,14 +229,13 @@ class Output(NamedTuple):
             "thermal_test_flag": thermal_fluct,
         }
 
-
     # N = n_particles
     # Nsteps = n_steps
     # (dynamics_type, T, U, U_cutoff, shear_rate, shear_frequency, alpha_friction,
     #     h0_friction) = physics_options
     # (_, seed_RFD, seed_ffwave, seed_ffreal, seed_nf) = seeds
     # (stresslet_flag, velocity_flag, orient_flag, writing_period) = output_options
-    
+
     # if dynamics_type == "brownian":
     #     HIs_flag = 0
     # elif dynamics_type == "rpy":

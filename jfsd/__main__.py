@@ -18,27 +18,27 @@ def cli_main():
         prog="jfsd", description="Run particle simulations use fast JIT compilation."
     )
     parser.add_argument(
-        "-c", "--config",
+        "-c",
+        "--config",
         help="Set the configuration file of your simulation.",
         type=Path,
         default=None,
     )
     parser.add_argument(
-        "-s", "--start-configuration",
+        "-s",
+        "--start-configuration",
         help="Provide a starting configuration of the particles.",
         type=Path,
         default=None,
     )
     parser.add_argument(
-        "-i", "--interactive",
+        "-i",
+        "--interactive",
         help="Set the parameters interactively with questions.",
         action="store_true",
     )
     parser.add_argument(
-        "-o", "--output",
-        help="Output directory to store the results in.",
-        type=Path,
-        default=None
+        "-o", "--output", help="Output directory to store the results in.", type=Path, default=None
     )
     args = parser.parse_args()
     if args.interactive:
