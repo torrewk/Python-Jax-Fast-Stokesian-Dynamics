@@ -2,9 +2,10 @@ Installation
 ============
 
 ## Pre-requisites:
-- cuda 11.8 (https://developer.nvidia.com/cuda-11-8-0-download-archive)
-- cuDNN 8.6 for cuda 11 (https://developer.nvidia.com/rdp/cudnn-archive)
-- Python >= 3.10
+- cuda (tested with version 11.8, https://developer.nvidia.com/cuda-11-8-0-download-archive)
+- cuDNN (tested with 8.6 for cuda 11, https://developer.nvidia.com/rdp/cudnn-archive)
+- Python >= 3.9
+
 
 1 - Set up work (virtual) environment:
 
@@ -20,7 +21,7 @@ Installation
 	python3 -m venv .venv
 
 
-3 - activate the environment:
+3 - Activate the environment:
 
 .. code-block:: shell
 
@@ -30,7 +31,7 @@ Installation
 
 .. code-block:: shell
 
-	pip install jaxlib==0.4.14+cuda11.cudnn86 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+	pip install jaxlib==0.4.17+cuda11.cudnn86 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
 5 - Install jfsd and rest of dependencies
 
@@ -57,11 +58,3 @@ Installation
 .. code-block:: shell
 
 	pytest tests/test_class.py
-		
-		
-9 - If no test fails, run the main code, from the project directory, via:
-
-.. code-block:: shell
-
-	python jfsd/JFSD.py
-
