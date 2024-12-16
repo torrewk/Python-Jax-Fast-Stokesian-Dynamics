@@ -3,11 +3,6 @@ Quickstart
 
 How to Run Simulations
 -----------------------
-Quickstart
-==========
-
-How to Run Simulations
------------------------
 
 1. Create a configuration `.toml` (use `files/example_configuration.toml` as a reference).
 
