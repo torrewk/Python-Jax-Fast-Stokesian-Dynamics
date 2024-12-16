@@ -1,67 +1,63 @@
 Installation
 ============
 
-## Pre-requisites:
-- cuda 11.8 (https://developer.nvidia.com/cuda-11-8-0-download-archive)
-- cuDNN 8.6 for cuda 11 (https://developer.nvidia.com/rdp/cudnn-archive)
-- Python >= 3.10
+Pre-requisites
+--------------
 
-1 - Set up work (virtual) environment:
+- CUDA (tested with version 11.8): `Download here <https://developer.nvidia.com/cuda-11-8-0-download-archive>`_
+- cuDNN (tested with 8.6 for CUDA 11): `Download here <https://developer.nvidia.com/rdp/cudnn-archive>`_
+- Python >= 3.9
 
-.. code-block:: shell
+Steps to Install
+----------------
 
-	git clone https://github.com/torrewk/Python-Jax-Fast-Stokesian-Dynamics.git
+1. **Set up the working (virtual) environment:**
 
+   .. code-block:: shell
 
-2 - Go into the directory of the project and type the command:
+       git clone https://github.com/torrewk/Python-Jax-Fast-Stokesian-Dynamics.git
 
-.. code-block:: shell
+2. **Go into the project directory and create a virtual environment:**
 
-	python3 -m venv .venv
+   .. code-block:: shell
 
+       python3 -m venv .venv
 
-3 - activate the environment:
+3. **Activate the environment:**
 
-.. code-block:: shell
+   .. code-block:: shell
 
-	source .venv/bin/activate
+       source .venv/bin/activate
 
-4 - Install correct version of jaxlib
+4. **Install the correct version of `jaxlib`:**
 
-.. code-block:: shell
+   .. code-block:: shell
 
-	pip install jaxlib==0.4.14+cuda11.cudnn86 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+       pip install jaxlib==0.4.17+cuda11.cudnn86 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
-5 - Install jfsd and rest of dependencies
+5. **Install `jfsd` and the rest of the dependencies:**
 
-.. code-block:: shell
+   .. code-block:: shell
 
-	pip install ".[test]"
+       pip install ".[test]"
 
-		
-6 - [optional] Build the documentation 	
-	
-.. code-block:: shell		
+6. **[Optional] Build the documentation:**
 
-	cd docs ; make html ; cd ..
-		
-7 - Reboot the environment (needed fore pytest to work):
+   .. code-block:: shell
 
-.. code-block:: shell
+       cd docs
+       make html
+       cd ..
 
-	deactivate && source .venv/bin/activate
+7. **Reboot the environment (needed for `pytest` to work):**
 
+   .. code-block:: shell
 
-8 - Run the JFSD unit tests
+       deactivate && source .venv/bin/activate
 
-.. code-block:: shell
+8. **Run the JFSD unit tests:**
 
-	pytest tests/test_class.py
-		
-		
-9 - If no test fails, run the main code, from the project directory, via:
+   .. code-block:: shell
 
-.. code-block:: shell
-
-	python jfsd/JFSD.py
+       pytest tests/test_class.py
 
