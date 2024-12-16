@@ -1,2 +1,5 @@
 sphinx
+sphinx-rtd-theme
 sphinx-autodoc-typehints
+sphinx-inline-tabs
+sphinx-copybutton
