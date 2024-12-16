@@ -1,49 +1,66 @@
 Quickstart
 ==========
 
-## How to Run Simulations
+How to Run Simulations
+-----------------------
+Quickstart
+==========
 
-1 - Create a configuration .toml in files/ (use "files/example_configuration.toml" as reference)
+How to Run Simulations
+-----------------------
 
-2 - Run the main code, from the project directory, via:
+1. Create a configuration `.toml` (use `files/example_configuration.toml` as a reference).
 
-.. code-block:: shell
+2. Run the main code from the project directory via:
 
-	jfsd -c files/<your_config_file.toml> -o <directory_name_for_output>
+   .. code-block:: shell
 
-Replace <your_config_file.toml> with the name of the file created in step (1), and <directory_name_for_output> with the name of the folder where you want to store the trajetory data.
+       jfsd --config files/<your_config_file.toml> -output <directory_name_for_output>
 
-3 - To provide initial particle positions to jfsd, run it via:
+   Replace `<your_config_file.toml>` with the name of the file created in step (1), and `<directory_name_for_output>` with the name of the folder where you want to store the trajectory data.
 
-.. code-block:: shell
-	jfsd -c files/<your_config_file.toml> -s <initial_particle_positions.npy> -o <directory_name_for_output>
+3. To provide initial particle positions to `jfsd`, run it via:
 
-Replace <initial_particle_positions.npy> with the name of your initial configuration, and modify <your_config_file.toml> to accept initial positions from file (instead of randomly creating it, see 'example_configuration.toml'). Note that this file must be a numpy array of shape (N<sub>p</sub>, 3), with N<sub>p</sub> the number of particles.
+   .. code-block:: shell
 
-## Analyzing Trajectory Data
+       jfsd --config files/<your_config_file.toml> --start-configuration <initial_particle_positions.npy> -output <directory_name_for_output>
 
-During the simulation, the particles trajectories,velocities, and stresslets are saved in a numpy array of shape (N<sub>s</sub>, N<sub>p</sub>, N<sub>c</sub>), with N<sub>s</sub> the number of frames stored, N<sub>p</sub> the number of particles and N<sub>c</sub> the number of d.o.f. (3 for trajectories, 6 for velocities, 5 for stresslets). 
-**Lengths in the simulation are expressed in units of the particles radius _a_, and momenta in units of _γa_, with unity mass for each particle.**  
+   Replace `<initial_particle_positions.npy>` with the name of your initial configuration, and modify `<your_config_file.toml>` to accept initial positions from a file (instead of randomly creating it, see `example_configuration.toml`). Note that this file must be a NumPy array of shape `(N_p, 3)`, where `N_p` is the number of particles.
 
-## Common/Known Issues
+Analyzing Trajectory Data
+-------------------------
 
-1 - "Unable to load cuPTI"
+During the simulation, the particles' trajectories, velocities, and stresslets are saved in a NumPy array of shape `(N_s, N_p, N_c)`, where:
 
-This issue can occur if the `PATH` or `LD_LIBRARY_PATH` environment variables are not set correctly to include your CUDA installation, especially the `cuPTI` (CUDA Profiling Tools Interface) library, which JAX requires.
+- `N_s` is the number of frames stored,
+- `N_p` is the number of particles,
+- `N_c` is the number of degrees of freedom (3 for trajectories, 6 for velocities, 5 for stresslets).
 
-To solve this (temporarily), add the following line to your environment:
+**Lengths in the simulation are expressed in units of the particle radius (_a_), and momenta in units of _\u03b3a_, with unity mass for each particle.**
 
-.. code-block:: shell
-	export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/extras/CUPTI/lib64
+Common/Known Issues
+-------------------
 
-For a permanent solution, edit the .bashrc file in your home directory:
+1. **"Unable to load cuPTI"**
 
-.. code-block:: shell
-	echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/extras/CUPTI/lib64' >> ~/.bashrc
+   This issue can occur if the `PATH` or `LD_LIBRARY_PATH` environment variables are not set correctly to include your CUDA installation, especially the `cuPTI` (CUDA Profiling Tools Interface) library, which JAX requires.
 
-and apply the changes:
+   To solve this temporarily, add the following line to your environment:
 
-.. code-block:: shell
-	source ~/.bashrc
+   .. code-block:: shell
 
-Note that, if cuda is installed in a different location than '/usr/local/', you need to modify the lines above accordingly.
+       export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/extras/CUPTI/lib64
+
+   For a permanent solution, edit the `.bashrc` file in your home directory:
+
+   .. code-block:: shell
+
+       echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/extras/CUPTI/lib64' >> ~/.bashrc
+
+   Apply the changes:
+
+   .. code-block:: shell
+
+       source ~/.bashrc
+
+   Note: If CUDA is installed in a different location than `/usr/local/`, modify the lines above accordingly.
