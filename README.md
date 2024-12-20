@@ -90,3 +90,8 @@ and apply the changes:
 source ~/.bashrc
 ```
 Note that, if cuda is installed in a different location than '/usr/local/', you need to modify the lines above accordingly.
+
+## License
+
+This project is licensed under the Apache License, Version 2.0. See the `LICENSE` file for the full terms and conditions. For a concise summary, refer to `LICENSE_SHORT`.
+
