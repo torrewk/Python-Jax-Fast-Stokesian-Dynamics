@@ -50,10 +50,10 @@ class TestClassCPU:
 
         """
         assert (jax_has_cpu() == 'cpu') #check that jax is running on cpu
-        N = 25
+        num_particles = 25
         dr=2.0005
         _, _, _, testresults = main.main(
-                    1, 1, 0.1, 35, 35, 35, N, 0.5,
+                    1, 1, 0.1, 35, 35, 35, num_particles, 0.5,
                     0.001, 1, 0.5, 0.001, 0., 0, 1.,
                     jnp.array([[0., dr, 0.],    [0., dr, dr],    [0., dr,-dr],    [-dr, dr, 0.],    [dr, dr, 0.],
                                 [0., 2*dr, 0.],  [0., 2*dr, dr],  [0., 2*dr,-dr],  [-dr, 2*dr, 0.],  [dr, 2*dr, 0.],

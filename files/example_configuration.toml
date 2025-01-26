@@ -22,13 +22,13 @@ constant_torque = [0.0, 0.0, 0.0]
 buoyancy = false
 
 [box]
-Lx = 24
-Ly = 24
-Lz = 24
+lx = 24
+ly = 24
+lz = 24
 max_strain = 0.5 #max strain that can be applied to the simulation box before resetting it in the opposite direction 
 
 [seeds]
-RFD = 43175675 #seed for Random-Finite-Difference method, used in computing the Brownian drift and needed only in 'stokesian' dynamics type simulations
+rfd = 43175675 #seed for Random-Finite-Difference method, used in computing the Brownian drift and needed only in 'stokesian' dynamics type simulations
 ffwave = 6357442 #seed for far-field wave space contribution to thermal fluctuations
 ffreal = 6474524532 #seed for far-field real space contribution to thermal fluctuations
 nf = 325425435 #seed for near-field contribution to thermal fluctuations

@@ -9,8 +9,8 @@ from jax.typing import ArrayLike
 from jfsd import lanczos
 
 
-def Random_force_on_grid_indexing(
-    Nx: int, Ny: int, Nz: int
+def random_force_on_grid_indexing(
+    grid_nx: int, grid_ny: int, grid_nz: int
 ) -> tuple[int, int, int, int, int, int, int, int, int]:
     """Compute indexing for wave space grid.
 
@@ -18,11 +18,11 @@ def Random_force_on_grid_indexing(
 
     Parameters
     ----------
-    Nx: (int)
+    grid_nx: (int)
         Number of grid points in x direction
-    Ny: (int)
+    grid_ny: (int)
         Number of grid points in y direction
-    Nz: (int)
+    grid_nz: (int)
         Number of grid points in z direction
 
     Returns
@@ -33,18 +33,18 @@ def Random_force_on_grid_indexing(
     normal_indices = []
     normal_conj_indices = []
     nyquist_indices = []
-    for i in range(Nx):
-        for j in range(Ny):
-            for k in range(Nz):
+    for i in range(grid_nx):
+        for j in range(grid_ny):
+            for k in range(grid_nz):
                 if (
-                    not (2 * k >= Nz + 1)
-                    and not ((k == 0) and (2 * j >= Ny + 1))
-                    and not ((k == 0) and (j == 0) and (2 * i >= Nx + 1))
+                    not (2 * k >= grid_nz + 1)
+                    and not ((k == 0) and (2 * j >= grid_ny + 1))
+                    and not ((k == 0) and (j == 0) and (2 * i >= grid_nx + 1))
                     and not ((k == 0) and (j == 0) and (i == 0))
                 ):
-                    ii_nyquist = (i == int(Nx / 2)) and (int(Nx / 2) == int((Nx + 1) / 2))
-                    jj_nyquist = (j == int(Ny / 2)) and (int(Ny / 2) == int((Ny + 1) / 2))
-                    kk_nyquist = (k == int(Nz / 2)) and (int(Nz / 2) == int((Nz + 1) / 2))
+                    ii_nyquist = (i == int(grid_nx / 2)) and (int(grid_nx / 2) == int((grid_nx + 1) / 2))
+                    jj_nyquist = (j == int(grid_ny / 2)) and (int(grid_ny / 2) == int((grid_ny + 1) / 2))
+                    kk_nyquist = (k == int(grid_nz / 2)) and (int(grid_nz / 2) == int((grid_nz + 1) / 2))
                     if (
                         (i == 0 and jj_nyquist and k == 0)
                         or (ii_nyquist and j == 0 and k == 0)
@@ -60,15 +60,15 @@ def Random_force_on_grid_indexing(
                         if ii_nyquist or (i == 0):
                             i_conj = i
                         else:
-                            i_conj = Nx - i
+                            i_conj = grid_nx - i
                         if jj_nyquist or (j == 0):
                             j_conj = j
                         else:
-                            j_conj = Ny - j
+                            j_conj = grid_ny - j
                         if kk_nyquist or (k == 0):
                             k_conj = k
                         else:
-                            k_conj = Nz - k
+                            k_conj = grid_nz - k
                         normal_conj_indices.append([i_conj, j_conj, k_conj])
 
     normal_indices = jnp.array(normal_indices)
@@ -102,14 +102,14 @@ def Random_force_on_grid_indexing(
     )
 
 
-def Number_of_neigh(N: int, indices_i_lub: ArrayLike, indices_j_lub: ArrayLike) -> Array:
+def number_of_neigh(num_particles: int, indices_i_lub: ArrayLike, indices_j_lub: ArrayLike) -> Array:
     """Count number of neighbors for each particle.
 
     Use result to construct projector needed for thermal fluctuation calculations.
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
     indices_i_lub: (int)
         Array (n_pair_nf) of indices of first particle in neighbor list pairs
@@ -121,8 +121,8 @@ def Number_of_neigh(N: int, indices_i_lub: ArrayLike, indices_j_lub: ArrayLike) 
     brow_lub_precondition
 
     """
-    brow_lub_precondition = np.zeros(N)
-    for i in range(N):
+    brow_lub_precondition = np.zeros(num_particles)
+    for i in range(num_particles):
         brow_lub_precondition[i] = np.sum(np.where(indices_i_lub == i, 1, 0))
         brow_lub_precondition[i] += np.sum(np.where(indices_j_lub == i, 1, 0))
     brow_lub_precondition = jnp.repeat(brow_lub_precondition, 6)
@@ -131,11 +131,11 @@ def Number_of_neigh(N: int, indices_i_lub: ArrayLike, indices_j_lub: ArrayLike) 
 
 @partial(jit, static_argnums=[0, 2, 3, 4])
 def compute_real_space_slipvelocity(
-    N: int,
+    num_particles: int,
     m_self: ArrayLike,
-    kT: float,
+    temperature: float,
     dt: float,
-    n_iter_Lanczos_ff: int,
+    n_iter_lanczos_ff: int,
     random_array_real: ArrayLike,
     r: ArrayLike,
     indices_i: ArrayLike,
@@ -154,18 +154,18 @@ def compute_real_space_slipvelocity(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
     m_self: (float)
         Array (,2) containing mobility self contributions
-    kT: (float)
+    temperature: (float)
         Thermal energy
     dt: (float)
         Time step
-    n_iter_Lanczos_ff: (int)
+    n_iter_lanczos_ff: (int)
         Number of Lanczos iteration to perform
     random_array_real: (float)
-        Array (,11*N) of random numbers with the proper variance
+        Array (,11*num_particles) of random numbers with the proper variance
     r: (float)
         Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
     indices_i: (int)
@@ -193,7 +193,7 @@ def compute_real_space_slipvelocity(
 
     """
 
-    def helper_Mpsi(random_array: ArrayLike) -> ArrayLike:
+    def helper_mpsi(random_array: ArrayLike) -> ArrayLike:
         """Compute matrix-vector product of real-space granmobility matrix with a generalized force array.
 
         Parameters
@@ -207,33 +207,33 @@ def compute_real_space_slipvelocity(
 
         """
         # input is already in the format: [Forces, Torque+Stresslet] (not in the generalized format [Force+Torque,Stresslet] like in the saddle point solver)
-        forces = random_array.at[: 3 * N].get()
+        forces = random_array.at[: 3 * num_particles].get()
 
-        couplets = jnp.zeros(8 * N)
-        couplets = couplets.at[::8].add(random_array.at[(3 * N + 3) :: 8].get())  # C[0] = S[0]
+        couplets = jnp.zeros(8 * num_particles)
+        couplets = couplets.at[::8].add(random_array.at[(3 * num_particles + 3) :: 8].get())  # C[0] = S[0]
         couplets = couplets.at[1::8].add(
-            random_array.at[(3 * N + 4) :: 8].get() + random_array.at[(3 * N + 2) :: 8].get() * 0.5
+            random_array.at[(3 * num_particles + 4) :: 8].get() + random_array.at[(3 * num_particles + 2) :: 8].get() * 0.5
         )  # C[1] = S[1] + L[2]/2
         couplets = couplets.at[2::8].add(
-            random_array.at[(3 * N + 5) :: 8].get() - random_array.at[(3 * N + 1) :: 8].get() * 0.5
+            random_array.at[(3 * num_particles + 5) :: 8].get() - random_array.at[(3 * num_particles + 1) :: 8].get() * 0.5
         )  # C[2] = S[2] - L[1]/2
         couplets = couplets.at[3::8].add(
-            random_array.at[(3 * N + 6) :: 8].get() + random_array.at[(3 * N + 0) :: 8].get() * 0.5
+            random_array.at[(3 * num_particles + 6) :: 8].get() + random_array.at[(3 * num_particles + 0) :: 8].get() * 0.5
         )  # C[3] = S[3] + L[0]/2
-        couplets = couplets.at[4::8].add(random_array.at[(3 * N + 7) :: 8].get())  # C[4] = S[4]
+        couplets = couplets.at[4::8].add(random_array.at[(3 * num_particles + 7) :: 8].get())  # C[4] = S[4]
         couplets = couplets.at[5::8].add(
-            random_array.at[(3 * N + 4) :: 8].get() - random_array.at[(3 * N + 2) :: 8].get() * 0.5
+            random_array.at[(3 * num_particles + 4) :: 8].get() - random_array.at[(3 * num_particles + 2) :: 8].get() * 0.5
         )  # C[5] = S[1] - L[2]/2
         couplets = couplets.at[6::8].add(
-            random_array.at[(3 * N + 5) :: 8].get() + random_array.at[(3 * N + 1) :: 8].get() * 0.5
+            random_array.at[(3 * num_particles + 5) :: 8].get() + random_array.at[(3 * num_particles + 1) :: 8].get() * 0.5
         )  # C[6] = S[2] + L[1]/2
         couplets = couplets.at[7::8].add(
-            random_array.at[(3 * N + 6) :: 8].get() - random_array.at[(3 * N + 0) :: 8].get() * 0.5
+            random_array.at[(3 * num_particles + 6) :: 8].get() - random_array.at[(3 * num_particles + 0) :: 8].get() * 0.5
         )  # C[7] = S[3] - L[0]/2
 
         # Allocate arrays for Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
-        r_lin_velocities = jnp.zeros((N, 3), float)
-        r_velocity_gradient = jnp.zeros((N, 8), float)
+        r_lin_velocities = jnp.zeros((num_particles, 3), float)
+        r_velocity_gradient = jnp.zeros((num_particles, 8), float)
 
         # SELF CONTRIBUTIONS
         r_lin_velocities = r_lin_velocities.at[:, 0].add(m_self.at[0].get() * forces.at[0::3].get())
@@ -278,7 +278,7 @@ def compute_real_space_slipvelocity(
             + r.at[:, 2].get() * forces.at[3 * indices_i + 2].get()
         )
 
-        Cj_dotr = jnp.array(
+        cj_dotr = jnp.array(
             [
                 couplets.at[8 * indices_j + 0].get() * r.at[:, 0].get()
                 + couplets.at[8 * indices_j + 1].get() * r.at[:, 1].get()
@@ -293,7 +293,7 @@ def compute_real_space_slipvelocity(
             ]
         )
 
-        Ci_dotmr = jnp.array(
+        ci_dotmr = jnp.array(
             [
                 -couplets.at[8 * indices_i + 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 1].get() * r.at[:, 1].get()
@@ -308,7 +308,7 @@ def compute_real_space_slipvelocity(
             ]
         )
 
-        rdotC_j = jnp.array(
+        rdotc_j = jnp.array(
             [
                 couplets.at[8 * indices_j + 0].get() * r.at[:, 0].get()
                 + couplets.at[8 * indices_j + 5].get() * r.at[:, 1].get()
@@ -323,7 +323,7 @@ def compute_real_space_slipvelocity(
             ]
         )
 
-        mrdotC_i = jnp.array(
+        mrdotc_i = jnp.array(
             [
                 -couplets.at[8 * indices_i + 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 5].get() * r.at[:, 1].get()
@@ -338,15 +338,15 @@ def compute_real_space_slipvelocity(
             ]
         )
 
-        rdotC_jj_dotr = (
-            r.at[:, 0].get() * Cj_dotr.at[0, :].get()
-            + r.at[:, 1].get() * Cj_dotr.at[1, :].get()
-            + r.at[:, 2].get() * Cj_dotr.at[2, :].get()
+        rdotc_jj_dotr = (
+            r.at[:, 0].get() * cj_dotr.at[0, :].get()
+            + r.at[:, 1].get() * cj_dotr.at[1, :].get()
+            + r.at[:, 2].get() * cj_dotr.at[2, :].get()
         )
-        mrdotC_ii_dotmr = -(
-            r.at[:, 0].get() * Ci_dotmr.at[0, :].get()
-            + r.at[:, 1].get() * Ci_dotmr.at[1, :].get()
-            + r.at[:, 2].get() * Ci_dotmr.at[2, :].get()
+        mrdotc_ii_dotmr = -(
+            r.at[:, 0].get() * ci_dotmr.at[0, :].get()
+            + r.at[:, 1].get() * ci_dotmr.at[1, :].get()
+            + r.at[:, 2].get() * ci_dotmr.at[2, :].get()
         )
 
         # Compute Velocity for particles i
@@ -360,16 +360,16 @@ def compute_real_space_slipvelocity(
             f1 * forces.at[3 * indices_j + 2].get() + (f2 - f1) * rdotf_j * r.at[:, 2].get()
         )
         r_lin_velocities = r_lin_velocities.at[indices_i, 0].add(
-            g1 * (Cj_dotr.at[0, :].get() - rdotC_jj_dotr * r.at[:, 0].get())
-            + g2 * (rdotC_j.at[0, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 0].get())
+            g1 * (cj_dotr.at[0, :].get() - rdotc_jj_dotr * r.at[:, 0].get())
+            + g2 * (rdotc_j.at[0, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 0].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_i, 1].add(
-            g1 * (Cj_dotr.at[1, :].get() - rdotC_jj_dotr * r.at[:, 1].get())
-            + g2 * (rdotC_j.at[1, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 1].get())
+            g1 * (cj_dotr.at[1, :].get() - rdotc_jj_dotr * r.at[:, 1].get())
+            + g2 * (rdotc_j.at[1, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 1].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_i, 2].add(
-            g1 * (Cj_dotr.at[2, :].get() - rdotC_jj_dotr * r.at[:, 2].get())
-            + g2 * (rdotC_j.at[2, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 2].get())
+            g1 * (cj_dotr.at[2, :].get() - rdotc_jj_dotr * r.at[:, 2].get())
+            + g2 * (rdotc_j.at[2, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 2].get())
         )
         # Compute Velocity for particles j
         r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(
@@ -382,16 +382,16 @@ def compute_real_space_slipvelocity(
             f1 * forces.at[3 * indices_i + 2].get() - (f2 - f1) * mrdotf_i * r.at[:, 2].get()
         )
         r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(
-            g1 * (Ci_dotmr.at[0, :].get() + mrdotC_ii_dotmr * r.at[:, 0].get())
-            + g2 * (mrdotC_i.at[0, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 0].get())
+            g1 * (ci_dotmr.at[0, :].get() + mrdotc_ii_dotmr * r.at[:, 0].get())
+            + g2 * (mrdotc_i.at[0, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 0].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_j, 1].add(
-            g1 * (Ci_dotmr.at[1, :].get() + mrdotC_ii_dotmr * r.at[:, 1].get())
-            + g2 * (mrdotC_i.at[1, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 1].get())
+            g1 * (ci_dotmr.at[1, :].get() + mrdotc_ii_dotmr * r.at[:, 1].get())
+            + g2 * (mrdotc_i.at[1, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 1].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_j, 2].add(
-            g1 * (Ci_dotmr.at[2, :].get() + mrdotC_ii_dotmr * r.at[:, 2].get())
-            + g2 * (mrdotC_i.at[2, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 2].get())
+            g1 * (ci_dotmr.at[2, :].get() + mrdotc_ii_dotmr * r.at[:, 2].get())
+            + g2 * (mrdotc_i.at[2, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 2].get())
         )
 
         # Compute Velocity Gradient for particles i and j
@@ -430,16 +430,16 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 0].get() - 4.0 * couplets.at[8 * indices_j + 0].get())
             + h2
             * (
-                r.at[:, 0].get() * Cj_dotr.at[0, :].get()
-                - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
+                r.at[:, 0].get() * cj_dotr.at[0, :].get()
+                - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                rdotC_jj_dotr
-                + Cj_dotr.at[0, :].get() * r.at[:, 0].get()
-                + r.at[:, 0].get() * rdotC_j.at[0, :].get()
-                + rdotC_j.at[0, :].get() * r.at[:, 0].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
+                rdotc_jj_dotr
+                + cj_dotr.at[0, :].get() * r.at[:, 0].get()
+                + r.at[:, 0].get() * rdotc_j.at[0, :].get()
+                + rdotc_j.at[0, :].get() * r.at[:, 0].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_j + 0].get()
             )
         )
@@ -447,16 +447,16 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 0].get() - 4.0 * couplets.at[8 * indices_i + 0].get())
             + h2
             * (
-                -r.at[:, 0].get() * Ci_dotmr.at[0, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
+                -r.at[:, 0].get() * ci_dotmr.at[0, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                mrdotC_ii_dotmr
-                - Ci_dotmr.at[0, :].get() * r.at[:, 0].get()
-                - r.at[:, 0].get() * mrdotC_i.at[0, :].get()
-                - mrdotC_i.at[0, :].get() * r.at[:, 0].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
+                mrdotc_ii_dotmr
+                - ci_dotmr.at[0, :].get() * r.at[:, 0].get()
+                - r.at[:, 0].get() * mrdotc_i.at[0, :].get()
+                - mrdotc_i.at[0, :].get() * r.at[:, 0].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 0].get()
             )
         )
@@ -495,15 +495,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 5].get() - 4.0 * couplets.at[8 * indices_j + 1].get())
             + h2
             * (
-                r.at[:, 1].get() * Cj_dotr.at[0, :].get()
-                - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
+                r.at[:, 1].get() * cj_dotr.at[0, :].get()
+                - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                Cj_dotr.at[1, :].get() * r.at[:, 0].get()
-                + r.at[:, 1].get() * rdotC_j.at[0, :].get()
-                + rdotC_j.at[1, :].get() * r.at[:, 0].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
+                cj_dotr.at[1, :].get() * r.at[:, 0].get()
+                + r.at[:, 1].get() * rdotc_j.at[0, :].get()
+                + rdotc_j.at[1, :].get() * r.at[:, 0].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_j + 1].get()
             )
         )
@@ -512,15 +512,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 5].get() - 4.0 * couplets.at[8 * indices_i + 1].get())
             + h2
             * (
-                -r.at[:, 1].get() * Ci_dotmr.at[0, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
+                -r.at[:, 1].get() * ci_dotmr.at[0, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[1, :].get() * r.at[:, 0].get()
-                - r.at[:, 1].get() * mrdotC_i.at[0, :].get()
-                - mrdotC_i.at[1, :].get() * r.at[:, 0].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
+                -ci_dotmr.at[1, :].get() * r.at[:, 0].get()
+                - r.at[:, 1].get() * mrdotc_i.at[0, :].get()
+                - mrdotc_i.at[1, :].get() * r.at[:, 0].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 1].get()
             )
         )
@@ -558,15 +558,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 6].get() - 4.0 * couplets.at[8 * indices_j + 2].get())
             + h2
             * (
-                r.at[:, 2].get() * Cj_dotr.at[0, :].get()
-                - rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
+                r.at[:, 2].get() * cj_dotr.at[0, :].get()
+                - rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                Cj_dotr.at[2, :].get() * r.at[:, 0].get()
-                + r.at[:, 2].get() * rdotC_j.at[0, :].get()
-                + rdotC_j.at[2, :].get() * r.at[:, 0].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
+                cj_dotr.at[2, :].get() * r.at[:, 0].get()
+                + r.at[:, 2].get() * rdotc_j.at[0, :].get()
+                + rdotc_j.at[2, :].get() * r.at[:, 0].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_j + 2].get()
             )
         )
@@ -574,15 +574,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 6].get() - 4.0 * couplets.at[8 * indices_i + 2].get())
             + h2
             * (
-                r.at[:, 2].get() * Ci_dotmr.at[0, :].get() * (-1)
-                - mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
+                r.at[:, 2].get() * ci_dotmr.at[0, :].get() * (-1)
+                - mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[2, :].get() * r.at[:, 0].get()
-                - r.at[:, 2].get() * mrdotC_i.at[0, :].get()
-                - mrdotC_i.at[2, :].get() * r.at[:, 0].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
+                -ci_dotmr.at[2, :].get() * r.at[:, 0].get()
+                - r.at[:, 2].get() * mrdotc_i.at[0, :].get()
+                - mrdotc_i.at[2, :].get() * r.at[:, 0].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 2].get()
             )
         )
@@ -621,15 +621,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 7].get() - 4.0 * couplets.at[8 * indices_j + 3].get())
             + h2
             * (
-                r.at[:, 2].get() * Cj_dotr.at[1, :].get()
-                - rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
+                r.at[:, 2].get() * cj_dotr.at[1, :].get()
+                - rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                Cj_dotr.at[2, :].get() * r.at[:, 1].get()
-                + r.at[:, 2].get() * rdotC_j.at[1, :].get()
-                + rdotC_j.at[2, :].get() * r.at[:, 1].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
+                cj_dotr.at[2, :].get() * r.at[:, 1].get()
+                + r.at[:, 2].get() * rdotc_j.at[1, :].get()
+                + rdotc_j.at[2, :].get() * r.at[:, 1].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_j + 3].get()
             )
         )
@@ -638,15 +638,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 7].get() - 4.0 * couplets.at[8 * indices_i + 3].get())
             + h2
             * (
-                -r.at[:, 2].get() * Ci_dotmr.at[1, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
+                -r.at[:, 2].get() * ci_dotmr.at[1, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[2, :].get() * r.at[:, 1].get()
-                - r.at[:, 2].get() * mrdotC_i.at[1, :].get()
-                - mrdotC_i.at[2, :].get() * r.at[:, 1].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
+                -ci_dotmr.at[2, :].get() * r.at[:, 1].get()
+                - r.at[:, 2].get() * mrdotc_i.at[1, :].get()
+                - mrdotc_i.at[2, :].get() * r.at[:, 1].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_i + 3].get()
             )
         )
@@ -687,16 +687,16 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 4].get() - 4.0 * couplets.at[8 * indices_j + 4].get())
             + h2
             * (
-                r.at[:, 1].get() * Cj_dotr.at[1, :].get()
-                - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
+                r.at[:, 1].get() * cj_dotr.at[1, :].get()
+                - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                rdotC_jj_dotr
-                + Cj_dotr.at[1, :].get() * r.at[:, 1].get()
-                + r.at[:, 1].get() * rdotC_j.at[1, :].get()
-                + rdotC_j.at[1, :].get() * r.at[:, 1].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
+                rdotc_jj_dotr
+                + cj_dotr.at[1, :].get() * r.at[:, 1].get()
+                + r.at[:, 1].get() * rdotc_j.at[1, :].get()
+                + rdotc_j.at[1, :].get() * r.at[:, 1].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_j + 4].get()
             )
         )
@@ -705,16 +705,16 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 4].get() - 4.0 * couplets.at[8 * indices_i + 4].get())
             + h2
             * (
-                -r.at[:, 1].get() * Ci_dotmr.at[1, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
+                -r.at[:, 1].get() * ci_dotmr.at[1, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                mrdotC_ii_dotmr
-                - Ci_dotmr.at[1, :].get() * r.at[:, 1].get()
-                - r.at[:, 1].get() * mrdotC_i.at[1, :].get()
-                - mrdotC_i.at[1, :].get() * r.at[:, 1].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
+                mrdotc_ii_dotmr
+                - ci_dotmr.at[1, :].get() * r.at[:, 1].get()
+                - r.at[:, 1].get() * mrdotc_i.at[1, :].get()
+                - mrdotc_i.at[1, :].get() * r.at[:, 1].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_i + 4].get()
             )
         )
@@ -753,15 +753,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 1].get() - 4.0 * couplets.at[8 * indices_j + 5].get())
             + h2
             * (
-                r.at[:, 0].get() * Cj_dotr.at[1, :].get()
-                - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
+                r.at[:, 0].get() * cj_dotr.at[1, :].get()
+                - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                Cj_dotr.at[0, :].get() * r.at[:, 1].get()
-                + r.at[:, 0].get() * rdotC_j.at[1, :].get()
-                + rdotC_j.at[0, :].get() * r.at[:, 1].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
+                cj_dotr.at[0, :].get() * r.at[:, 1].get()
+                + r.at[:, 0].get() * rdotc_j.at[1, :].get()
+                + rdotc_j.at[0, :].get() * r.at[:, 1].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_j + 5].get()
             )
         )
@@ -770,15 +770,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 1].get() - 4.0 * couplets.at[8 * indices_i + 5].get())
             + h2
             * (
-                -r.at[:, 0].get() * Ci_dotmr.at[1, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
+                -r.at[:, 0].get() * ci_dotmr.at[1, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[0, :].get() * r.at[:, 1].get()
-                - r.at[:, 0].get() * mrdotC_i.at[1, :].get()
-                - mrdotC_i.at[0, :].get() * r.at[:, 1].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
+                -ci_dotmr.at[0, :].get() * r.at[:, 1].get()
+                - r.at[:, 0].get() * mrdotc_i.at[1, :].get()
+                - mrdotc_i.at[0, :].get() * r.at[:, 1].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_i + 5].get()
             )
         )
@@ -817,15 +817,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 2].get() - 4.0 * couplets.at[8 * indices_j + 6].get())
             + h2
             * (
-                r.at[:, 0].get() * Cj_dotr.at[2, :].get()
-                - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
+                r.at[:, 0].get() * cj_dotr.at[2, :].get()
+                - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                Cj_dotr.at[0, :].get() * r.at[:, 2].get()
-                + r.at[:, 0].get() * rdotC_j.at[2, :].get()
-                + rdotC_j.at[0, :].get() * r.at[:, 2].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
+                cj_dotr.at[0, :].get() * r.at[:, 2].get()
+                + r.at[:, 0].get() * rdotc_j.at[2, :].get()
+                + rdotc_j.at[0, :].get() * r.at[:, 2].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_j + 6].get()
             )
         )
@@ -834,15 +834,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 2].get() - 4.0 * couplets.at[8 * indices_i + 6].get())
             + h2
             * (
-                -r.at[:, 0].get() * Ci_dotmr.at[2, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
+                -r.at[:, 0].get() * ci_dotmr.at[2, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[0, :].get() * r.at[:, 2].get()
-                - r.at[:, 0].get() * mrdotC_i.at[2, :].get()
-                - mrdotC_i.at[0, :].get() * r.at[:, 2].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
+                -ci_dotmr.at[0, :].get() * r.at[:, 2].get()
+                - r.at[:, 0].get() * mrdotc_i.at[2, :].get()
+                - mrdotc_i.at[0, :].get() * r.at[:, 2].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_i + 6].get()
             )
         )
@@ -881,15 +881,15 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_j + 3].get() - 4.0 * couplets.at[8 * indices_j + 7].get())
             + h2
             * (
-                r.at[:, 1].get() * Cj_dotr.at[2, :].get()
-                - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
+                r.at[:, 1].get() * cj_dotr.at[2, :].get()
+                - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                Cj_dotr.at[1, :].get() * r.at[:, 2].get()
-                + r.at[:, 1].get() * rdotC_j.at[2, :].get()
-                + rdotC_j.at[1, :].get() * r.at[:, 2].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
+                cj_dotr.at[1, :].get() * r.at[:, 2].get()
+                + r.at[:, 1].get() * rdotc_j.at[2, :].get()
+                + rdotc_j.at[1, :].get() * r.at[:, 2].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_j + 7].get()
             )
         )
@@ -898,21 +898,21 @@ def compute_real_space_slipvelocity(
             h1 * (couplets.at[8 * indices_i + 3].get() - 4.0 * couplets.at[8 * indices_i + 7].get())
             + h2
             * (
-                -r.at[:, 1].get() * Ci_dotmr.at[2, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
+                -r.at[:, 1].get() * ci_dotmr.at[2, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[1, :].get() * r.at[:, 2].get()
-                - r.at[:, 1].get() * mrdotC_i.at[2, :].get()
-                - mrdotC_i.at[1, :].get() * r.at[:, 2].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
+                -ci_dotmr.at[1, :].get() * r.at[:, 2].get()
+                - r.at[:, 1].get() * mrdotc_i.at[2, :].get()
+                - mrdotc_i.at[1, :].get() * r.at[:, 2].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_i + 7].get()
             )
         )
 
         # # Convert to angular velocities and rate of strain
-        r_ang_vel_and_strain = jnp.zeros((N, 8))
+        r_ang_vel_and_strain = jnp.zeros((num_particles, 8))
         r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 0].add(
             (r_velocity_gradient.at[:, 3].get() - r_velocity_gradient.at[:, 7].get()) * 0.5
         )
@@ -938,18 +938,18 @@ def compute_real_space_slipvelocity(
             r_velocity_gradient.at[:, 0].get() + 2 * r_velocity_gradient.at[:, 4].get()
         )
 
-        slip_velocity = jnp.zeros(11 * N)
-        slip_velocity = slip_velocity.at[: 3 * N].add(jnp.reshape(r_lin_velocities, 3 * N))
-        slip_velocity = slip_velocity.at[3 * N :].add(jnp.reshape(r_ang_vel_and_strain, 8 * N))
+        slip_velocity = jnp.zeros(11 * num_particles)
+        slip_velocity = slip_velocity.at[: 3 * num_particles].add(jnp.reshape(r_lin_velocities, 3 * num_particles))
+        slip_velocity = slip_velocity.at[3 * num_particles :].add(jnp.reshape(r_ang_vel_and_strain, 8 * num_particles))
 
         return slip_velocity
 
-    def helper_compute_M12psi(
-        n_iter_Lanczos_ff: int, tridiagonal: ArrayLike, vectors: ArrayLike, norm: float
+    def helper_compute_m12psi(
+        n_iter_lanczos_ff: int, tridiagonal: ArrayLike, vectors: ArrayLike, norm: float
     ) -> ArrayLike:
         """Parameters
         ----------
-        n_iter_Lanczos_ff:
+        n_iter_lanczos_ff:
             Number of Lanczos iteration performed
         tridiagonal:
             Tridiagonal matrix obtained from Lanczos decomposition
@@ -960,10 +960,10 @@ def compute_real_space_slipvelocity(
 
         Returns
         -------
-        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*temperature/dt)
 
         """
-        betae1 = jnp.zeros(n_iter_Lanczos_ff)
+        betae1 = jnp.zeros(n_iter_lanczos_ff)
         betae1 = betae1.at[0].add(1 * norm)
 
         a, b = jnp.linalg.eigh(tridiagonal)
@@ -972,33 +972,33 @@ def compute_real_space_slipvelocity(
         return jnp.dot(vectors.T, jnp.dot(a, betae1))
 
     random_array_real = (2.0 * random_array_real - 1.0) * jnp.sqrt(3.0)
-    trid, vectors = lanczos.lanczos_alg(helper_Mpsi, 11 * N, n_iter_Lanczos_ff, random_array_real)
+    trid, vectors = lanczos.lanczos_algorithm(helper_mpsi, 11 * num_particles, n_iter_lanczos_ff, random_array_real)
 
     psinorm = jnp.linalg.norm(random_array_real)
-    M12_psi_old = helper_compute_M12psi(
-        (n_iter_Lanczos_ff - 1),
-        trid[: (n_iter_Lanczos_ff - 1), : (n_iter_Lanczos_ff - 1)],
-        vectors[: (n_iter_Lanczos_ff - 1), :],
+    m12_psi_old = helper_compute_m12psi(
+        (n_iter_lanczos_ff - 1),
+        trid[: (n_iter_lanczos_ff - 1), : (n_iter_lanczos_ff - 1)],
+        vectors[: (n_iter_lanczos_ff - 1), :],
         psinorm,
     )
-    M12_psi = helper_compute_M12psi(n_iter_Lanczos_ff, trid, vectors, psinorm)
-    buff = jnp.linalg.norm(M12_psi)
-    stepnorm = jnp.linalg.norm(M12_psi - M12_psi_old)
+    m12_psi = helper_compute_m12psi(n_iter_lanczos_ff, trid, vectors, psinorm)
+    buff = jnp.linalg.norm(m12_psi)
+    stepnorm = jnp.linalg.norm(m12_psi - m12_psi_old)
     stepnorm = jnp.where(buff > 1.0, stepnorm / buff, stepnorm)
-    M12_psi = M12_psi * jnp.sqrt(2.0 * kT / dt)
+    m12_psi = m12_psi * jnp.sqrt(2.0 * temperature / dt)
     # combine w_lin_velocities, w_ang_vel_and_strain
-    lin_vel = M12_psi.at[: 3 * N].get()
-    ang_vel_and_strain = M12_psi.at[3 * N :].get()
+    lin_vel = m12_psi.at[: 3 * num_particles].get()
+    ang_vel_and_strain = m12_psi.at[3 * num_particles :].get()
 
     return lin_vel, ang_vel_and_strain, stepnorm, trid
 
 
 @partial(jit, static_argnums=[0, 1, 2, 3])
 def compute_real_space_slipvelocity_open(
-    N: int,
-    kT: float,
+    num_particles: int,
+    temperature: float,
     dt: float,
-    n_iter_Lanczos_ff: int,
+    n_iter_lanczos_ff: int,
     random_array_real: ArrayLike,
     r: ArrayLike,
     indices_i: ArrayLike,
@@ -1011,16 +1011,16 @@ def compute_real_space_slipvelocity_open(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
-    kT: (float)
+    temperature: (float)
         Thermal energy
     dt: (float)
         Time step
-    n_iter_Lanczos_ff: (int)
+    n_iter_lanczos_ff: (int)
         Number of Lanczos iteration to perform
     random_array_real: (float)
-        Array (,11*N) of random numbers with the proper variance
+        Array (,11*num_particles) of random numbers with the proper variance
     r: (float)
         Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
     indices_i: (int)
@@ -1028,7 +1028,7 @@ def compute_real_space_slipvelocity_open(
     indices_j: (int)
         Array (n_pair_ff) of indices of second particle in neighbor list pairs
     mobil_scal: (float)
-        Array (11,N*(N-1)/2)) containing mobility functions evaluated for the current particle configuration
+        Array (11,num_particles*(num_particles-1)/2)) containing mobility functions evaluated for the current particle configuration
 
     Returns
     -------
@@ -1036,30 +1036,30 @@ def compute_real_space_slipvelocity_open(
 
     """
 
-    def helper_Mpsi(generalized_forces: ArrayLike) -> Array:
+    def helper_mpsi(generalized_forces: ArrayLike) -> Array:
         """Thermal helper: compute matrix-vector product of the grandmobility matrix with a generalized force vector (and stresslet), in open boundary conditions.
 
         Parameters
         ----------
         generalized_forces: (float)
-            Array (,11*N) containing input generalized forces (force/torque/stresslet)
+            Array (,11*num_particles) containing input generalized forces (force/torque/stresslet)
 
         Returns
         -------
         generalized_velocities (linear/angular velocities and rateOfStrain)
 
         """
-        strain = jnp.zeros((N, 5), float)
-        velocities = jnp.zeros((N, 6), float)
+        strain = jnp.zeros((num_particles, 5), float)
+        velocities = jnp.zeros((num_particles, 6), float)
 
-        forces_torques = generalized_forces[: 6 * N]
+        forces_torques = generalized_forces[: 6 * num_particles]
         forces_torques = -forces_torques
-        ft_i = (jnp.reshape(forces_torques, (N, 6))).at[indices_i].get()
-        ft_j = (jnp.reshape(forces_torques, (N, 6))).at[indices_j].get()
+        ft_i = (jnp.reshape(forces_torques, (num_particles, 6))).at[indices_i].get()
+        ft_j = (jnp.reshape(forces_torques, (num_particles, 6))).at[indices_j].get()
         stresslets = generalized_forces[
-            6 * N :
+            6 * num_particles :
         ]  # stresslet in vector form has the format [Sxx,Sxy,Sxz,Syz,Syy]
-        s_i = (jnp.reshape(stresslets, (N, 5))).at[indices_i].get()
+        s_i = (jnp.reshape(stresslets, (num_particles, 5))).at[indices_i].get()
         s_i = jnp.array(
             [
                 [s_i[:, 0], s_i[:, 1], s_i[:, 2]],
@@ -1067,7 +1067,7 @@ def compute_real_space_slipvelocity_open(
                 [s_i[:, 2], s_i[:, 3], -s_i[:, 0] - s_i[:, 4]],
             ]
         )
-        s_j = (jnp.reshape(stresslets, (N, 5))).at[indices_j].get()
+        s_j = (jnp.reshape(stresslets, (num_particles, 5))).at[indices_j].get()
         s_j = jnp.array(
             [
                 [s_j[:, 0], s_j[:, 1], s_j[:, 2]],
@@ -1079,9 +1079,9 @@ def compute_real_space_slipvelocity_open(
         # Dot product of levi-civita-symbol and r
         epsr = jnp.array(
             [
-                [jnp.zeros(int(N * (N - 1) / 2)), r[:, 2], -r[:, 1]],
-                [-r[:, 2], jnp.zeros(int(N * (N - 1) / 2)), r[:, 0]],
-                [r[:, 1], -r[:, 0], jnp.zeros(int(N * (N - 1) / 2))],
+                [jnp.zeros(int(num_particles * (num_particles - 1) / 2)), r[:, 2], -r[:, 1]],
+                [-r[:, 2], jnp.zeros(int(num_particles * (num_particles - 1) / 2)), r[:, 0]],
+                [r[:, 1], -r[:, 0], jnp.zeros(int(num_particles * (num_particles - 1) / 2))],
             ]
         )
 
@@ -1217,10 +1217,10 @@ def compute_real_space_slipvelocity_open(
         xg12 = mobil_scal[8]
         yg12 = mobil_scal[9]
         yh12 = mobil_scal[10]
-        n_pairs = int(N * (N - 1) / 2)
+        n_pairs = int(num_particles * (num_particles - 1) / 2)
 
         # normalize self terms (avoid double counting)
-        normaliz_factor = jnp.where(N > 1, N - 1, 1)
+        normaliz_factor = jnp.where(num_particles > 1, num_particles - 1, 1)
 
         # M_UF * F
 
@@ -1497,20 +1497,20 @@ def compute_real_space_slipvelocity_open(
 
         velocities = jnp.ravel(velocities)
         strain = jnp.ravel(strain)
-        gen_vel = jnp.zeros(11 * N)
+        gen_vel = jnp.zeros(11 * num_particles)
         # mobility is build to return the particle velocity (instead of -velocity)
         # this is because of the input 'r' and 'forces/torques' signs
-        gen_vel = gen_vel.at[: 6 * N].set(-velocities)
-        gen_vel = gen_vel.at[6 * N :].set(strain)
+        gen_vel = gen_vel.at[: 6 * num_particles].set(-velocities)
+        gen_vel = gen_vel.at[6 * num_particles :].set(strain)
 
         return gen_vel
 
-    def helper_compute_M12psi(
-        n_iter_Lanczos_ff: int, tridiagonal: ArrayLike, vectors: ArrayLike, norm: float
+    def helper_compute_m12psi(
+        n_iter_lanczos_ff: int, tridiagonal: ArrayLike, vectors: ArrayLike, norm: float
     ) -> ArrayLike:
         """Parameters
         ----------
-        n_iter_Lanczos_ff:
+        n_iter_lanczos_ff:
             Number of Lanczos iteration performed
         tridiagonal:
             Tridiagonal matrix obtained from Lanczos decomposition
@@ -1521,10 +1521,10 @@ def compute_real_space_slipvelocity_open(
 
         Returns
         -------
-        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*temperature/dt)
 
         """
-        betae1 = jnp.zeros(n_iter_Lanczos_ff)
+        betae1 = jnp.zeros(n_iter_lanczos_ff)
         betae1 = betae1.at[0].add(1 * norm)
 
         a, b = jnp.linalg.eigh(tridiagonal)
@@ -1532,26 +1532,26 @@ def compute_real_space_slipvelocity_open(
         a = jnp.dot((jnp.dot(b, jnp.diag(jnp.sqrt(a)))), b.T)
         return jnp.dot(vectors.T, jnp.dot(a, betae1))
 
-    r = -r  # change sign of r go get correct output from helper_Mpsi (do this only once)
+    r = -r  # change sign of r go get correct output from helper_mpsi (do this only once)
 
     random_array_real = (2.0 * random_array_real - 1.0) * jnp.sqrt(3.0)
-    trid, vectors = lanczos.lanczos_alg(helper_Mpsi, 11 * N, n_iter_Lanczos_ff, random_array_real)
+    trid, vectors = lanczos.lanczos_algorithm(helper_mpsi, 11 * num_particles, n_iter_lanczos_ff, random_array_real)
 
     psinorm = jnp.linalg.norm(random_array_real)
-    M12_psi_old = helper_compute_M12psi(
-        (n_iter_Lanczos_ff - 1),
-        trid[: (n_iter_Lanczos_ff - 1), : (n_iter_Lanczos_ff - 1)],
-        vectors[: (n_iter_Lanczos_ff - 1), :],
+    m12_psi_old = helper_compute_m12psi(
+        (n_iter_lanczos_ff - 1),
+        trid[: (n_iter_lanczos_ff - 1), : (n_iter_lanczos_ff - 1)],
+        vectors[: (n_iter_lanczos_ff - 1), :],
         psinorm,
     )
-    M12_psi = helper_compute_M12psi(n_iter_Lanczos_ff, trid, vectors, psinorm)
-    buff = jnp.linalg.norm(M12_psi)
-    stepnorm = jnp.linalg.norm(M12_psi - M12_psi_old)
+    m12_psi = helper_compute_m12psi(n_iter_lanczos_ff, trid, vectors, psinorm)
+    buff = jnp.linalg.norm(m12_psi)
+    stepnorm = jnp.linalg.norm(m12_psi - m12_psi_old)
     stepnorm = jnp.where(buff > 1.0, stepnorm / buff, stepnorm)
-    M12_psi = M12_psi * jnp.sqrt(2.0 * kT / dt)
+    m12_psi = m12_psi * jnp.sqrt(2.0 * temperature / dt)
     # combine w_lin_velocities, w_ang_vel_and_strain
-    lin_vel = M12_psi.at[: 3 * N].get()
-    ang_vel_and_strain = M12_psi.at[3 * N :].get()
+    lin_vel = m12_psi.at[: 3 * num_particles].get()
+    ang_vel_and_strain = m12_psi.at[3 * num_particles :].get()
 
     r = -r  # restore sign of r
 
@@ -1560,12 +1560,12 @@ def compute_real_space_slipvelocity_open(
 
 @partial(jit, static_argnums=[0, 1, 2, 3, 4])
 def compute_wave_space_slipvelocity(
-    N: int,
-    Nx: int,
-    Ny: int,
-    Nz: int,
+    num_particles: int,
+    grid_nx: int,
+    grid_ny: int,
+    grid_nz: int,
     gaussP: int,
-    kT: float,
+    temperature: float,
     dt: float,
     gridh: ArrayLike,
     normal_indices_x: ArrayLike,
@@ -1589,17 +1589,17 @@ def compute_wave_space_slipvelocity(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
-    Nx: (int)
+    grid_nx: (int)
         Number of grid points in x direction
-    Ny: (int)
+    grid_ny: (int)
         Number of grid points in y direction
-    Nz: (int)
+    grid_nz: (int)
         Number of grid points in z direction
     gaussP: (int)
         Gaussian support size for wave space calculation
-    kT: (float)
+    temperature: (float)
         Thermal energy
     dt: (float)
         Time step
@@ -1624,15 +1624,15 @@ def compute_wave_space_slipvelocity(
     nyquist_indices_z: (int)
         Indexing for wave space grid, z component, of nyquist points
     gridk: (float)
-        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+        Array (grid_nx,grid_ny,grid_nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
     random_array_wave: (float)
         Array (3 * 2 * len(normal_indices_x) + 3 * len(nyquist_indices_x))) of random numbers with the proper variance
     all_indices_x: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
     all_indices_y: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
     all_indices_z: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
     gaussian_grid_spacing1: (float)
         Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
     gaussian_grid_spacing2: (float)
@@ -1643,39 +1643,39 @@ def compute_wave_space_slipvelocity(
     w_lin_vel, w_ang_vel_and_strain
 
     """
-    gridX = jnp.zeros((Nx, Ny, Nz))
-    gridY = jnp.zeros((Nx, Ny, Nz))
-    gridZ = jnp.zeros((Nx, Ny, Nz))
-    gridXX = jnp.zeros((Nx, Ny, Nz))
-    gridXY = jnp.zeros((Nx, Ny, Nz))
-    gridXZ = jnp.zeros((Nx, Ny, Nz))
-    gridYX = jnp.zeros((Nx, Ny, Nz))
-    gridYY = jnp.zeros((Nx, Ny, Nz))
-    gridYZ = jnp.zeros((Nx, Ny, Nz))
-    gridZX = jnp.zeros((Nx, Ny, Nz))
-    gridZY = jnp.zeros((Nx, Ny, Nz))
+    grid_x = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_y = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_z = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_xx = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_xy = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_xz = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_yx = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_yy = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_yz = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_zx = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_zy = jnp.zeros((grid_nx, grid_ny, grid_nz))
 
     ### WAVE SPACE part
-    gridX = jnp.array(gridX, complex)
-    gridY = jnp.array(gridY, complex)
-    gridZ = jnp.array(gridZ, complex)
+    grid_x = jnp.array(grid_x, complex)
+    grid_y = jnp.array(grid_y, complex)
+    grid_z = jnp.array(grid_z, complex)
 
-    fac = jnp.sqrt(3.0 * kT / dt / (gridh[0] * gridh[1] * gridh[2]))
+    fac = jnp.sqrt(3.0 * temperature / dt / (gridh[0] * gridh[1] * gridh[2]))
     random_array_wave = (2.0 * random_array_wave - 1) * fac
 
     len_norm_indices = len(normal_indices_x)
     len_nyquist_indices = len(nyquist_indices_x)
 
     ###############################################################################################################################################
-    gridX = gridX.at[normal_indices_x, normal_indices_y, normal_indices_z].add(
+    grid_x = grid_x.at[normal_indices_x, normal_indices_y, normal_indices_z].add(
         random_array_wave.at[:len_norm_indices].get()
         + 1j * random_array_wave.at[len_norm_indices : 2 * len_norm_indices].get()
     )
-    gridX = gridX.at[normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z].add(
+    grid_x = grid_x.at[normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z].add(
         random_array_wave.at[:len_norm_indices].get()
         - 1j * random_array_wave.at[len_norm_indices : 2 * len_norm_indices].get()
     )
-    gridX = gridX.at[nyquist_indices_x, nyquist_indices_y, nyquist_indices_z].add(
+    grid_x = grid_x.at[nyquist_indices_x, nyquist_indices_y, nyquist_indices_z].add(
         random_array_wave.at[
             6 * len_norm_indices : (6 * len_norm_indices + 1 * len_nyquist_indices)
         ].get()
@@ -1683,15 +1683,15 @@ def compute_wave_space_slipvelocity(
         + 0j
     )
 
-    gridY = gridY.at[normal_indices_x, normal_indices_y, normal_indices_z].add(
+    grid_y = grid_y.at[normal_indices_x, normal_indices_y, normal_indices_z].add(
         random_array_wave.at[(2 * len_norm_indices) : (3 * len_norm_indices)].get()
         + 1j * random_array_wave.at[(3 * len_norm_indices) : (4 * len_norm_indices)].get()
     )
-    gridY = gridY.at[normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z].add(
+    grid_y = grid_y.at[normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z].add(
         random_array_wave.at[(2 * len_norm_indices) : (3 * len_norm_indices)].get()
         - 1j * random_array_wave.at[(3 * len_norm_indices) : (4 * len_norm_indices)].get()
     )
-    gridY = gridY.at[nyquist_indices_x, nyquist_indices_y, nyquist_indices_z].add(
+    grid_y = grid_y.at[nyquist_indices_x, nyquist_indices_y, nyquist_indices_z].add(
         random_array_wave.at[
             (6 * len_norm_indices + 1 * len_nyquist_indices) : (
                 6 * len_norm_indices + 2 * len_nyquist_indices
@@ -1701,15 +1701,15 @@ def compute_wave_space_slipvelocity(
         + 0j
     )
 
-    gridZ = gridZ.at[normal_indices_x, normal_indices_y, normal_indices_z].add(
+    grid_z = grid_z.at[normal_indices_x, normal_indices_y, normal_indices_z].add(
         random_array_wave.at[(4 * len_norm_indices) : (5 * len_norm_indices)].get()
         + 1j * random_array_wave.at[(5 * len_norm_indices) : (6 * len_norm_indices)].get()
     )
-    gridZ = gridZ.at[normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z].add(
+    grid_z = grid_z.at[normal_conj_indices_x, normal_conj_indices_y, normal_conj_indices_z].add(
         random_array_wave.at[(4 * len_norm_indices) : (5 * len_norm_indices)].get()
         - 1j * random_array_wave.at[(5 * len_norm_indices) : (6 * len_norm_indices)].get()
     )
-    gridZ = gridZ.at[nyquist_indices_x, nyquist_indices_y, nyquist_indices_z].add(
+    grid_z = grid_z.at[nyquist_indices_x, nyquist_indices_y, nyquist_indices_z].add(
         random_array_wave.at[
             (6 * len_norm_indices + 2 * len_nyquist_indices) : (
                 6 * len_norm_indices + 3 * len_nyquist_indices
@@ -1729,77 +1729,77 @@ def compute_wave_space_slipvelocity(
     gridk_mod = jnp.sqrt(gridk_sqr)
 
     # Scaling factors
-    B = jnp.where(gridk_mod > 0, jnp.sqrt(gridk.at[:, :, :, 3].get()), 0.0)
-    SU = jnp.where(gridk_mod > 0, jnp.sin(gridk_mod) / gridk_mod, 0.0)
-    SD = jnp.where(
+    b = jnp.where(gridk_mod > 0, jnp.sqrt(gridk.at[:, :, :, 3].get()), 0.0)
+    su = jnp.where(gridk_mod > 0, jnp.sin(gridk_mod) / gridk_mod, 0.0)
+    sd = jnp.where(
         gridk_mod > 0,
         3.0 * (jnp.sin(gridk_mod) - gridk_mod * jnp.cos(gridk_mod)) / (gridk_sqr * gridk_mod),
         0.0,
     )
 
     # Conjugate
-    SD = -1.0 * SD
+    sd = -1.0 * sd
 
     # Square root of Green's function times dW
-    kdF = jnp.where(
+    kdf = jnp.where(
         gridk_mod > 0.0,
         (
-            gridk.at[:, :, :, 0].get() * gridX
-            + gridk.at[:, :, :, 1].get() * gridY
-            + gridk.at[:, :, :, 2].get() * gridZ
+            gridk.at[:, :, :, 0].get() * grid_x
+            + gridk.at[:, :, :, 1].get() * grid_y
+            + gridk.at[:, :, :, 2].get() * grid_z
         )
         / gridk_sqr,
         0,
     )
 
-    BdWx = (gridX - gridk.at[:, :, :, 0].get() * kdF) * B
-    BdWy = (gridY - gridk.at[:, :, :, 1].get() * kdF) * B
-    BdWz = (gridZ - gridk.at[:, :, :, 2].get() * kdF) * B
+    bdwx = (grid_x - gridk.at[:, :, :, 0].get() * kdf) * b
+    bdwy = (grid_y - gridk.at[:, :, :, 1].get() * kdf) * b
+    bdwz = (grid_z - gridk.at[:, :, :, 2].get() * kdf) * b
 
-    BdWkxx = BdWx * gridk.at[:, :, :, 0].get()
-    BdWkxy = BdWx * gridk.at[:, :, :, 1].get()
-    BdWkxz = BdWx * gridk.at[:, :, :, 2].get()
-    BdWkyx = BdWy * gridk.at[:, :, :, 0].get()
-    BdWkyy = BdWy * gridk.at[:, :, :, 1].get()
-    BdWkyz = BdWy * gridk.at[:, :, :, 2].get()
-    BdWkzx = BdWz * gridk.at[:, :, :, 0].get()
-    BdWkzy = BdWz * gridk.at[:, :, :, 1].get()
+    bdwkxx = bdwx * gridk.at[:, :, :, 0].get()
+    bdwkxy = bdwx * gridk.at[:, :, :, 1].get()
+    bdwkxz = bdwx * gridk.at[:, :, :, 2].get()
+    bdwkyx = bdwy * gridk.at[:, :, :, 0].get()
+    bdwkyy = bdwy * gridk.at[:, :, :, 1].get()
+    bdwkyz = bdwy * gridk.at[:, :, :, 2].get()
+    bdwkzx = bdwz * gridk.at[:, :, :, 0].get()
+    bdwkzy = bdwz * gridk.at[:, :, :, 1].get()
 
-    gridX = SU * BdWx
-    gridY = SU * BdWy
-    gridZ = SU * BdWz
-    gridXX = SD * (-jnp.imag(BdWkxx) + 1j * jnp.real(BdWkxx))
-    gridXY = SD * (-jnp.imag(BdWkxy) + 1j * jnp.real(BdWkxy))
-    gridXZ = SD * (-jnp.imag(BdWkxz) + 1j * jnp.real(BdWkxz))
-    gridYX = SD * (-jnp.imag(BdWkyx) + 1j * jnp.real(BdWkyx))
-    gridYY = SD * (-jnp.imag(BdWkyy) + 1j * jnp.real(BdWkyy))
-    gridYZ = SD * (-jnp.imag(BdWkyz) + 1j * jnp.real(BdWkyz))
-    gridZX = SD * (-jnp.imag(BdWkzx) + 1j * jnp.real(BdWkzx))
-    gridZY = SD * (-jnp.imag(BdWkzy) + 1j * jnp.real(BdWkzy))
+    grid_x = su * bdwx
+    grid_y = su * bdwy
+    grid_z = su * bdwz
+    grid_xx = sd * (-jnp.imag(bdwkxx) + 1j * jnp.real(bdwkxx))
+    grid_xy = sd * (-jnp.imag(bdwkxy) + 1j * jnp.real(bdwkxy))
+    grid_xz = sd * (-jnp.imag(bdwkxz) + 1j * jnp.real(bdwkxz))
+    grid_yx = sd * (-jnp.imag(bdwkyx) + 1j * jnp.real(bdwkyx))
+    grid_yy = sd * (-jnp.imag(bdwkyy) + 1j * jnp.real(bdwkyy))
+    grid_yz = sd * (-jnp.imag(bdwkyz) + 1j * jnp.real(bdwkyz))
+    grid_zx = sd * (-jnp.imag(bdwkzx) + 1j * jnp.real(bdwkzx))
+    grid_zy = sd * (-jnp.imag(bdwkzy) + 1j * jnp.real(bdwkzy))
 
     # Return rescaled forces to real space (Inverse FFT)
-    gridX = jnp.real(jnp.fft.ifftn(gridX, norm="forward"))
-    gridY = jnp.real(jnp.fft.ifftn(gridY, norm="forward"))
-    gridZ = jnp.real(jnp.fft.ifftn(gridZ, norm="forward"))
-    gridXX = jnp.real(jnp.fft.ifftn(gridXX, norm="forward"))
-    gridXY = jnp.real(jnp.fft.ifftn(gridXY, norm="forward"))
-    gridXZ = jnp.real(jnp.fft.ifftn(gridXZ, norm="forward"))
-    gridYX = jnp.real(jnp.fft.ifftn(gridYX, norm="forward"))
-    gridYY = jnp.real(jnp.fft.ifftn(gridYY, norm="forward"))
-    gridYZ = jnp.real(jnp.fft.ifftn(gridYZ, norm="forward"))
-    gridZX = jnp.real(jnp.fft.ifftn(gridZX, norm="forward"))
-    gridZY = jnp.real(jnp.fft.ifftn(gridZY, norm="forward"))
+    grid_x = jnp.real(jnp.fft.ifftn(grid_x, norm="forward"))
+    grid_y = jnp.real(jnp.fft.ifftn(grid_y, norm="forward"))
+    grid_z = jnp.real(jnp.fft.ifftn(grid_z, norm="forward"))
+    grid_xx = jnp.real(jnp.fft.ifftn(grid_xx, norm="forward"))
+    grid_xy = jnp.real(jnp.fft.ifftn(grid_xy, norm="forward"))
+    grid_xz = jnp.real(jnp.fft.ifftn(grid_xz, norm="forward"))
+    grid_yx = jnp.real(jnp.fft.ifftn(grid_yx, norm="forward"))
+    grid_yy = jnp.real(jnp.fft.ifftn(grid_yy, norm="forward"))
+    grid_yz = jnp.real(jnp.fft.ifftn(grid_yz, norm="forward"))
+    grid_zx = jnp.real(jnp.fft.ifftn(grid_zx, norm="forward"))
+    grid_zy = jnp.real(jnp.fft.ifftn(grid_zy, norm="forward"))
 
     # Compute Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
-    w_lin_velocities = jnp.zeros((N, 3), float)
-    w_velocity_gradient = jnp.zeros((N, 8), float)
+    w_lin_velocities = jnp.zeros((num_particles, 3), float)
+    w_velocity_gradient = jnp.zeros((num_particles, 8), float)
 
     w_lin_velocities = w_lin_velocities.at[:, 0].add(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_x.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1808,8 +1808,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_y.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1818,8 +1818,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridZ.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_z.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1829,8 +1829,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridXX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_xx.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1841,8 +1841,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridXY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_xy.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1852,8 +1852,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridXZ.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_xz.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1863,8 +1863,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridYZ.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_yz.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1874,8 +1874,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridYY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_yy.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1886,8 +1886,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridYX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_yx.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1897,8 +1897,8 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridZX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_zx.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
@@ -1908,15 +1908,15 @@ def compute_wave_space_slipvelocity(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridZY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_zy.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gaussP, gaussP, gaussP),
             ),
             axis=(1, 2, 3),
         )
     )
 
     # Convert to angular velocities and rate of strain
-    w_ang_vel_and_strain = jnp.zeros((N, 8))
+    w_ang_vel_and_strain = jnp.zeros((num_particles, 8))
     w_ang_vel_and_strain = w_ang_vel_and_strain.at[:, 0].add(
         (w_velocity_gradient.at[:, 3].get() - w_velocity_gradient.at[:, 7].get()) * 0.5
     )
@@ -1943,36 +1943,36 @@ def compute_wave_space_slipvelocity(
     )
 
     # combine w_lin_velocities, w_ang_vel_and_strain into generalized velocities
-    w_lin_vel = jnp.reshape(w_lin_velocities, 3 * N)
-    w_ang_vel_and_strain = jnp.reshape(w_ang_vel_and_strain, 8 * N)
+    w_lin_vel = jnp.reshape(w_lin_velocities, 3 * num_particles)
+    w_ang_vel_and_strain = jnp.reshape(w_ang_vel_and_strain, 8 * num_particles)
 
     return w_lin_vel, w_ang_vel_and_strain
 
 
 @partial(jit, static_argnums=[0, 21])
 def compute_nearfield_brownianforce(
-    N: int,
-    kT: float,
+    num_particles: int,
+    temperature: float,
     dt: float,
     random_array: ArrayLike,
     r_lub: ArrayLike,
     indices_i_lub: ArrayLike,
     indices_j_lub: ArrayLike,
-    XA11: ArrayLike,
-    XA12: ArrayLike,
-    YA11: ArrayLike,
-    YA12: ArrayLike,
-    YB11: ArrayLike,
-    YB12: ArrayLike,
-    XC11: ArrayLike,
-    XC12: ArrayLike,
-    YC11: ArrayLike,
-    YC12: ArrayLike,
-    YB21: ArrayLike,
+    xa11: ArrayLike,
+    xa12: ArrayLike,
+    ya11: ArrayLike,
+    ya12: ArrayLike,
+    yb11: ArrayLike,
+    yb12: ArrayLike,
+    xc11: ArrayLike,
+    xc12: ArrayLike,
+    yc11: ArrayLike,
+    yc12: ArrayLike,
+    yb21: ArrayLike,
     diagonal_elements_for_brownian: ArrayLike,
     R_fu_prec_lower_triang: ArrayLike,
     diagonal_zeroes_for_brownian: ArrayLike,
-    n_iter_Lanczos_nf: int,
+    n_iter_lanczos_nf: int,
 ) -> tuple[Array, float, Array]:
     """Compute near-field thermal fluctuation.
 
@@ -1980,41 +1980,41 @@ def compute_nearfield_brownianforce(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
-    kT: (float)
+    temperature: (float)
         Thermal energy
     dt: (float)
         Time step
     random_array: (float)
-        Array (,6*N) of random numbers with the proper variance
+        Array (,6*num_particles) of random numbers with the proper variance
     r_lub: (float)
         Array (n_pair_nf,3) containing units vectors connecting each pair of particles in the near-field neighbor list
     indices_i_lub: (int)
         Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs
     indices_j_lub: (int)
         Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs
-    XA11: (float)
+    xa11: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    XA12: (float)
+    xa12: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    YA11: (float)
+    ya11: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    YA12: (float)
+    ya12: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    YB11: (float)
+    yb11: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    YB12: (float)
+    yb12: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    XC11: (float)
+    xc11: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    XC12: (float)
+    xc12: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    YC11: (float)
+    yc11: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    YC12: (float)
+    yc12: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
-    YB21: (float)
+    yb21: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
     diagonal_elements_for_brownian: (float)
         Elements needed to precondition large eigenvalues of lubrication matrix
@@ -2022,12 +2022,12 @@ def compute_nearfield_brownianforce(
         Lower triangular Cholesky factor of lubrication resistance matrix R_FU
     diagonal_zeroes_for_brownian: (int)
         Elements needed to apply near-field thermal noise only on particles in lubrication cutoff
-    n_iter_Lanczos_nf: (int)
+    n_iter_lanczos_nf: (int)
         Number of Lanczos iteration to perform
 
     Returns
     -------
-    R_FU12psi, stepnorm, trid
+    r_fu12psi, stepnorm, trid
 
     """
     # def Precondition_DiagMult_kernel(
@@ -2054,7 +2054,7 @@ def compute_nearfield_brownianforce(
 
     #     return x*jnp.where(direction==1,diag, 1/diag)
 
-    def Precondition_Inn_kernel(  ###
+    def precondition_projector_pair(  ###
         x: ArrayLike, diagonal_zeroes_for_brownian: ArrayLike
     ) -> ArrayLike:
         """Project out noise related to pair of particles not close enough.
@@ -2072,12 +2072,12 @@ def compute_nearfield_brownianforce(
 
         """
         identity = jnp.where(
-            (jnp.arange(6 * N) - 6 * (jnp.repeat(jnp.arange(N), 6))) < 3, 1, 1.333333333
+            (jnp.arange(6 * num_particles) - 6 * (jnp.repeat(jnp.arange(num_particles), 6))) < 3, 1, 1.333333333
         )
         x = jnp.where(diagonal_zeroes_for_brownian == 0.0, x * identity, 0.0)
         return x
 
-    def Precondition_ImInn_kernel(
+    def precondition_projector_pair_undo(
         x: ArrayLike, diagonal_zeroes_for_brownian: ArrayLike
     ) -> ArrayLike:
         """Project out noise related to pair of particles close enough (undo the original projection).
@@ -2097,7 +2097,7 @@ def compute_nearfield_brownianforce(
         x = jnp.where(diagonal_zeroes_for_brownian == 0.0, 0.0, x)
         return x
 
-    def Precondition_Brownian_RFUmultiply(psi: ArrayLike) -> ArrayLike:
+    def precondition_brownian_rfu_multiply(psi: ArrayLike) -> ArrayLike:
         """Precondition for Lanczos iterative computation of square root of lubrication matrix.
 
         Parameters
@@ -2116,8 +2116,8 @@ def compute_nearfield_brownianforce(
         # Apply precodintion for small eigenvalues - part 1
         # psi = Precondition_DiagMult_kernel(psi, diagonal_elements_for_brownian, 1) #more preconditioning (not needed for now)
 
-        z = ComputeLubricationFU(psi)
-        z += Precondition_Inn_kernel(psi, diagonal_zeroes_for_brownian)
+        z = compute_lubrication_fu(psi)
+        z += precondition_projector_pair(psi, diagonal_zeroes_for_brownian)
 
         # Apply precodintion for small eigenvalues - part 2
         # z = Precondition_DiagMult_kernel(z,diagonal_elements_for_brownian, 1) #more preconditioning (not needed for now)
@@ -2127,26 +2127,26 @@ def compute_nearfield_brownianforce(
 
         return z
 
-    def Precondition_Brownian_Undo(nf_Brownian_force: ArrayLike) -> ArrayLike:
+    def precondition_brownian_undo(nf_brownian_force: ArrayLike) -> ArrayLike:
         """Undo the precondition used for Lanczos iterative computation of square root of lubrication matrix.
 
         Parameters
         ----------
-        nf_Brownian_force:
+        nf_brownian_force:
             Input Brownian forces from lubrication interactions
 
         Returns
         -------
-        Precondition_ImInn_kernel(nf_Brownian_force, diagonal_zeroes_for_brownian)
+        precondition_projector_pair_undo(nf_brownian_force, diagonal_zeroes_for_brownian)
 
         """
         # undo large eigenvalue precondition
-        # nf_Brownian_force = jnp.dot(R_fu_prec_lower_triang,nf_Brownian_force)
+        # nf_brownian_force = jnp.dot(R_fu_prec_lower_triang,nf_brownian_force)
         # undo small eigenvalue precondition
-        # nf_Brownian_force = Precondition_DiagMult_kernel(nf_Brownian_force,diagonal_elements_for_brownian,-1)
-        return Precondition_ImInn_kernel(nf_Brownian_force, diagonal_zeroes_for_brownian)
+        # nf_brownian_force = Precondition_DiagMult_kernel(nf_brownian_force,diagonal_elements_for_brownian,-1)
+        return precondition_projector_pair_undo(nf_brownian_force, diagonal_zeroes_for_brownian)
 
-    def ComputeLubricationFU(velocities: ArrayLike) -> ArrayLike:
+    def compute_lubrication_fu(velocities: ArrayLike) -> ArrayLike:
         """Compute matrix-vector product of R_FU with a velocity vector
 
         Parameters
@@ -2159,8 +2159,8 @@ def compute_nearfield_brownianforce(
         jnp.ravel(forces)
 
         """
-        vel_i = (jnp.reshape(velocities, (N, 6))).at[indices_i_lub].get()
-        vel_j = (jnp.reshape(velocities, (N, 6))).at[indices_j_lub].get()
+        vel_i = (jnp.reshape(velocities, (num_particles, 6))).at[indices_i_lub].get()
+        vel_j = (jnp.reshape(velocities, (num_particles, 6))).at[indices_j_lub].get()
 
         # Dot product of r and U, i.e. axisymmetric projection
         rdui = (
@@ -2229,57 +2229,57 @@ def compute_nearfield_brownianforce(
             ]
         )
 
-        forces = jnp.zeros((N, 6), float)
+        forces = jnp.zeros((num_particles, 6), float)
 
         # Compute the contributions to the force for particles i (Fi = A11*Ui + A12*Uj + BT11*Wi + BT12*Wj)
         f = (
-            (XA11 - YA11).at[:, None].get() * rdui.at[:, None].get() * r_lub
-            + YA11.at[:, None].get() * vel_i.at[:, :3].get()
-            + (XA12 - YA12).at[:, None].get() * rduj.at[:, None].get() * r_lub
-            + YA12.at[:, None].get() * vel_j.at[:, :3].get()
-            + YB11.at[:, None].get() * (-epsrdwi.T)
-            + YB21.at[:, None].get() * (-epsrdwj.T)
+            (xa11 - ya11).at[:, None].get() * rdui.at[:, None].get() * r_lub
+            + ya11.at[:, None].get() * vel_i.at[:, :3].get()
+            + (xa12 - ya12).at[:, None].get() * rduj.at[:, None].get() * r_lub
+            + ya12.at[:, None].get() * vel_j.at[:, :3].get()
+            + yb11.at[:, None].get() * (-epsrdwi.T)
+            + yb21.at[:, None].get() * (-epsrdwj.T)
         )
         forces = forces.at[indices_i_lub, :3].add(f)
         # Compute the contributions to the force for particles j (Fj = A11*Uj + A12*Ui + BT11*Wj + BT12*Wi)
         f = (
-            (XA11 - YA11).at[:, None].get() * rduj.at[:, None].get() * r_lub
-            + YA11.at[:, None].get() * vel_j.at[:, :3].get()
-            + (XA12 - YA12).at[:, None].get() * rdui.at[:, None].get() * r_lub
-            + YA12.at[:, None].get() * vel_i.at[:, :3].get()
-            + YB11.at[:, None].get() * (epsrdwj.T)
-            + YB21.at[:, None].get() * (epsrdwi.T)
+            (xa11 - ya11).at[:, None].get() * rduj.at[:, None].get() * r_lub
+            + ya11.at[:, None].get() * vel_j.at[:, :3].get()
+            + (xa12 - ya12).at[:, None].get() * rdui.at[:, None].get() * r_lub
+            + ya12.at[:, None].get() * vel_i.at[:, :3].get()
+            + yb11.at[:, None].get() * (epsrdwj.T)
+            + yb21.at[:, None].get() * (epsrdwi.T)
         )
         forces = forces.at[indices_j_lub, :3].add(f)
         # Compute the contributions to the torque for particles i (Li = B11*Ui + B12*Uj + C11*Wi + C12*Wj)
         l = (
-            YB11.at[:, None].get() * epsrdui.T
-            + YB12.at[:, None].get() * epsrduj.T
-            + (XC11 - YC11).at[:, None].get() * rdwi.at[:, None].get() * r_lub
-            + YC11.at[:, None].get() * vel_i.at[:, 3:].get()
-            + (XC12 - YC12).at[:, None].get() * rdwj.at[:, None].get() * r_lub
-            + YC12.at[:, None].get() * vel_j.at[:, 3:].get()
+            yb11.at[:, None].get() * epsrdui.T
+            + yb12.at[:, None].get() * epsrduj.T
+            + (xc11 - yc11).at[:, None].get() * rdwi.at[:, None].get() * r_lub
+            + yc11.at[:, None].get() * vel_i.at[:, 3:].get()
+            + (xc12 - yc12).at[:, None].get() * rdwj.at[:, None].get() * r_lub
+            + yc12.at[:, None].get() * vel_j.at[:, 3:].get()
         )
         forces = forces.at[indices_i_lub, 3:].add(l)
         # Compute the contributions to the torque for particles j (Lj = B11*Uj + B12*Ui + C11*Wj + C12*Wi)
         l = (
-            -YB11.at[:, None].get() * epsrduj.T
-            - YB12.at[:, None].get() * epsrdui.T
-            + (XC11 - YC11).at[:, None].get() * rdwj.at[:, None].get() * r_lub
-            + YC11.at[:, None].get() * vel_j.at[:, 3:].get()
-            + (XC12 - YC12).at[:, None].get() * rdwi.at[:, None].get() * r_lub
-            + YC12.at[:, None].get() * vel_i.at[:, 3:].get()
+            -yb11.at[:, None].get() * epsrduj.T
+            - yb12.at[:, None].get() * epsrdui.T
+            + (xc11 - yc11).at[:, None].get() * rdwj.at[:, None].get() * r_lub
+            + yc11.at[:, None].get() * vel_j.at[:, 3:].get()
+            + (xc12 - yc12).at[:, None].get() * rdwi.at[:, None].get() * r_lub
+            + yc12.at[:, None].get() * vel_i.at[:, 3:].get()
         )
         forces = forces.at[indices_j_lub, 3:].add(l)
 
         return jnp.ravel(forces)
 
     def helper_compute_R12psi(
-        n_iter_Lanczos_nf: ArrayLike, trid: ArrayLike, vectors: ArrayLike
+        n_iter_lanczos_nf: ArrayLike, trid: ArrayLike, vectors: ArrayLike
     ) -> ArrayLike:
         """Parameters
         ----------
-        n_iter_Lanczos_nf:
+        n_iter_lanczos_nf:
             Number of Lanczos iteration performed
         trid:
             Tridiagonal matrix obtained from Lanczos decomposition
@@ -2288,10 +2288,10 @@ def compute_nearfield_brownianforce(
 
         Returns
         -------
-        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*kT/dt)
+        jnp.dot(vectors.T,jnp.dot(a,betae1)) * jnp.sqrt(2.0*temperature/dt)
 
         """
-        betae1 = jnp.zeros(n_iter_Lanczos_nf)
+        betae1 = jnp.zeros(n_iter_lanczos_nf)
         betae1 = betae1.at[0].add(1 * psinorm)
         a, b = jnp.linalg.eigh(trid)
         a = jnp.where(a < 0.0, 0.0, a)  # numerical cutoff to avoid small negative values
@@ -2303,38 +2303,38 @@ def compute_nearfield_brownianforce(
     random_array = (2 * random_array - 1) * jnp.sqrt(3.0)
 
     psinorm = jnp.linalg.norm(random_array)
-    trid, vectors = lanczos.lanczos_alg(
-        Precondition_Brownian_RFUmultiply, 6 * N, n_iter_Lanczos_nf, random_array
+    trid, vectors = lanczos.lanczos_algorithm(
+        precondition_brownian_rfu_multiply, 6 * num_particles, n_iter_lanczos_nf, random_array
     )
 
-    R_FU12psi_old = helper_compute_R12psi(
-        (n_iter_Lanczos_nf - 1),
-        trid[: (n_iter_Lanczos_nf - 1), : (n_iter_Lanczos_nf - 1)],
-        vectors[: (n_iter_Lanczos_nf - 1), :],
+    r_fu12psi_old = helper_compute_R12psi(
+        (n_iter_lanczos_nf - 1),
+        trid[: (n_iter_lanczos_nf - 1), : (n_iter_lanczos_nf - 1)],
+        vectors[: (n_iter_lanczos_nf - 1), :],
     )
-    R_FU12psi = helper_compute_R12psi(n_iter_Lanczos_nf, trid, vectors)
+    r_fu12psi = helper_compute_R12psi(n_iter_lanczos_nf, trid, vectors)
 
-    buff = jnp.linalg.norm(R_FU12psi)
-    stepnorm = jnp.linalg.norm((R_FU12psi - R_FU12psi_old)) / buff
-    R_FU12psi = R_FU12psi * jnp.sqrt(2.0 * kT / dt)
-    R_FU12psi = Precondition_Brownian_Undo(R_FU12psi)
-    return R_FU12psi, stepnorm, trid
+    buff = jnp.linalg.norm(r_fu12psi)
+    stepnorm = jnp.linalg.norm((r_fu12psi - r_fu12psi_old)) / buff
+    r_fu12psi = r_fu12psi * jnp.sqrt(2.0 * temperature / dt)
+    r_fu12psi = precondition_brownian_undo(r_fu12psi)
+    return r_fu12psi, stepnorm, trid
 
 
 @partial(jit, static_argnums=[0])
-def compute_BD_randomforce(N: int, kT: float, dt: float, random_array: ArrayLike) -> Array:
+def compute_bd_randomforce(num_particles: int, temperature: float, dt: float, random_array: ArrayLike) -> Array:
     """Compute thermal fluctuation for Brownian Dynamics.
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
-    kT: (float)
+    temperature: (float)
         Thermal energy
     dt: (float)
         Time step
     random_array: (float)
-        Array (,6*N) of random numbers with the proper variance
+        Array (,6*num_particles) of random numbers with the proper variance
 
     Returns
     -------
@@ -2346,21 +2346,21 @@ def compute_BD_randomforce(N: int, kT: float, dt: float, random_array: ArrayLike
     random_velocity = (2 * random_array - 1) * jnp.sqrt(3.0)
 
     # translational drag coefficient for a sphere is 1 in simulation units (6*pi*eta*a)
-    drag_coeff = jnp.ones(6 * N)
+    drag_coeff = jnp.ones(6 * num_particles)
     # rotational drag coefficient for a sphere is 4/3 in simulation units (8*pi*eta*a)
     drag_coeff = drag_coeff.at[3::6].set(4 / 3)
     drag_coeff = drag_coeff.at[4::6].set(4 / 3)
     drag_coeff = drag_coeff.at[5::6].set(4 / 3)
 
     # scale by proper factor to satisfy fluctuation-dissipation theorem
-    random_velocity = random_velocity * jnp.sqrt(2.0 * kT / dt / drag_coeff)
+    random_velocity = random_velocity * jnp.sqrt(2.0 * temperature / dt / drag_coeff)
 
     return random_velocity
 
 
 @partial(jit, static_argnums=[0])
 def convert_to_generalized(
-    N: int,
+    num_particles: int,
     ws_lin_vel: ArrayLike,
     rs_lin_vel: ArrayLike,
     ws_ang_vel_strain: ArrayLike,
@@ -2370,16 +2370,16 @@ def convert_to_generalized(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
     ws_lin_vel: (float)
-        Array (,3*N) containing wave-space linear velocity
+        Array (,3*num_particles) containing wave-space linear velocity
     rs_lin_vel: (float)
-        Array (,3*N) containing real-space linear velocity
+        Array (,3*num_particles) containing real-space linear velocity
     ws_ang_vel_strain: (float)
-        Array (,8*N) containing wave-space angular velocity and rate of strain
+        Array (,8*num_particles) containing wave-space angular velocity and rate of strain
     ws_ang_vel_strain: (float)
-        Array (,8*N) containing real-space angular velocity and rate of strain
+        Array (,8*num_particles) containing real-space angular velocity and rate of strain
 
     Returns
     -------
@@ -2391,34 +2391,34 @@ def convert_to_generalized(
 
     # Convert to Generalized Velocities+strain
     generalized_velocities = jnp.zeros(
-        11 * N
+        11 * num_particles
     )  # First 6N entries for U and last 5N for strain rates
 
-    generalized_velocities = generalized_velocities.at[0 : 6 * N : 6].add(lin_vel.at[0::3].get())
-    generalized_velocities = generalized_velocities.at[1 : 6 * N : 6].add(lin_vel.at[1::3].get())
-    generalized_velocities = generalized_velocities.at[2 : 6 * N : 6].add(lin_vel.at[2::3].get())
-    generalized_velocities = generalized_velocities.at[3 : 6 * N : 6].add(
+    generalized_velocities = generalized_velocities.at[0 : 6 * num_particles : 6].add(lin_vel.at[0::3].get())
+    generalized_velocities = generalized_velocities.at[1 : 6 * num_particles : 6].add(lin_vel.at[1::3].get())
+    generalized_velocities = generalized_velocities.at[2 : 6 * num_particles : 6].add(lin_vel.at[2::3].get())
+    generalized_velocities = generalized_velocities.at[3 : 6 * num_particles : 6].add(
         ang_vel_and_strain.at[0::8].get()
     )
-    generalized_velocities = generalized_velocities.at[4 : 6 * N : 6].add(
+    generalized_velocities = generalized_velocities.at[4 : 6 * num_particles : 6].add(
         ang_vel_and_strain.at[1::8].get()
     )
-    generalized_velocities = generalized_velocities.at[5 : 6 * N : 6].add(
+    generalized_velocities = generalized_velocities.at[5 : 6 * num_particles : 6].add(
         ang_vel_and_strain.at[2::8].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 0) :: 5].add(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 0) :: 5].add(
         ang_vel_and_strain.at[3::8].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 1) :: 5].add(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 1) :: 5].add(
         ang_vel_and_strain.at[4::8].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 2) :: 5].add(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 2) :: 5].add(
         ang_vel_and_strain.at[5::8].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 3) :: 5].add(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 3) :: 5].add(
         ang_vel_and_strain.at[6::8].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 4) :: 5].add(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 4) :: 5].add(
         ang_vel_and_strain.at[7::8].get()
     )
 
@@ -2426,9 +2426,9 @@ def convert_to_generalized(
 
 
 def compute_exact_thermals(
-    N: int,
+    num_particles: int,
     m_self: ArrayLike,
-    kT: float,
+    temperature: float,
     dt: float,
     random_array_nf: ArrayLike,
     random_array_real: ArrayLike,
@@ -2445,17 +2445,17 @@ def compute_exact_thermals(
     r_lub: ArrayLike,
     indices_i_lub: ArrayLike,
     indices_j_lub: ArrayLike,
-    XA11,
-    XA12,
-    YA11,
-    YA12,
-    YB11,
-    YB12,
-    XC11,
-    XC12,
-    YC11,
-    YC12,
-    YB21: ArrayLike,
+    xa11,
+    xa12,
+    ya11,
+    ya12,
+    yb11,
+    yb12,
+    xc11,
+    xc12,
+    yc11,
+    yc12,
+    yb21: ArrayLike,
 ) -> tuple[Array, Array]:
     """Compute square root of real-space granmobility and lubrication resistance using scipy functions.
 
@@ -2463,18 +2463,18 @@ def compute_exact_thermals(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of Particles
     m_self: (float)
         Array (,2) containing mobility self contributions
-    kT: (float)
+    temperature: (float)
         Thermal energy
     dt: (float)
         Time step
     random_array_nf: (float)
-        Array (,6*N) of random numbers with the proper variance, for thermal lubrication
+        Array (,6*num_particles) of random numbers with the proper variance, for thermal lubrication
     random_array_real: (float)
-        Array (,11*N) of random numbers with the proper variance, for thermal far-field real space
+        Array (,11*num_particles) of random numbers with the proper variance, for thermal far-field real space
     r: (float)
         Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
     indices_i: (int)
@@ -2489,7 +2489,7 @@ def compute_exact_thermals(
         Array (,n_pair_nf) containing indices of first particle in near-field neighbor list pairs
     indices_j_lub: (int)
         Array (,n_pair_nf) containing indices of second particle in near-field neighbor list pairs
-    XA11,XA12,YA11,YA12,YB11,YB12,XC11,XC12,YC11,YC12,YB21: (float)
+    xa11,xa12,ya11,ya12,yb11,yb12,xc11,xc12,yc11,yc12,yb21: (float)
         Array (,n_pair_nf) containing resistance scalar function evaluated for the current particle configuration
 
     Returns
@@ -2513,44 +2513,44 @@ def compute_exact_thermals(
 
         """
         # combine w_lin_velocities, w_ang_vel_and_strain
-        lin_vel = M12psi.at[: 3 * N].get()
-        ang_vel_and_strain = M12psi.at[3 * N :].get()
+        lin_vel = M12psi.at[: 3 * num_particles].get()
+        ang_vel_and_strain = M12psi.at[3 * num_particles :].get()
         # Convert to Generalized Velocities+strain
         generalized_velocities = jnp.zeros(
-            11 * N
+            11 * num_particles
         )  # First 6N entries for U and last 5N for strain rates
 
-        generalized_velocities = generalized_velocities.at[0 : 6 * N : 6].set(
+        generalized_velocities = generalized_velocities.at[0 : 6 * num_particles : 6].set(
             lin_vel.at[0::3].get()
         )
-        generalized_velocities = generalized_velocities.at[1 : 6 * N : 6].set(
+        generalized_velocities = generalized_velocities.at[1 : 6 * num_particles : 6].set(
             lin_vel.at[1::3].get()
         )
-        generalized_velocities = generalized_velocities.at[2 : 6 * N : 6].set(
+        generalized_velocities = generalized_velocities.at[2 : 6 * num_particles : 6].set(
             lin_vel.at[2::3].get()
         )
-        generalized_velocities = generalized_velocities.at[3 : 6 * N : 6].set(
+        generalized_velocities = generalized_velocities.at[3 : 6 * num_particles : 6].set(
             ang_vel_and_strain.at[0::8].get()
         )
-        generalized_velocities = generalized_velocities.at[4 : 6 * N : 6].set(
+        generalized_velocities = generalized_velocities.at[4 : 6 * num_particles : 6].set(
             ang_vel_and_strain.at[1::8].get()
         )
-        generalized_velocities = generalized_velocities.at[5 : 6 * N : 6].set(
+        generalized_velocities = generalized_velocities.at[5 : 6 * num_particles : 6].set(
             ang_vel_and_strain.at[2::8].get()
         )
-        generalized_velocities = generalized_velocities.at[(6 * N + 0) :: 5].set(
+        generalized_velocities = generalized_velocities.at[(6 * num_particles + 0) :: 5].set(
             ang_vel_and_strain.at[3::8].get()
         )
-        generalized_velocities = generalized_velocities.at[(6 * N + 1) :: 5].set(
+        generalized_velocities = generalized_velocities.at[(6 * num_particles + 1) :: 5].set(
             ang_vel_and_strain.at[4::8].get()
         )
-        generalized_velocities = generalized_velocities.at[(6 * N + 2) :: 5].set(
+        generalized_velocities = generalized_velocities.at[(6 * num_particles + 2) :: 5].set(
             ang_vel_and_strain.at[5::8].get()
         )
-        generalized_velocities = generalized_velocities.at[(6 * N + 3) :: 5].set(
+        generalized_velocities = generalized_velocities.at[(6 * num_particles + 3) :: 5].set(
             ang_vel_and_strain.at[6::8].get()
         )
-        generalized_velocities = generalized_velocities.at[(6 * N + 4) :: 5].set(
+        generalized_velocities = generalized_velocities.at[(6 * num_particles + 4) :: 5].set(
             ang_vel_and_strain.at[7::8].get()
         )
 
@@ -2572,15 +2572,15 @@ def compute_exact_thermals(
         """
         lin_vel = Mpsi[0]
         ang_vel_and_strain = Mpsi[1]
-        reshaped_array = jnp.zeros(11 * N)
-        reshaped_array = reshaped_array.at[: 3 * N].set(jnp.reshape(lin_vel, 3 * N))
-        reshaped_array = reshaped_array.at[3 * N :].set(jnp.reshape(ang_vel_and_strain, 8 * N))
+        reshaped_array = jnp.zeros(11 * num_particles)
+        reshaped_array = reshaped_array.at[: 3 * num_particles].set(jnp.reshape(lin_vel, 3 * num_particles))
+        reshaped_array = reshaped_array.at[3 * num_particles :].set(jnp.reshape(ang_vel_and_strain, 8 * num_particles))
         return reshaped_array
 
     @jit
-    def ComputeLubricationFU(velocities):
-        vel_i = (jnp.reshape(velocities, (N, 6))).at[indices_i_lub].get()
-        vel_j = (jnp.reshape(velocities, (N, 6))).at[indices_j_lub].get()
+    def compute_lubrication_fu(velocities):
+        vel_i = (jnp.reshape(velocities, (num_particles, 6))).at[indices_i_lub].get()
+        vel_j = (jnp.reshape(velocities, (num_particles, 6))).at[indices_j_lub].get()
 
         # Dot product of r and U, i.e. axisymmetric projection
         rdui = (
@@ -2649,89 +2649,89 @@ def compute_exact_thermals(
             ]
         )
 
-        forces = jnp.zeros((N, 6), float)
+        forces = jnp.zeros((num_particles, 6), float)
 
         # Compute the contributions to the force for particles i (Fi = A11*Ui + A12*Uj + BT11*Wi + BT12*Wj)
         f = (
-            (XA11 - YA11).at[:, None].get() * rdui.at[:, None].get() * r_lub
-            + YA11.at[:, None].get() * vel_i.at[:, :3].get()
-            + (XA12 - YA12).at[:, None].get() * rduj.at[:, None].get() * r_lub
-            + YA12.at[:, None].get() * vel_j.at[:, :3].get()
-            + YB11.at[:, None].get() * (-epsrdwi.T)
-            + YB21.at[:, None].get() * (-epsrdwj.T)
+            (xa11 - ya11).at[:, None].get() * rdui.at[:, None].get() * r_lub
+            + ya11.at[:, None].get() * vel_i.at[:, :3].get()
+            + (xa12 - ya12).at[:, None].get() * rduj.at[:, None].get() * r_lub
+            + ya12.at[:, None].get() * vel_j.at[:, :3].get()
+            + yb11.at[:, None].get() * (-epsrdwi.T)
+            + yb21.at[:, None].get() * (-epsrdwj.T)
         )
         forces = forces.at[indices_i_lub, :3].add(f)
         # Compute the contributions to the force for particles j (Fj = A11*Uj + A12*Ui + BT11*Wj + BT12*Wi)
         f = (
-            (XA11 - YA11).at[:, None].get() * rduj.at[:, None].get() * r_lub
-            + YA11.at[:, None].get() * vel_j.at[:, :3].get()
-            + (XA12 - YA12).at[:, None].get() * rdui.at[:, None].get() * r_lub
-            + YA12.at[:, None].get() * vel_i.at[:, :3].get()
-            + YB11.at[:, None].get() * (epsrdwj.T)
-            + YB21.at[:, None].get() * (epsrdwi.T)
+            (xa11 - ya11).at[:, None].get() * rduj.at[:, None].get() * r_lub
+            + ya11.at[:, None].get() * vel_j.at[:, :3].get()
+            + (xa12 - ya12).at[:, None].get() * rdui.at[:, None].get() * r_lub
+            + ya12.at[:, None].get() * vel_i.at[:, :3].get()
+            + yb11.at[:, None].get() * (epsrdwj.T)
+            + yb21.at[:, None].get() * (epsrdwi.T)
         )
         forces = forces.at[indices_j_lub, :3].add(f)
         # Compute the contributions to the torque for particles i (Li = B11*Ui + B12*Uj + C11*Wi + C12*Wj)
         l = (
-            YB11.at[:, None].get() * epsrdui.T
-            + YB12.at[:, None].get() * epsrduj.T
-            + (XC11 - YC11).at[:, None].get() * rdwi.at[:, None].get() * r_lub
-            + YC11.at[:, None].get() * vel_i.at[:, 3:].get()
-            + (XC12 - YC12).at[:, None].get() * rdwj.at[:, None].get() * r_lub
-            + YC12.at[:, None].get() * vel_j.at[:, 3:].get()
+            yb11.at[:, None].get() * epsrdui.T
+            + yb12.at[:, None].get() * epsrduj.T
+            + (xc11 - yc11).at[:, None].get() * rdwi.at[:, None].get() * r_lub
+            + yc11.at[:, None].get() * vel_i.at[:, 3:].get()
+            + (xc12 - yc12).at[:, None].get() * rdwj.at[:, None].get() * r_lub
+            + yc12.at[:, None].get() * vel_j.at[:, 3:].get()
         )
         forces = forces.at[indices_i_lub, 3:].add(l)
         # Compute the contributions to the torque for particles j (Lj = B11*Uj + B12*Ui + C11*Wj + C12*Wi)
         l = (
-            -YB11.at[:, None].get() * epsrduj.T
-            - YB12.at[:, None].get() * epsrdui.T
-            + (XC11 - YC11).at[:, None].get() * rdwj.at[:, None].get() * r_lub
-            + YC11.at[:, None].get() * vel_j.at[:, 3:].get()
-            + (XC12 - YC12).at[:, None].get() * rdwi.at[:, None].get() * r_lub
-            + YC12.at[:, None].get() * vel_i.at[:, 3:].get()
+            -yb11.at[:, None].get() * epsrduj.T
+            - yb12.at[:, None].get() * epsrdui.T
+            + (xc11 - yc11).at[:, None].get() * rdwj.at[:, None].get() * r_lub
+            + yc11.at[:, None].get() * vel_j.at[:, 3:].get()
+            + (xc12 - yc12).at[:, None].get() * rdwi.at[:, None].get() * r_lub
+            + yc12.at[:, None].get() * vel_i.at[:, 3:].get()
         )
         forces = forces.at[indices_j_lub, 3:].add(l)
 
         return jnp.ravel(forces)
 
     @jit
-    def helper_Mpsi(random_array_real):
+    def helper_mpsi(random_array_real):
         # input is already in the format: [Forces, Torque+Stresslet] (not in the generalized format [Force+Torque,Stresslet] like in the saddle point solver)
-        forces = random_array_real.at[: 3 * N].get()
+        forces = random_array_real.at[: 3 * num_particles].get()
 
-        couplets = jnp.zeros(8 * N)
-        couplets = couplets.at[::8].set(random_array_real.at[(3 * N + 3) :: 8].get())  # C[0] = S[0]
+        couplets = jnp.zeros(8 * num_particles)
+        couplets = couplets.at[::8].set(random_array_real.at[(3 * num_particles + 3) :: 8].get())  # C[0] = S[0]
         couplets = couplets.at[1::8].set(
-            random_array_real.at[(3 * N + 4) :: 8].get()
-            + random_array_real.at[(3 * N + 2) :: 8].get() * 0.5
+            random_array_real.at[(3 * num_particles + 4) :: 8].get()
+            + random_array_real.at[(3 * num_particles + 2) :: 8].get() * 0.5
         )  # C[1] = S[1] + L[2]/2
         couplets = couplets.at[2::8].set(
-            random_array_real.at[(3 * N + 5) :: 8].get()
-            - random_array_real.at[(3 * N + 1) :: 8].get() * 0.5
+            random_array_real.at[(3 * num_particles + 5) :: 8].get()
+            - random_array_real.at[(3 * num_particles + 1) :: 8].get() * 0.5
         )  # C[2] = S[2] - L[1]/2
         couplets = couplets.at[3::8].set(
-            random_array_real.at[(3 * N + 6) :: 8].get()
-            + random_array_real.at[(3 * N + 0) :: 8].get() * 0.5
+            random_array_real.at[(3 * num_particles + 6) :: 8].get()
+            + random_array_real.at[(3 * num_particles + 0) :: 8].get() * 0.5
         )  # C[3] = S[3] + L[0]/2
         couplets = couplets.at[4::8].set(
-            random_array_real.at[(3 * N + 7) :: 8].get()
+            random_array_real.at[(3 * num_particles + 7) :: 8].get()
         )  # C[4] = S[4]
         couplets = couplets.at[5::8].set(
-            random_array_real.at[(3 * N + 4) :: 8].get()
-            - random_array_real.at[(3 * N + 2) :: 8].get() * 0.5
+            random_array_real.at[(3 * num_particles + 4) :: 8].get()
+            - random_array_real.at[(3 * num_particles + 2) :: 8].get() * 0.5
         )  # C[5] = S[1] - L[2]/2
         couplets = couplets.at[6::8].set(
-            random_array_real.at[(3 * N + 5) :: 8].get()
-            + random_array_real.at[(3 * N + 1) :: 8].get() * 0.5
+            random_array_real.at[(3 * num_particles + 5) :: 8].get()
+            + random_array_real.at[(3 * num_particles + 1) :: 8].get() * 0.5
         )  # C[6] = S[2] + L[1]/2
         couplets = couplets.at[7::8].set(
-            random_array_real.at[(3 * N + 6) :: 8].get()
-            - random_array_real.at[(3 * N + 0) :: 8].get() * 0.5
+            random_array_real.at[(3 * num_particles + 6) :: 8].get()
+            - random_array_real.at[(3 * num_particles + 0) :: 8].get() * 0.5
         )  # C[7] = S[3] - L[0]/2
 
         # Allocate arrays for Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
-        r_lin_velocities = jnp.zeros((N, 3), float)
-        r_velocity_gradient = jnp.zeros((N, 8), float)
+        r_lin_velocities = jnp.zeros((num_particles, 3), float)
+        r_velocity_gradient = jnp.zeros((num_particles, 8), float)
 
         # SELF CONTRIBUTIONS
         r_lin_velocities = r_lin_velocities.at[:, 0].set(m_self.at[0].get() * forces.at[0::3].get())
@@ -2776,7 +2776,7 @@ def compute_exact_thermals(
             + r.at[:, 2].get() * forces.at[3 * indices_i + 2].get()
         )
 
-        Cj_dotr = jnp.array(
+        cj_dotr = jnp.array(
             [
                 couplets.at[8 * indices_j + 0].get() * r.at[:, 0].get()
                 + couplets.at[8 * indices_j + 1].get() * r.at[:, 1].get()
@@ -2791,7 +2791,7 @@ def compute_exact_thermals(
             ]
         )
 
-        Ci_dotmr = jnp.array(
+        ci_dotmr = jnp.array(
             [
                 -couplets.at[8 * indices_i + 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 1].get() * r.at[:, 1].get()
@@ -2806,7 +2806,7 @@ def compute_exact_thermals(
             ]
         )
 
-        rdotC_j = jnp.array(
+        rdotc_j = jnp.array(
             [
                 couplets.at[8 * indices_j + 0].get() * r.at[:, 0].get()
                 + couplets.at[8 * indices_j + 5].get() * r.at[:, 1].get()
@@ -2821,7 +2821,7 @@ def compute_exact_thermals(
             ]
         )
 
-        mrdotC_i = jnp.array(
+        mrdotc_i = jnp.array(
             [
                 -couplets.at[8 * indices_i + 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 5].get() * r.at[:, 1].get()
@@ -2836,15 +2836,15 @@ def compute_exact_thermals(
             ]
         )
 
-        rdotC_jj_dotr = (
-            r.at[:, 0].get() * Cj_dotr.at[0, :].get()
-            + r.at[:, 1].get() * Cj_dotr.at[1, :].get()
-            + r.at[:, 2].get() * Cj_dotr.at[2, :].get()
+        rdotc_jj_dotr = (
+            r.at[:, 0].get() * cj_dotr.at[0, :].get()
+            + r.at[:, 1].get() * cj_dotr.at[1, :].get()
+            + r.at[:, 2].get() * cj_dotr.at[2, :].get()
         )
-        mrdotC_ii_dotmr = -(
-            r.at[:, 0].get() * Ci_dotmr.at[0, :].get()
-            + r.at[:, 1].get() * Ci_dotmr.at[1, :].get()
-            + r.at[:, 2].get() * Ci_dotmr.at[2, :].get()
+        mrdotc_ii_dotmr = -(
+            r.at[:, 0].get() * ci_dotmr.at[0, :].get()
+            + r.at[:, 1].get() * ci_dotmr.at[1, :].get()
+            + r.at[:, 2].get() * ci_dotmr.at[2, :].get()
         )
 
         # Compute Velocity for particles i
@@ -2858,16 +2858,16 @@ def compute_exact_thermals(
             f1 * forces.at[3 * indices_j + 2].get() + (f2 - f1) * rdotf_j * r.at[:, 2].get()
         )
         r_lin_velocities = r_lin_velocities.at[indices_i, 0].add(
-            g1 * (Cj_dotr.at[0, :].get() - rdotC_jj_dotr * r.at[:, 0].get())
-            + g2 * (rdotC_j.at[0, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 0].get())
+            g1 * (cj_dotr.at[0, :].get() - rdotc_jj_dotr * r.at[:, 0].get())
+            + g2 * (rdotc_j.at[0, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 0].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_i, 1].add(
-            g1 * (Cj_dotr.at[1, :].get() - rdotC_jj_dotr * r.at[:, 1].get())
-            + g2 * (rdotC_j.at[1, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 1].get())
+            g1 * (cj_dotr.at[1, :].get() - rdotc_jj_dotr * r.at[:, 1].get())
+            + g2 * (rdotc_j.at[1, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 1].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_i, 2].add(
-            g1 * (Cj_dotr.at[2, :].get() - rdotC_jj_dotr * r.at[:, 2].get())
-            + g2 * (rdotC_j.at[2, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 2].get())
+            g1 * (cj_dotr.at[2, :].get() - rdotc_jj_dotr * r.at[:, 2].get())
+            + g2 * (rdotc_j.at[2, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 2].get())
         )
         # Compute Velocity for particles j
         r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(
@@ -2880,16 +2880,16 @@ def compute_exact_thermals(
             f1 * forces.at[3 * indices_i + 2].get() - (f2 - f1) * mrdotf_i * r.at[:, 2].get()
         )
         r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(
-            g1 * (Ci_dotmr.at[0, :].get() + mrdotC_ii_dotmr * r.at[:, 0].get())
-            + g2 * (mrdotC_i.at[0, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 0].get())
+            g1 * (ci_dotmr.at[0, :].get() + mrdotc_ii_dotmr * r.at[:, 0].get())
+            + g2 * (mrdotc_i.at[0, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 0].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_j, 1].add(
-            g1 * (Ci_dotmr.at[1, :].get() + mrdotC_ii_dotmr * r.at[:, 1].get())
-            + g2 * (mrdotC_i.at[1, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 1].get())
+            g1 * (ci_dotmr.at[1, :].get() + mrdotc_ii_dotmr * r.at[:, 1].get())
+            + g2 * (mrdotc_i.at[1, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 1].get())
         )
         r_lin_velocities = r_lin_velocities.at[indices_j, 2].add(
-            g1 * (Ci_dotmr.at[2, :].get() + mrdotC_ii_dotmr * r.at[:, 2].get())
-            + g2 * (mrdotC_i.at[2, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 2].get())
+            g1 * (ci_dotmr.at[2, :].get() + mrdotc_ii_dotmr * r.at[:, 2].get())
+            + g2 * (mrdotc_i.at[2, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 2].get())
         )
 
         # Compute Velocity Gradient for particles i and j
@@ -2928,16 +2928,16 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 0].get() - 4.0 * couplets.at[8 * indices_j + 0].get())
             + h2
             * (
-                r.at[:, 0].get() * Cj_dotr.at[0, :].get()
-                - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
+                r.at[:, 0].get() * cj_dotr.at[0, :].get()
+                - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                rdotC_jj_dotr
-                + Cj_dotr.at[0, :].get() * r.at[:, 0].get()
-                + r.at[:, 0].get() * rdotC_j.at[0, :].get()
-                + rdotC_j.at[0, :].get() * r.at[:, 0].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
+                rdotc_jj_dotr
+                + cj_dotr.at[0, :].get() * r.at[:, 0].get()
+                + r.at[:, 0].get() * rdotc_j.at[0, :].get()
+                + rdotc_j.at[0, :].get() * r.at[:, 0].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_j + 0].get()
             )
         )
@@ -2945,16 +2945,16 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 0].get() - 4.0 * couplets.at[8 * indices_i + 0].get())
             + h2
             * (
-                -r.at[:, 0].get() * Ci_dotmr.at[0, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
+                -r.at[:, 0].get() * ci_dotmr.at[0, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                mrdotC_ii_dotmr
-                - Ci_dotmr.at[0, :].get() * r.at[:, 0].get()
-                - r.at[:, 0].get() * mrdotC_i.at[0, :].get()
-                - mrdotC_i.at[0, :].get() * r.at[:, 0].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
+                mrdotc_ii_dotmr
+                - ci_dotmr.at[0, :].get() * r.at[:, 0].get()
+                - r.at[:, 0].get() * mrdotc_i.at[0, :].get()
+                - mrdotc_i.at[0, :].get() * r.at[:, 0].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 0].get()
             )
         )
@@ -2993,15 +2993,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 5].get() - 4.0 * couplets.at[8 * indices_j + 1].get())
             + h2
             * (
-                r.at[:, 1].get() * Cj_dotr.at[0, :].get()
-                - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
+                r.at[:, 1].get() * cj_dotr.at[0, :].get()
+                - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                Cj_dotr.at[1, :].get() * r.at[:, 0].get()
-                + r.at[:, 1].get() * rdotC_j.at[0, :].get()
-                + rdotC_j.at[1, :].get() * r.at[:, 0].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
+                cj_dotr.at[1, :].get() * r.at[:, 0].get()
+                + r.at[:, 1].get() * rdotc_j.at[0, :].get()
+                + rdotc_j.at[1, :].get() * r.at[:, 0].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_j + 1].get()
             )
         )
@@ -3010,15 +3010,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 5].get() - 4.0 * couplets.at[8 * indices_i + 1].get())
             + h2
             * (
-                -r.at[:, 1].get() * Ci_dotmr.at[0, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
+                -r.at[:, 1].get() * ci_dotmr.at[0, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[1, :].get() * r.at[:, 0].get()
-                - r.at[:, 1].get() * mrdotC_i.at[0, :].get()
-                - mrdotC_i.at[1, :].get() * r.at[:, 0].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
+                -ci_dotmr.at[1, :].get() * r.at[:, 0].get()
+                - r.at[:, 1].get() * mrdotc_i.at[0, :].get()
+                - mrdotc_i.at[1, :].get() * r.at[:, 0].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 1].get()
             )
         )
@@ -3056,15 +3056,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 6].get() - 4.0 * couplets.at[8 * indices_j + 2].get())
             + h2
             * (
-                r.at[:, 2].get() * Cj_dotr.at[0, :].get()
-                - rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
+                r.at[:, 2].get() * cj_dotr.at[0, :].get()
+                - rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                Cj_dotr.at[2, :].get() * r.at[:, 0].get()
-                + r.at[:, 2].get() * rdotC_j.at[0, :].get()
-                + rdotC_j.at[2, :].get() * r.at[:, 0].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
+                cj_dotr.at[2, :].get() * r.at[:, 0].get()
+                + r.at[:, 2].get() * rdotc_j.at[0, :].get()
+                + rdotc_j.at[2, :].get() * r.at[:, 0].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_j + 2].get()
             )
         )
@@ -3072,15 +3072,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 6].get() - 4.0 * couplets.at[8 * indices_i + 2].get())
             + h2
             * (
-                r.at[:, 2].get() * Ci_dotmr.at[0, :].get() * (-1)
-                - mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
+                r.at[:, 2].get() * ci_dotmr.at[0, :].get() * (-1)
+                - mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[2, :].get() * r.at[:, 0].get()
-                - r.at[:, 2].get() * mrdotC_i.at[0, :].get()
-                - mrdotC_i.at[2, :].get() * r.at[:, 0].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
+                -ci_dotmr.at[2, :].get() * r.at[:, 0].get()
+                - r.at[:, 2].get() * mrdotc_i.at[0, :].get()
+                - mrdotc_i.at[2, :].get() * r.at[:, 0].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
                 - couplets.at[8 * indices_i + 2].get()
             )
         )
@@ -3119,15 +3119,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 7].get() - 4.0 * couplets.at[8 * indices_j + 3].get())
             + h2
             * (
-                r.at[:, 2].get() * Cj_dotr.at[1, :].get()
-                - rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
+                r.at[:, 2].get() * cj_dotr.at[1, :].get()
+                - rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                Cj_dotr.at[2, :].get() * r.at[:, 1].get()
-                + r.at[:, 2].get() * rdotC_j.at[1, :].get()
-                + rdotC_j.at[2, :].get() * r.at[:, 1].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
+                cj_dotr.at[2, :].get() * r.at[:, 1].get()
+                + r.at[:, 2].get() * rdotc_j.at[1, :].get()
+                + rdotc_j.at[2, :].get() * r.at[:, 1].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_j + 3].get()
             )
         )
@@ -3136,15 +3136,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 7].get() - 4.0 * couplets.at[8 * indices_i + 3].get())
             + h2
             * (
-                -r.at[:, 2].get() * Ci_dotmr.at[1, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
+                -r.at[:, 2].get() * ci_dotmr.at[1, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[2, :].get() * r.at[:, 1].get()
-                - r.at[:, 2].get() * mrdotC_i.at[1, :].get()
-                - mrdotC_i.at[2, :].get() * r.at[:, 1].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
+                -ci_dotmr.at[2, :].get() * r.at[:, 1].get()
+                - r.at[:, 2].get() * mrdotc_i.at[1, :].get()
+                - mrdotc_i.at[2, :].get() * r.at[:, 1].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_i + 3].get()
             )
         )
@@ -3185,16 +3185,16 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 4].get() - 4.0 * couplets.at[8 * indices_j + 4].get())
             + h2
             * (
-                r.at[:, 1].get() * Cj_dotr.at[1, :].get()
-                - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
+                r.at[:, 1].get() * cj_dotr.at[1, :].get()
+                - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                rdotC_jj_dotr
-                + Cj_dotr.at[1, :].get() * r.at[:, 1].get()
-                + r.at[:, 1].get() * rdotC_j.at[1, :].get()
-                + rdotC_j.at[1, :].get() * r.at[:, 1].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
+                rdotc_jj_dotr
+                + cj_dotr.at[1, :].get() * r.at[:, 1].get()
+                + r.at[:, 1].get() * rdotc_j.at[1, :].get()
+                + rdotc_j.at[1, :].get() * r.at[:, 1].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_j + 4].get()
             )
         )
@@ -3203,16 +3203,16 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 4].get() - 4.0 * couplets.at[8 * indices_i + 4].get())
             + h2
             * (
-                -r.at[:, 1].get() * Ci_dotmr.at[1, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
+                -r.at[:, 1].get() * ci_dotmr.at[1, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                mrdotC_ii_dotmr
-                - Ci_dotmr.at[1, :].get() * r.at[:, 1].get()
-                - r.at[:, 1].get() * mrdotC_i.at[1, :].get()
-                - mrdotC_i.at[1, :].get() * r.at[:, 1].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
+                mrdotc_ii_dotmr
+                - ci_dotmr.at[1, :].get() * r.at[:, 1].get()
+                - r.at[:, 1].get() * mrdotc_i.at[1, :].get()
+                - mrdotc_i.at[1, :].get() * r.at[:, 1].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_i + 4].get()
             )
         )
@@ -3251,15 +3251,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 1].get() - 4.0 * couplets.at[8 * indices_j + 5].get())
             + h2
             * (
-                r.at[:, 0].get() * Cj_dotr.at[1, :].get()
-                - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
+                r.at[:, 0].get() * cj_dotr.at[1, :].get()
+                - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                Cj_dotr.at[0, :].get() * r.at[:, 1].get()
-                + r.at[:, 0].get() * rdotC_j.at[1, :].get()
-                + rdotC_j.at[0, :].get() * r.at[:, 1].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
+                cj_dotr.at[0, :].get() * r.at[:, 1].get()
+                + r.at[:, 0].get() * rdotc_j.at[1, :].get()
+                + rdotc_j.at[0, :].get() * r.at[:, 1].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_j + 5].get()
             )
         )
@@ -3268,15 +3268,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 1].get() - 4.0 * couplets.at[8 * indices_i + 5].get())
             + h2
             * (
-                -r.at[:, 0].get() * Ci_dotmr.at[1, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
+                -r.at[:, 0].get() * ci_dotmr.at[1, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[0, :].get() * r.at[:, 1].get()
-                - r.at[:, 0].get() * mrdotC_i.at[1, :].get()
-                - mrdotC_i.at[0, :].get() * r.at[:, 1].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
+                -ci_dotmr.at[0, :].get() * r.at[:, 1].get()
+                - r.at[:, 0].get() * mrdotc_i.at[1, :].get()
+                - mrdotc_i.at[0, :].get() * r.at[:, 1].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
                 - couplets.at[8 * indices_i + 5].get()
             )
         )
@@ -3315,15 +3315,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 2].get() - 4.0 * couplets.at[8 * indices_j + 6].get())
             + h2
             * (
-                r.at[:, 0].get() * Cj_dotr.at[2, :].get()
-                - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
+                r.at[:, 0].get() * cj_dotr.at[2, :].get()
+                - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                Cj_dotr.at[0, :].get() * r.at[:, 2].get()
-                + r.at[:, 0].get() * rdotC_j.at[2, :].get()
-                + rdotC_j.at[0, :].get() * r.at[:, 2].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
+                cj_dotr.at[0, :].get() * r.at[:, 2].get()
+                + r.at[:, 0].get() * rdotc_j.at[2, :].get()
+                + rdotc_j.at[0, :].get() * r.at[:, 2].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_j + 6].get()
             )
         )
@@ -3332,15 +3332,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 2].get() - 4.0 * couplets.at[8 * indices_i + 6].get())
             + h2
             * (
-                -r.at[:, 0].get() * Ci_dotmr.at[2, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
+                -r.at[:, 0].get() * ci_dotmr.at[2, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[0, :].get() * r.at[:, 2].get()
-                - r.at[:, 0].get() * mrdotC_i.at[2, :].get()
-                - mrdotC_i.at[0, :].get() * r.at[:, 2].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
+                -ci_dotmr.at[0, :].get() * r.at[:, 2].get()
+                - r.at[:, 0].get() * mrdotc_i.at[2, :].get()
+                - mrdotc_i.at[0, :].get() * r.at[:, 2].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_i + 6].get()
             )
         )
@@ -3379,15 +3379,15 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_j + 3].get() - 4.0 * couplets.at[8 * indices_j + 7].get())
             + h2
             * (
-                r.at[:, 1].get() * Cj_dotr.at[2, :].get()
-                - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
+                r.at[:, 1].get() * cj_dotr.at[2, :].get()
+                - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                Cj_dotr.at[1, :].get() * r.at[:, 2].get()
-                + r.at[:, 1].get() * rdotC_j.at[2, :].get()
-                + rdotC_j.at[1, :].get() * r.at[:, 2].get()
-                - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
+                cj_dotr.at[1, :].get() * r.at[:, 2].get()
+                + r.at[:, 1].get() * rdotc_j.at[2, :].get()
+                + rdotc_j.at[1, :].get() * r.at[:, 2].get()
+                - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_j + 7].get()
             )
         )
@@ -3396,21 +3396,21 @@ def compute_exact_thermals(
             h1 * (couplets.at[8 * indices_i + 3].get() - 4.0 * couplets.at[8 * indices_i + 7].get())
             + h2
             * (
-                -r.at[:, 1].get() * Ci_dotmr.at[2, :].get()
-                - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
+                -r.at[:, 1].get() * ci_dotmr.at[2, :].get()
+                - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
             )
             + h3
             * (
-                -Ci_dotmr.at[1, :].get() * r.at[:, 2].get()
-                - r.at[:, 1].get() * mrdotC_i.at[2, :].get()
-                - mrdotC_i.at[1, :].get() * r.at[:, 2].get()
-                - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
+                -ci_dotmr.at[1, :].get() * r.at[:, 2].get()
+                - r.at[:, 1].get() * mrdotc_i.at[2, :].get()
+                - mrdotc_i.at[1, :].get() * r.at[:, 2].get()
+                - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
                 - couplets.at[8 * indices_i + 7].get()
             )
         )
 
         # # Convert to angular velocities and rate of strain
-        r_ang_vel_and_strain = jnp.zeros((N, 8))
+        r_ang_vel_and_strain = jnp.zeros((num_particles, 8))
         r_ang_vel_and_strain = r_ang_vel_and_strain.at[:, 0].set(
             (r_velocity_gradient.at[:, 3].get() - r_velocity_gradient.at[:, 7].get()) * 0.5
         )
@@ -3440,24 +3440,24 @@ def compute_exact_thermals(
 
     # obtain matrix form of linear operator Mpsi, by computing Mpsi(e_i) with e_i basis vectors (1,0,...,0), (0,1,0,...) ...
     random_array_nf = (2 * random_array_nf - 1) * jnp.sqrt(3.0)
-    R_FU_Matrix = np.zeros((6 * N, 6 * N))
-    basis_vectors = np.eye(6 * N, dtype=float)
-    for iii in range(6 * N):
-        Rei = ComputeLubricationFU(basis_vectors[iii, :])
-        R_FU_Matrix[:, iii] = Rei
-    sqrt_R_FU = scipy.linalg.sqrtm(
-        R_FU_Matrix
+    r_fu_matrix = np.zeros((6 * num_particles, 6 * num_particles))
+    basis_vectors = np.eye(6 * num_particles, dtype=float)
+    for iii in range(6 * num_particles):
+        rei = compute_lubrication_fu(basis_vectors[iii, :])
+        r_fu_matrix[:, iii] = rei
+    sqrt_r_fu = scipy.linalg.sqrtm(
+        r_fu_matrix
     )  # EXTEMELY NOT EFFICIENT! need to be replaced with faster method
-    R_FU12psi_correct = jnp.dot(sqrt_R_FU, random_array_nf * np.sqrt(2.0 * kT / dt))
+    r_fu12psi_correct = jnp.dot(sqrt_r_fu, random_array_nf * np.sqrt(2.0 * temperature / dt))
 
     random_array_real = (2 * random_array_real - 1) * jnp.sqrt(3.0)
-    Matrix_M = np.zeros((11 * N, 11 * N))
-    basis_vectors = np.eye(11 * N, dtype=float)
-    for iii in range(11 * N):
-        a = helper_Mpsi(basis_vectors[iii, :])
-        Mei = helper_reshape(a)
-        Matrix_M[:, iii] = Mei
-    sqrt_M = scipy.linalg.sqrtm(Matrix_M)
-    M12psi_debug = jnp.dot(sqrt_M, random_array_real * jnp.sqrt(2.0 * kT / dt))
+    matrix_m = np.zeros((11 * num_particles, 11 * num_particles))
+    basis_vectors = np.eye(11 * num_particles, dtype=float)
+    for iii in range(11 * num_particles):
+        a = helper_mpsi(basis_vectors[iii, :])
+        mei = helper_reshape(a)
+        matrix_m[:, iii] = mei
+    sqrt_m = scipy.linalg.sqrtm(matrix_m)
+    m12psi_debug = jnp.dot(sqrt_m, random_array_real * jnp.sqrt(2.0 * temperature / dt))
 
-    return convert_to_generalized(M12psi_debug), R_FU12psi_correct
+    return convert_to_generalized(m12psi_debug), r_fu12psi_correct

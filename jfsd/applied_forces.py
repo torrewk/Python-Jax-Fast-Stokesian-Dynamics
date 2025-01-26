@@ -6,7 +6,7 @@ from jax.typing import ArrayLike
 
 
 @partial(jit, static_argnums=[0])
-def sumAppliedForces(
+def sum_applied_forces(
     N: int,
     AppliedForce: ArrayLike,
     AppliedTorques: ArrayLike,

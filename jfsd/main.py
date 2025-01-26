@@ -10,344 +10,343 @@ from jax.lib import xla_bridge
 from jax.typing import ArrayLike
 from tqdm import tqdm
 
-from jfsd import appliedForces, mobility, resistance, shear, solver, thermal, utils
+from jfsd import applied_forces, mobility, resistance, shear, solver, thermal, utils
 from jfsd import jaxmd_space as space
 
-config.update("jax_enable_x64", False)  # disable double precision by default
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = (
-    "false"  # avoid JAX allocating most of the GPU memory even if not needed
-)
-
+config.update("jax_enable_x64", False)  # Disable double precision by default
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"  # Avoid JAX preallocating most GPU memory
 
 def main(
-    Nsteps: int,
+    num_steps: int,
     writing_period: int,
-    dt: float,
-    Lx: float,
-    Ly: float,
-    Lz: float,
-    N: int,
+    time_step: float,
+    lx: float,
+    ly: float,
+    lz: float,
+    num_particles: int,
     max_strain: float,
-    T: float,
-    a: float,
-    xi: float,
-    error: float,
-    U: float,
+    temperature: float,
+    particle_radius: float,
+    ewald_xi: float,
+    error_tolerance: float,
+    interaction_strength: float,
     buoyancy_flag: int,
-    U_cutoff: float,
+    interaction_cutoff: float,
     positions: ArrayLike,
-    seed_RFD: int,
+    seed_rfd: int,
     seed_ffwave: int,
     seed_ffreal: int,
     seed_nf: int,
     shear_rate_0: float,
-    shear_freq: float,
+    shear_frequency: float,
     output: str,
-    stresslet_flag: bool,
-    velocity_flag: bool,
-    orient_flag: bool,
+    store_stresslet: bool,
+    store_velocity: bool,
+    store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
-    HIs_flag: int,
+    hydrodynamic_interaction_flag: int,
     boundary_flag: int,
     thermal_test_flag: int,
-    alpha_friction: float,
-    ho_friction: float,
+    friction_coefficient: float,
+    friction_range: float,
 ) -> tuple[Array, Array, Array, list[float]]:
-    """Integrate the particles equation of motions forward in time.
-
-    While the simulation is performed, trajectories data are saved into a .npy file.
-
+    """Integrate the particles' equations of motion forward in time.
+    
+    While the simulation runs, trajectory data are saved into a .npy file.
+    
     Parameters
     ----------
-    Nsteps: (int)
-        Number of timesteps
-    writing_period: (int)
-        Period for writing to file
-    dt: (float)
-        Timestep
-    Lx: (float)
-        Box size (x-direction)
-    Ly: (float)
-        Box size (y-direction)
-    Lz: (float)
-        Box size (z-direction)
-    N: (int)
-        Number of particles
-    max_strain: (float)
-        Max strain applied to the box
-    T: (float)
-        Thermal energy
-    a: (float)
-        Particle radius
-    xi: (float)
-        Ewald split parameter
-    error: (float)
-        Tolerance error
-    U: (float)
-        Interaction strength
-    buoyancy_flag: (int)
-        Set to 1 to have gravity acting on colloids
-    U_cutoff: (float)
-        Distance cutoff for interacting particles
-    positions: (float)
-        Array of particles initial positions (N,3)
-    seed_RFD: (int)
-        Seed for Brownian Drift calculation
-    seed_ffwave: (int)
-        Seed for wave space part of far-field velocity slip
-    seed_ffreal: (int)
-        Seed for real space part of far-field velocity slip
-    seed_nf: (int)
-        Seed for near-field random forces
-    shear_rate_0: (float)
-        Axisymmetric shear rate amplitude
-    shear_freq: (float)
-        Frequency of shear, set to zero to have simple shear
-    output: (str)
-        File name for output
-    stresslet_flag: (int)
-        To have stresslet in the output
-    velocity_flag: (int)
-        To have velocities in the output/var/log/nvidia-installer.log
-    orient_flag: (int)
-        To have particle orientations in the output
-    constant_applied_forces: (float)
-        Array of external forces (N,3)
-    constant_applied_torques: (float)
-        Array of external torques (N,3)
-    HIs_flag: (int)
-        Flag used to set level of hydrodynamic interaction.
-    boundary_flag: (int)
-        Flag used to set the type of boundary conditions for the hydrodynamic interaction.
-    thermal_test_flag: (int)
-        Flag used to test thermal fluctuation calculation (1 for far-field real space, 2 for lubrication)
-    alpha_friction: (float)
-        Strength of hydrodynamic friction
-    h0_friction: (float)
-        Range of hydrodynamic friction
-
+    num_steps : int
+        Number of simulation timesteps.
+    writing_period : int
+        Frequency of writing output to file.
+    time_step : float
+        Simulation timestep.
+    lx : float
+        Length of the simulation box in x-direction.
+    ly : float
+        Length of the simulation box in y-direction.
+    lz : float
+        Length of the simulation box in z-direction.
+    num_particles : int
+        Number of particles in the system.
+    max_strain : float
+        Maximum strain applied to the box.
+    temperature : float
+        Thermal energy.
+    particle_radius : float
+        Radius of each particle.
+    ewald_xi : float
+        Ewald splitting parameter.
+    error_tolerance : float
+        Error tolerance for numerical computations.
+    interaction_strength : float
+        Strength of pairwise interactions.
+    buoyancy_flag : int
+        If 1, applies gravitational forces to the particles.
+    interaction_cutoff : float
+        Cutoff distance for interaction forces.
+    positions : ArrayLike
+        Initial positions of the particles, shape (num_particles, 3).
+    seed_rfd : int
+        Seed for Brownian Drift computation.
+    seed_ffwave : int
+        Seed for wave-space component of far-field velocity.
+    seed_ffreal : int
+        Seed for real-space component of far-field velocity.
+    seed_nf : int
+        Seed for near-field random forces.
+    shear_rate_0 : float
+        Initial shear rate amplitude.
+    shear_frequency : float
+        Frequency of applied shear (0 for simple shear).
+    output : str
+        Name of the output file.
+    store_stresslet : bool
+        Whether to store the stresslet data.
+    store_velocity : bool
+        Whether to store velocity data.
+    store_orientation : bool
+        Whether to store particle orientation data.
+    constant_applied_forces : ArrayLike
+        External forces applied to particles, shape (num_particles, 3).
+    constant_applied_torques : ArrayLike
+        External torques applied to particles, shape (num_particles, 3).
+    hydrodynamic_interaction_flag : int
+        Flag determining the level of hydrodynamic interactions (0: BD, 1: RPY, 2: SD).
+    boundary_flag : int
+        Flag determining boundary conditions (0: periodic, 1: open).
+    thermal_test_flag : int
+        Flag to test thermal fluctuations (1 for far-field real-space, 2 for lubrication).
+    friction_coefficient : float
+        Coefficient for hydrodynamic friction.
+    friction_range : float
+        Range of hydrodynamic friction effects.
+    
     Returns
     -------
-        trajectory, stresslet_history, velocities, test_result
-
+    tuple
+        (trajectory, stresslet_history, velocities, test_results)
     """
-    trajectory = stresslet_history = velocities = test_result = None
-    if writing_period > Nsteps:
+    trajectory = stresslet_history = velocities = test_results = None
+    
+    if writing_period > num_steps:
         raise ValueError(
-            "Error: writing-to-file period greater than number of simulation steps. Abort!"
+            "Error: writing-to-file period is greater than the total number of simulation steps."
         )
+    
     if boundary_flag == 1:
-        if (N < 2) and (HIs_flag > 0):
+        if num_particles < 2 and hydrodynamic_interaction_flag > 0:
             raise ValueError(
-                "Error: trying to use open boundaries hydrodynamic for a single particle. Select 'brownian' and re-run. Abort!"
+                "Error: Open boundary hydrodynamics cannot be used for a single particle. "
+                "Select 'brownian' instead."
             )
-        Lx = Ly = Lz = 999999  # set system size to 'infinite' (does not impact performance)
-        config.update(
-            "jax_enable_x64", True
-        )  # enable double precision: needed to resolve long-range hydrodynamics completely in real space
-
-    print("jfsd is running on device: ", (xla_bridge.get_backend().platform))
-
-    if HIs_flag == 0:
-        trajectory, velocities = wrap_BD(
-            Nsteps,
+        lx = ly = lz = 999999  # Effectively infinite box size.
+        config.update("jax_enable_x64", True)  # Enable double precision for long-range interactions.
+    
+    print("jfsd is running on device:", xla_bridge.get_backend().platform)
+    
+    if hydrodynamic_interaction_flag == 0:
+        trajectory, velocities = wrap_bd(
+            num_steps,
             writing_period,
-            dt,
-            Lx,
-            Ly,
-            Lz,
-            N,
-            T,
-            U,
+            time_step,
+            lx,
+            ly,
+            lz,
+            num_particles,
+            temperature,
+            interaction_strength,
             buoyancy_flag,
-            U_cutoff,
+            interaction_cutoff,
             positions,
             seed_nf,
             shear_rate_0,
-            shear_freq,
+            shear_frequency,
             output,
-            velocity_flag,
-            orient_flag,
+            store_velocity,
+            store_orientation,
             constant_applied_forces,
             constant_applied_torques,
         )
-    elif HIs_flag == 1:
-        trajectory, velocities = wrap_RPY(
-            Nsteps,
+    elif hydrodynamic_interaction_flag == 1:
+        trajectory, velocities = wrap_rpy(
+            num_steps,
             writing_period,
-            dt,
-            Lx,
-            Ly,
-            Lz,
-            N,
+            time_step,
+            lx,
+            ly,
+            lz,
+            num_particles,
             max_strain,
-            T,
-            xi,
-            error,
-            U,
+            temperature,
+            ewald_xi,
+            error_tolerance,
+            interaction_strength,
             buoyancy_flag,
-            U_cutoff,
+            interaction_cutoff,
             positions,
             seed_ffwave,
             seed_ffreal,
             shear_rate_0,
-            shear_freq,
+            shear_frequency,
             output,
-            velocity_flag,
-            orient_flag,
+            store_velocity,
+            store_orientation,
             constant_applied_forces,
             constant_applied_torques,
             boundary_flag,
         )
-    elif HIs_flag == 2:
-        trajectory, stresslet_history, velocities, test_result = wrap_SD(
-            Nsteps,
+    elif hydrodynamic_interaction_flag == 2:
+        trajectory, stresslet_history, velocities, test_results = wrap_sd(
+            num_steps,
             writing_period,
-            dt,
-            Lx,
-            Ly,
-            Lz,
-            N,
+            time_step,
+            lx,
+            ly,
+            lz,
+            num_particles,
             max_strain,
-            T,
-            a,
-            xi,
-            error,
-            U,
+            temperature,
+            particle_radius,
+            ewald_xi,
+            error_tolerance,
+            interaction_strength,
             buoyancy_flag,
-            U_cutoff,
+            interaction_cutoff,
             positions,
-            seed_RFD,
+            seed_rfd,
             seed_ffwave,
             seed_ffreal,
             seed_nf,
             shear_rate_0,
-            shear_freq,
+            shear_frequency,
             output,
-            stresslet_flag,
-            velocity_flag,
-            orient_flag,
+            store_stresslet,
+            store_velocity,
+            store_orientation,
             constant_applied_forces,
             constant_applied_torques,
             boundary_flag,
             thermal_test_flag,
-            alpha_friction,
-            ho_friction,
+            friction_coefficient,
+            friction_range,
         )
-    return trajectory, stresslet_history, velocities, test_result
+    return trajectory, stresslet_history, velocities, test_results
 
 
-def check_overlap(displacements_vector_matrix: ArrayLike, N: int) -> bool:
+def check_overlap(displacements_vector_matrix: ArrayLike, num_particles: int) -> bool:
     """Check for overlapping particles in the current configuration.
 
-    Print indices and distances of overlapping pairs.
+    Prints indices and distances of overlapping pairs.
 
     Parameters
     ----------
-    N: (int)
-        Number of particles
-    displacements_vector_matrix: (float)
-        Array (N,N,3) of relative displacements between particles
+    num_particles : int
+        Number of particles.
+    displacements_vector_matrix : ArrayLike
+        Array (num_particles, num_particles, 3) of relative displacements between particles.
 
     Returns
     -------
-        overlaps>0
-
+    bool
+        True if overlaps are present, False otherwise.
     """
-    # check that current configuration does not have overlapping particles
-    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2.0, N)
+    overlaps, overlap_indices = utils.find_overlaps(
+        displacements_vector_matrix, 2.0, num_particles
+    )
     if overlaps > 0:
         print(
-            "Warning: ",
-            (overlaps),
-            " particles are overlapping. Reducing the timestep might help prevent unphysical overlaps.",
+            f"Warning: {overlaps} particles are overlapping. "
+            "Reducing the timestep might help prevent unphysical overlaps."
         )
         print(
-            "Indices of overlapping particles are",
-            overlaps_indices[0][: int(overlaps)],
-            overlaps_indices[1][: int(overlaps)],
+            "Indices of overlapping particles:",
+            overlap_indices[0][: int(overlaps)],
+            overlap_indices[1][: int(overlaps)],
         )
         print(
-            "Distances of overlapping particles are",
+            "Distances of overlapping particles:",
             displacements_vector_matrix[
-                overlaps_indices[0][: int(overlaps)], overlaps_indices[1][: int(overlaps)]
+                overlap_indices[0][: int(overlaps)], overlap_indices[1][: int(overlaps)]
             ],
         )
     return overlaps > 0
 
 
-def wrap_SD(
-    Nsteps: int,
+
+def wrap_sd(
+    num_steps: int,
     writing_period: int,
-    dt: float,
-    Lx: float,
-    Ly: float,
-    Lz: float,
-    N: int,
+    time_step: float,
+    lx: float,
+    ly: float,
+    lz: float,
+    num_particles: int,
     max_strain: float,
-    T: float,
-    a: float,
-    xi: float,
-    error: float,
-    U: float,
+    temperature: float,
+    particle_radius: float,
+    ewald_xi: float,
+    error_tolerance: float,
+    interaction_strength: float,
     buoyancy_flag: int,
-    U_cutoff: float,
+    interaction_cutoff: float,
     positions: ArrayLike,
-    seed_RFD: int,
+    seed_rfd: int,
     seed_ffwave: int,
     seed_ffreal: int,
     seed_nf: int,
     shear_rate_0: float,
-    shear_freq: float,
+    shear_frequency: float,
     output: str,
-    stresslet_flag: bool,
-    velocity_flag: bool,
-    orient_flag: bool,
+    store_stresslet: bool,
+    store_velocity: bool,
+    store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
     boundary_flag: int,
     thermal_test_flag: int,
-    alpha_friction: float,
-    ho_friction: float,
+    friction_coefficient: float,
+    friction_range: float,
 ) -> tuple[Array, Array, Array, list[float]]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using Stokesian Dynamics method.
 
     Parameters
     ----------
-    Nsteps: (int)
+    num_steps: (int)
         Number of timesteps
     writing_period: (int)
         Period for writing to file
-    dt: (float)
+    time_step: (float)
         Timestep
-    Lx: (float)
+    lx: (float)
         Box size (x-direction)
-    Ly: (float)
+    ly: (float)
         Box size (y-direction)
-    Lz: (float)
+    lz: (float)
         Box size (z-direction)
-    N: (int)
+    num_particles: (int)
         Number of particles
     max_strain: (float)
         Max strain applied to the box
-    T: (float)
+    temperature: (float)
         Thermal energy
-    a: (float)
+    particle_radius: (float)
         Particle radius
-    xi: (float)
+    ewald_xi: (float)
         Ewald split parameter
-    error: (float)
+    error_tolerance: (float)
         Tolerance error
-    U: (float)
+    interaction_strength: (float)
         Interaction strength
     buoyancy_flag: (int)
         Set to 1 to have gravity acting on colloids
-    U_cutoff: (float)
+    interaction_cutoff: (float)
         Distance cutoff for interacting particles
     positions: (float)
-        Array of particles initial positions (N,3)
-    seed_RFD: (int)
+        Array of particles initial positions (num_particles,3)
+    seed_rfd: (int)
         Seed for Brownian Drift calculation
     seed_ffwave: (int)
         Seed for wave space part of far-field velocity slip
@@ -357,25 +356,25 @@ def wrap_SD(
         Seed for near-field random forces
     shear_rate_0: (float)
         Axisymmetric shear rate amplitude
-    shear_freq: (float)
+    shear_frequency: (float)
         Frequency of shear, set to zero to have simple shear
     output: (str)
         File name for output
-    stresslet_flag: (int)
+    store_stresslet: (int)
         To have stresslet in the output
-    velocity_flag: (int)
+    store_velocity: (int)
         To have velocities in the output/var/log/nvidia-installer.log
-    orient_flag: (int)
+    store_orientation: (int)
         To have particle orientations in the output
     constant_applied_forces: (float)
-        Array of external forces (N,3)
+        Array of external forces (num_particles,3)
     constant_applied_torques: (float)
-        Array of external torques (N,3)
+        Array of external torques (num_particles,3)
     boundary_flag: (int)
         Flag used to set the type of boundary conditions for the hydrodynamic interaction.
     thermal_test_flag: (int)
         Flag used to test thermal fluctuation calculation (1 for far-field real space, 2 for lubrication)
-    alpha_friction: (float)
+    friction_coefficient: (float)
         Strength of hydrodynamic friction
     h0_friction: (float)
         Range of hydrodynamic friction
@@ -392,7 +391,7 @@ def wrap_SD(
         positions: ArrayLike,
         displacements_vector_matrix: ArrayLike,
         net_vel: ArrayLike,
-        dt: float,
+        time_step: float,
     ) -> tuple[Array, Array]:
         """Update particle positions and neighbor lists
 
@@ -401,12 +400,12 @@ def wrap_SD(
         shear_rate: (float)
             Shear rate at current time step
         positions: (float)
-            Array (N,3) of particles positions
+            Array (num_particles,3) of particles positions
         displacements_vector_matrix: (float)
-            Array (N,N,3) of relative displacements between particles
+            Array (num_particles,num_particles,3) of relative displacements between particles
         net_vel: (float)
-            Array (6*N) of linear/angular velocities relative to the background flow
-        dt: (float)
+            Array (6*num_particles) of linear/angular velocities relative to the background flow
+        time_step: (float)
             Timestep used to advance positions
 
         Returns
@@ -414,24 +413,24 @@ def wrap_SD(
         positions, displacements_vector_matrix
 
         """
-        # Define array of displacement r(t+dt)-r(t)
-        dR = jnp.zeros((N, 3), float)
+        # Define array of displacement r(t+time_step)-r(t)
+        dR = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
-        dR = dR.at[:, 0].set(dt * net_vel.at[(0)::6].get())
-        dR = dR.at[:, 1].set(dt * net_vel.at[(1)::6].get())
-        dR = dR.at[:, 2].set(dt * net_vel.at[(2)::6].get())
+        dR = dR.at[:, 0].set(time_step * net_vel.at[(0)::6].get())
+        dR = dR.at[:, 1].set(time_step * net_vel.at[(1)::6].get())
+        dR = dR.at[:, 2].set(time_step * net_vel.at[(2)::6].get())
         # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
         positions = (
-            shift(positions + jnp.array([Lx, Ly, Lz]) / 2, dR) - jnp.array([Lx, Ly, Lz]) * 0.5
+            shift(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
         )
 
-        # Define array of displacement r(t+dt)-r(t) (this time for displacement given by background flow)
-        dR = jnp.zeros((N, 3), float)
+        # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
+        dR = jnp.zeros((num_particles, 3), float)
         dR = dR.at[:, 0].set(
-            dt * shear_rate * positions.at[:, 1].get()
+            time_step * shear_rate * positions.at[:, 1].get()
         )  # Assuming y:gradient direction, x:background flow direction
         positions = (
-            shift(positions + jnp.array([Lx, Ly, Lz]) / 2, dR) - jnp.array([Lx, Ly, Lz]) * 0.5
+            shift(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
         )  # Apply shift
 
         # Compute new relative displacements between particles
@@ -443,18 +442,18 @@ def wrap_SD(
         output.mkdir(exist_ok=True, parents=True)
 
     # set array for output trajectory, velocities and stresslet in time
-    trajectory = np.zeros((int(Nsteps / writing_period), N, 3), float)
-    stresslet_history = np.zeros((int(Nsteps / writing_period), N, 5), float)
-    velocities = np.zeros((int(Nsteps / writing_period), N, 6), float)
+    trajectory = np.zeros((int(num_steps / writing_period), num_particles, 3), float)
+    stresslet_history = np.zeros((int(num_steps / writing_period), num_particles, 5), float)
+    velocities = np.zeros((int(num_steps / writing_period), num_particles, 6), float)
 
     # set initial number of Lanczos iterations, for both thermal fluctuations
     n_iter_Lanczos_ff = 2
     n_iter_Lanczos_nf = 2
 
-    epsilon = error  # define epsilon for RFD
+    epsilon = error_tolerance  # define epsilon for RFD
     xy = 0.0  # set box tilt factor to zero to begin (unsheared box)
     ewald_cut = (
-        jnp.sqrt(-jnp.log(error)) / xi
+        jnp.sqrt(-jnp.log(error_tolerance)) / ewald_xi
     )  # Real Space cutoff for the Ewald Summation in the Far-Field computation
     ichol_relaxer = 1.0  # for Chol. factorization of R_FU^prec (initially to 1)
 
@@ -466,7 +465,7 @@ def wrap_SD(
 
     # set INITIAL Periodic Space and Displacement Metric
     displacement, shift = space.periodic_general(
-        jnp.array([[Lx, Ly * xy, Lz * 0.0], [0.0, Ly, Lz * 0.0], [0.0, 0.0, Lz]]),
+        jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
         fractional_coordinates=False,
     )
     # compute matrix of INITIAL displacements between particles (each element is a vector from particle j to i)
@@ -474,28 +473,28 @@ def wrap_SD(
 
     # initialize near-field hydrodynamics neighborlists (used also by pair potentials)
     lub_neighbor_fn = utils.initialize_single_neighborlist(
-        3.99, Lx, Ly, Lz, displacement
+        3.99, lx, ly, lz, displacement
     )  # for near-field hydrodynamics and pair potential
     nbrs_lub = lub_neighbor_fn.allocate(
-        positions + jnp.array([Lx, Ly, Lz]) / 2
+        positions + jnp.array([lx, ly, lz]) / 2
     )  # allocate neighborlist for first time
     nl_lub = np.array(nbrs_lub.idx)  # convert to array
 
     # initialize far-field hydrodynamics neighborlists
     ff_neighbor_fn = utils.initialize_single_neighborlist(
-        ewald_cut, Lx, Ly, Lz, displacement
+        ewald_cut, lx, ly, lz, displacement
     )  # for far-field hydrodynamics
     nbrs_ff = ff_neighbor_fn.allocate(
-        positions + jnp.array([Lx, Ly, Lz]) / 2
+        positions + jnp.array([lx, ly, lz]) / 2
     )  # allocate neighborlist for first time
     nl_ff = np.array(nbrs_ff.idx)  # convert to array
 
     # initialize near-field hydrodynamics precondition neighborlists
     prec_lub_neighbor_fn = utils.initialize_single_neighborlist(
-        2.1, Lx, Ly, Lz, displacement
+        2.1, lx, ly, lz, displacement
     )  # for near-field hydrodynamics precondition
     nbrs_lub_prec = prec_lub_neighbor_fn.allocate(
-        positions + jnp.array([Lx, Ly, Lz]) / 2
+        positions + jnp.array([lx, ly, lz]) / 2
     )  # allocate neighborlist for first time
 
     if boundary_flag == 0:
@@ -511,10 +510,10 @@ def wrap_SD(
             key_ffwave,
             ewaldC1,
             m_self,
-            Nx,
-            Ny,
-            Nz,
-            gaussP,
+            grid_x,
+            grid_y,
+            grid_z,
+            gauss_support,
             ewald_n,
             ewald_dr,
             eta,
@@ -522,34 +521,34 @@ def wrap_SD(
             wave_bro_ind,
             wave_bro_nyind,
         ) = utils.init_periodic_box(
-            error, xi, Lx, Ly, Lz, ewald_cut, max_strain, xy, positions, N, T, seed_ffwave
+            error_tolerance, ewald_xi, lx, ly, lz, ewald_cut, max_strain, xy, positions, num_particles, temperature, seed_ffwave
         )
     if boundary_flag == 1:
         nl_ff = utils.compute_distinct_pairs(
-            N
+            num_particles
         )  # compute list of distinct pairs for long range hydrodynamics (not optimized)
 
-    if T > 0:  # create Random Number Generator states
-        key_RFD = random.PRNGKey(seed_RFD)
+    if temperature > 0:  # create Random Number Generator states
+        key_rfd = random.PRNGKey(seed_rfd)
         key_ffreal = random.PRNGKey(seed_ffreal)
         key_nf = random.PRNGKey(seed_nf)
 
     # set external applied forces/torques (no pair-interactions, will be added later)
-    AppliedForce = jnp.zeros(3 * N, float)
-    AppliedTorques = jnp.zeros(3 * N, float)
+    external_forces = jnp.zeros(3 * num_particles, float)
+    external_torques = jnp.zeros(3 * num_particles, float)
     if buoyancy_flag == 1:  # apply buoyancy forces (in z direction)
-        AppliedForce = AppliedForce.at[2::3].add(-1.0)
+        external_forces = external_forces.at[2::3].add(-1.0)
     if np.count_nonzero(constant_applied_forces) > 0:  # apply external forces
-        AppliedForce += jnp.ravel(constant_applied_forces)
+        external_forces += jnp.ravel(constant_applied_forces)
     if np.count_nonzero(constant_applied_torques) > 0:  # apply external torques
-        AppliedTorques += jnp.ravel(constant_applied_torques)
+        external_torques += jnp.ravel(constant_applied_torques)
 
     # Check if particles overlap
-    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2.0, N)
+    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2.0, num_particles)
     if overlaps > 0:
         print("Warning: initial overlaps are ", (overlaps))
     print("Starting: compiling the code... This should not take more than 1-2 minutes.")
-    for step in tqdm(range(Nsteps), mininterval=0.5):  # use tqdm to have progress bar and TPS
+    for step in tqdm(range(num_steps), mininterval=0.5):  # use tqdm to have progress bar and TPS
         # check that neighborlists buffers did not overflow, if so, re-allocate the lists
         if nbrs_lub.did_buffer_overflow:
             nbrs_lub = utils.allocate_nlist(positions, lub_neighbor_fn)
@@ -560,14 +559,14 @@ def wrap_SD(
         if nbrs_lub_prec.did_buffer_overflow:
             nbrs_lub_prec = utils.allocate_nlist(positions, prec_lub_neighbor_fn)
 
-        # Initialize Brownian drift (6*N array, for linear and angular components)
-        brownian_drift = jnp.zeros(6 * N, float)
+        # Initialize Brownian drift (6*num_particlesarray, for linear and angular components)
+        brownian_drift = jnp.zeros(6 * num_particles, float)
 
-        if (stresslet_flag > 0) and ((step % writing_period) == 0):
-            stresslet = jnp.zeros((N, 5), float)  # reset stresslet to zero
+        if (store_stresslet > 0) and ((step % writing_period) == 0):
+            stresslet = jnp.zeros((num_particles, 5), float)  # reset stresslet to zero
 
         # define rhs array of the linear system Ax=b (with A the saddle point matrix)
-        saddle_b = jnp.zeros(17 * N, float)
+        saddle_b = jnp.zeros(17 * num_particles, float)
 
         # precompute quantities for far-field and near-field hydrodynamic calculation
         if boundary_flag == 0:
@@ -598,17 +597,17 @@ def wrap_SD(
                 nl_lub,
                 displacements_vector_matrix,
                 xy,
-                N,
-                Lx,
-                Ly,
-                Lz,
-                Nx,
-                Ny,
-                Nz,
+                num_particles,
+                lx,
+                ly,
+                lz,
+                grid_x,
+                grid_y,
+                grid_z,
                 prefac,
                 expfac,
                 quadW,
-                int(gaussP),
+                int(gauss_support),
                 gaussPd2,
                 ewald_n,
                 ewald_dr,
@@ -618,8 +617,8 @@ def wrap_SD(
                 ResTable_dr,
                 ResTable_dist,
                 ResTable_vals,
-                alpha_friction,
-                ho_friction,
+                friction_coefficient,
+                friction_range,
             )
         elif boundary_flag == 1:
             (
@@ -640,19 +639,19 @@ def wrap_SD(
                 ResTable_dr,
                 ResTable_dist,
                 ResTable_vals,
-                alpha_friction,
-                ho_friction,
+                friction_coefficient,
+                friction_range,
             )
         # set projector needed to compute thermal fluctuations given by lubrication
-        diagonal_zeroes_for_brownian = thermal.Number_of_neigh(N, indices_i_lub, indices_j_lub)
+        diagonal_zeroes_for_brownian = thermal.number_of_neigh(num_particles, indices_i_lub, indices_j_lub)
 
         # compute precondition resistance lubrication matrix
-        R_fu_prec_lower_triang, diagonal_elements_for_brownian = resistance.RFU_Precondition(
+        R_fu_prec_lower_triang, diagonal_elements_for_brownian = resistance.rfu_precondition(
             ichol_relaxer,
             displacements_vector_matrix.at[
                 np.array(nbrs_lub_prec.idx)[0, :], np.array(nbrs_lub_prec.idx)[1, :]
             ].get(),
-            N,
+            num_particles,
             len(nbrs_lub_prec.idx[0]),
             np.array(nbrs_lub_prec.idx),
         )
@@ -660,16 +659,16 @@ def wrap_SD(
         # perform Cholesky factorization and obtain lower triangle Cholesky factor of R_FU^nf
         R_fu_prec_lower_triang = utils.chol_fac(R_fu_prec_lower_triang)
 
-        # compute shear-rate for current timestep: simple(shear_freq=0) or oscillatory(shear_freq>0)
-        shear_rate = shear.update_shear_rate(dt, step, shear_rate_0, shear_freq, phase=0)
+        # compute shear-rate for current timestep: simple(shear_frequency=0) or oscillatory(shear_frequency>0)
+        shear_rate = shear.update_shear_rate(time_step, step, shear_rate_0, shear_frequency, phase=0)
 
         # if temperature is not zero (and full hydrodynamics are switched on), compute Brownian Drift
-        if T > 0:
+        if temperature > 0:
             # get array of random variables
-            key_RFD, random_array = utils.generate_random_array(key_RFD, 6 * N)
+            key_rfd, random_array = utils.generate_random_array(key_rfd, 6 * num_particles)
             random_array = -((2 * random_array - 1) * jnp.sqrt(3))
             # add random displacement to right-hand side of linear system Ax=b
-            saddle_b = saddle_b.at[11 * N :].set(random_array)
+            saddle_b = saddle_b.at[11 * num_particles :].set(random_array)
 
             # SOLVE SADDLE POINT IN THE POSITIVE DIRECTION
             # perform a displacement in the positive random directions (and update wave grid and neighbor lists) and save it to a buffer
@@ -681,8 +680,8 @@ def wrap_SD(
             buffer_nl_lub = np.array(buffer_nbrs_lub.idx)
             if boundary_flag == 0:
                 # update wave grid and far-field neighbor list (not needed in open boundaries)
-                buffer_gaussian_grid_spacing = utils.Precompute_grid_distancing(
-                    gaussP, gridh[0], xy, buffer_positions, N, Nx, Ny, Nz, Lx, Ly, Lz
+                buffer_gaussian_grid_spacing = utils.precompute_grid_distancing(
+                    gauss_support, gridh[0], xy, buffer_positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
                 )
                 buffer_nbrs_ff = utils.update_nlist(buffer_positions, nbrs_ff)
                 buffer_nl_ff = np.array(buffer_nbrs_ff.idx)
@@ -693,17 +692,17 @@ def wrap_SD(
                     buffer_nl_lub,
                     buffer_displacements_vector_matrix,
                     xy,
-                    N,
-                    Lx,
-                    Ly,
-                    Lz,
-                    Nx,
-                    Ny,
-                    Nz,
+                    num_particles,
+                    lx,
+                    ly,
+                    lz,
+                    grid_x,
+                    grid_y,
+                    grid_z,
                     prefac,
                     expfac,
                     quadW,
-                    gaussP,
+                    gauss_support,
                     gaussPd2,
                     ewald_n,
                     ewald_dr,
@@ -713,19 +712,19 @@ def wrap_SD(
                     ResTable_dr,
                     ResTable_dist,
                     ResTable_vals,
-                    alpha_friction,
-                    ho_friction,
+                    friction_coefficient,
+                    friction_range,
                 )
-                saddle_x, exitcode_gmres = solver.solver(
-                    N,
+                saddle_x, exitcode_gmres = solver.solve_linear_system(
+                    num_particles,
                     saddle_b,  # rhs vector of the linear system
                     gridk,
                     R_fu_prec_lower_triang,
                     output_precompute,
-                    Nx,
-                    Ny,
-                    Nz,
-                    gaussP,
+                    grid_x,
+                    grid_y,
+                    grid_z,
+                    gauss_support,
                     m_self,
                 )
             elif boundary_flag == 1:
@@ -738,11 +737,11 @@ def wrap_SD(
                     ResTable_dr,
                     ResTable_dist,
                     ResTable_vals,
-                    alpha_friction,
-                    ho_friction,
+                    friction_coefficient,
+                    friction_range,
                 )
-                saddle_x, exitcode_gmres = solver.solver_open(
-                    N,
+                saddle_x, exitcode_gmres = solver.solve_linear_system_open(
+                    num_particles,
                     saddle_b,  # rhs vector of the linear system
                     R_fu_prec_lower_triang,
                     output_precompute,
@@ -752,18 +751,18 @@ def wrap_SD(
                 raise ValueError(
                     f"GMRES (RFD) did not converge! Iterations are {exitcode_gmres}. Abort!"
                 )
-            brownian_drift = saddle_x.at[11 * N :].get()
+            brownian_drift = saddle_x.at[11 * num_particles :].get()
 
             # compute the near-field hydrodynamic stresslet from the saddle point solution velocity
-            if (stresslet_flag > 0) and ((step % writing_period) == 0):
-                stresslet = resistance.compute_RSU(
+            if (store_stresslet > 0) and ((step % writing_period) == 0):
+                stresslet = resistance.compute_rsu(
                     stresslet,
                     brownian_drift,
                     indices_i_lub,
                     indices_j_lub,
                     output_precompute[18],
                     r_lub,
-                    N,
+                    num_particles,
                 )
 
             # SOLVE SADDLE POINT IN THE NEGATIVE DIRECTION
@@ -773,8 +772,8 @@ def wrap_SD(
             buffer_nbrs_lub = utils.update_nlist(buffer_positions, nbrs_lub)
             buffer_nl_lub = np.array(buffer_nbrs_lub.idx)
             if boundary_flag == 0:
-                buffer_gaussian_grid_spacing = utils.Precompute_grid_distancing(
-                    gaussP, gridh[0], xy, buffer_positions, N, Nx, Ny, Nz, Lx, Ly, Lz
+                buffer_gaussian_grid_spacing = utils.precompute_grid_distancing(
+                    gauss_support, gridh[0], xy, buffer_positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
                 )
                 buffer_nbrs_ff = utils.update_nlist(buffer_positions, nbrs_ff)
                 buffer_nl_ff = np.array(buffer_nbrs_ff.idx)
@@ -785,17 +784,17 @@ def wrap_SD(
                     buffer_nl_lub,
                     buffer_displacements_vector_matrix,
                     xy,
-                    N,
-                    Lx,
-                    Ly,
-                    Lz,
-                    Nx,
-                    Ny,
-                    Nz,
+                    num_particles,
+                    lx,
+                    ly,
+                    lz,
+                    grid_x,
+                    grid_y,
+                    grid_z,
                     prefac,
                     expfac,
                     quadW,
-                    gaussP,
+                    gauss_support,
                     gaussPd2,
                     ewald_n,
                     ewald_dr,
@@ -805,19 +804,19 @@ def wrap_SD(
                     ResTable_dr,
                     ResTable_dist,
                     ResTable_vals,
-                    alpha_friction,
-                    ho_friction,
+                    friction_coefficient,
+                    friction_range,
                 )
-                saddle_x, exitcode_gmres = solver.solver(
-                    N,
+                saddle_x, exitcode_gmres = solver.solve_linear_system(
+                    num_particles,
                     saddle_b,  # rhs vector of the linear system
                     gridk,
                     R_fu_prec_lower_triang,
                     output_precompute,
-                    Nx,
-                    Ny,
-                    Nz,
-                    gaussP,
+                    grid_x,
+                    grid_y,
+                    grid_z,
+                    gauss_support,
                     m_self,
                 )
 
@@ -831,11 +830,11 @@ def wrap_SD(
                     ResTable_dr,
                     ResTable_dist,
                     ResTable_vals,
-                    alpha_friction,
-                    ho_friction,
+                    friction_coefficient,
+                    friction_range,
                 )
-                saddle_x, exitcode_gmres = solver.solver_open(
-                    N,
+                saddle_x, exitcode_gmres = solver.solve_linear_system_open(
+                    num_particles,
                     saddle_b,  # rhs vector of the linear system
                     R_fu_prec_lower_triang,
                     output_precompute,
@@ -847,49 +846,49 @@ def wrap_SD(
                 )
 
             # compute the near-field hydrodynamic stresslet from the saddle point solution velocity
-            if (stresslet_flag > 0) and ((step % writing_period) == 0):
-                buffer_stresslet = resistance.compute_RSU(
-                    jnp.zeros((N, 5), float),
-                    saddle_x.at[11 * N :].get(),
+            if (store_stresslet > 0) and ((step % writing_period) == 0):
+                buffer_stresslet = resistance.compute_rsu(
+                    jnp.zeros((num_particles, 5), float),
+                    saddle_x.at[11 * num_particles :].get(),
                     indices_i_lub,
                     indices_j_lub,
                     output_precompute[18],
                     r_lub,
-                    N,
+                    num_particles,
                 )
 
-            # TAKE THE DIFFERENCE AND APPLY SCALING
-            brownian_drift += -saddle_x.at[11 * N :].get()
-            brownian_drift = -brownian_drift * T / epsilon
-            if (stresslet_flag > 0) and ((step % writing_period) == 0):
+            # TAKE THE DIFFERENCE AND APPly SCALING
+            brownian_drift += -saddle_x.at[11 * num_particles :].get()
+            brownian_drift = -brownian_drift * temperature / epsilon
+            if (store_stresslet > 0) and ((step % writing_period) == 0):
                 stresslet += -buffer_stresslet
-                stresslet = stresslet * T / epsilon
+                stresslet = stresslet * temperature / epsilon
 
             # reset RHS to zero for next saddle point solver
-            saddle_b = jnp.zeros(17 * N, float)
+            saddle_b = jnp.zeros(17 * num_particles, float)
 
         # add applied forces and conservative (pair potential) forces to right-hand side of system
-        saddle_b = appliedForces.sumAppliedForces(
-            N,
-            AppliedForce,
-            AppliedTorques,
+        saddle_b = applied_forces.sum_applied_forces(
+            num_particles,
+            external_forces,
+            external_torques,
             saddle_b,
-            U,
+            interaction_strength,
             indices_i_lub,
             indices_j_lub,
             displacements_vector_matrix,
-            U_cutoff,
+            interaction_cutoff,
             2,
-            dt,
+            time_step,
         )
 
         # add (-) the ambient rate of strain to the right-hand side
         if shear_rate_0 != 0:
-            saddle_b = saddle_b.at[(6 * N + 1) : (11 * N) : 5].add(-shear_rate)
+            saddle_b = saddle_b.at[(6 * num_particles + 1) : (11 * num_particles) : 5].add(-shear_rate)
             # compute near field shear contribution R_FE and add it to the rhs of the system
-            saddle_b = saddle_b.at[11 * N :].add(
-                resistance.compute_RFE(
-                    N,
+            saddle_b = saddle_b.at[11 * num_particles :].add(
+                resistance.compute_rfe(
+                    num_particles,
                     shear_rate,
                     r_lub,
                     indices_i_lub,
@@ -907,10 +906,10 @@ def wrap_SD(
             )
 
         # compute Thermal Fluctuations only if temperature is not zero
-        if T > 0:
+        if temperature > 0:
             # generate random numbers for the various contributions of thermal noise
-            key_nf, random_array_nf = utils.generate_random_array(key_nf, (6 * N))
-            key_ffreal, random_array_real = utils.generate_random_array(key_ffreal, (11 * N))
+            key_nf, random_array_nf = utils.generate_random_array(key_nf, (6 * num_particles))
+            key_ffreal, random_array_real = utils.generate_random_array(key_ffreal, (11 * num_particles))
 
             # compute far-field (real space contribution) slip velocity and set in rhs of linear system
             if boundary_flag == 0:
@@ -919,13 +918,13 @@ def wrap_SD(
                 )
                 # compute far-field (wave space contribution) slip velocity and set in rhs of linear system
                 ws_linvel, ws_angvel_strain = thermal.compute_wave_space_slipvelocity(
-                    N,
-                    int(Nx),
-                    int(Ny),
-                    int(Nz),
-                    int(gaussP),
-                    T,
-                    dt,
+                    num_particles,
+                    int(grid_x),
+                    int(grid_y),
+                    int(grid_z),
+                    int(gauss_support),
+                    temperature,
+                    time_step,
                     gridh,
                     wave_bro_ind[:, 0, 0],
                     wave_bro_ind[:, 0, 1],
@@ -946,10 +945,10 @@ def wrap_SD(
                 )
                 rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                     thermal.compute_real_space_slipvelocity(
-                        N,
+                        num_particles,
                         m_self,
-                        T,
-                        dt,
+                        temperature,
+                        time_step,
                         int(n_iter_Lanczos_ff),
                         random_array_real,
                         r,
@@ -968,10 +967,10 @@ def wrap_SD(
                     n_iter_Lanczos_ff += 20
                     rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                         thermal.compute_real_space_slipvelocity(
-                            N,
+                            num_particles,
                             m_self,
-                            T,
-                            dt,
+                            temperature,
+                            time_step,
                             int(n_iter_Lanczos_ff),
                             random_array_real,
                             r,
@@ -986,18 +985,18 @@ def wrap_SD(
                             h3,
                         )
                     )
-                saddle_b = saddle_b.at[: 11 * N].add(
+                saddle_b = saddle_b.at[: 11 * num_particles].add(
                     thermal.convert_to_generalized(
-                        N, ws_linvel, rs_linvel, ws_angvel_strain, rs_angvel_strain
+                        num_particles, ws_linvel, rs_linvel, ws_angvel_strain, rs_angvel_strain
                     )
                 )
 
             elif boundary_flag == 1:
                 rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                     thermal.compute_real_space_slipvelocity_open(
-                        N,
-                        T,
-                        dt,
+                        num_particles,
+                        temperature,
+                        time_step,
                         int(n_iter_Lanczos_ff),
                         random_array_real,
                         r,
@@ -1010,9 +1009,9 @@ def wrap_SD(
                     n_iter_Lanczos_ff += 5
                     rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                         thermal.compute_real_space_slipvelocity_open(
-                            N,
-                            T,
-                            dt,
+                            num_particles,
+                            temperature,
+                            time_step,
                             int(n_iter_Lanczos_ff),
                             random_array_real,
                             r,
@@ -1021,9 +1020,9 @@ def wrap_SD(
                             mobil_scalar,
                         )
                     )
-                saddle_b = saddle_b.at[: 11 * N].add(
+                saddle_b = saddle_b.at[: 11 * num_particles].add(
                     thermal.convert_to_generalized(
-                        N,
+                        num_particles,
                         jnp.zeros_like(rs_linvel),
                         rs_linvel,
                         jnp.zeros_like(rs_angvel_strain),
@@ -1035,19 +1034,19 @@ def wrap_SD(
             if (not math.isfinite(stepnormff)) or (
                 (n_iter_Lanczos_ff > 150) and (stepnormff > 0.02)
             ):
-                check_overlap(displacements_vector_matrix, N)
+                check_overlap(displacements_vector_matrix, num_particles)
                 raise ValueError(
                     f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!"
                 )
 
             # compute lubrication contribution only if there is more than 1 particle
             stepnormnf = 0.0
-            if N > 1:
+            if num_particles > 1:
                 # compute near-field random forces
                 buffer, stepnormnf, diag_nf = thermal.compute_nearfield_brownianforce(
-                    N,
-                    T,
-                    dt,
+                    num_particles,
+                    temperature,
+                    time_step,
                     random_array_nf,
                     r_lub,
                     indices_i_lub,
@@ -1071,9 +1070,9 @@ def wrap_SD(
                 while (stepnormnf > 1e-3) and (n_iter_Lanczos_nf < 250):
                     n_iter_Lanczos_nf += 20
                     buffer, stepnormnf, diag_nf = thermal.compute_nearfield_brownianforce(
-                        N,
-                        T,
-                        dt,
+                        num_particles,
+                        temperature,
+                        time_step,
                         random_array_nf,
                         r_lub,
                         indices_i_lub,
@@ -1094,20 +1093,20 @@ def wrap_SD(
                         diagonal_zeroes_for_brownian,
                         n_iter_Lanczos_nf,
                     )
-                saddle_b = saddle_b.at[11 * N :].add(-buffer)  # set in rhs of linear system
+                saddle_b = saddle_b.at[11 * num_particles :].add(-buffer)  # set in rhs of linear system
                 # check that far-field real space thermal fluctuation calculation went well
                 if (not math.isfinite(stepnormnf)) or (
                     (n_iter_Lanczos_nf > 250) and (stepnormnf > 1e-3)
                 ):
-                    check_overlap(displacements_vector_matrix, N)
+                    check_overlap(displacements_vector_matrix, num_particles)
                     raise ValueError(
                         f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!"
                     )
 
         # solve the system Ax=b, where x contains the unknown particle velocities (relative to the background flow) and stresslet
         if boundary_flag == 0:
-            saddle_x, exitcode_gmres = solver.solver(
-                N,
+            saddle_x, exitcode_gmres = solver.solve_linear_system(
+                num_particles,
                 saddle_b,  # rhs vector of the linear system
                 gridk,
                 R_fu_prec_lower_triang,
@@ -1132,15 +1131,15 @@ def wrap_SD(
                     indices_j_lub,
                     ResFunction,
                 ],
-                Nx,
-                Ny,
-                Nz,
-                gaussP,
+                grid_x,
+                grid_y,
+                grid_z,
+                gauss_support,
                 m_self,
             )
         elif boundary_flag == 1:
-            saddle_x, exitcode_gmres = solver.solver_open(
-                N,
+            saddle_x, exitcode_gmres = solver.solve_linear_system_open(
+                num_particles,
                 saddle_b,  # rhs vector of the linear system
                 R_fu_prec_lower_triang,
                 [
@@ -1159,22 +1158,22 @@ def wrap_SD(
             raise ValueError(f"GMRES did not converge! Iterations are {exitcode_gmres}. Abort!")
 
         # add the near-field contributions to the stresslet
-        if (stresslet_flag > 0) and ((step % writing_period) == 0):
+        if (store_stresslet > 0) and ((step % writing_period) == 0):
             # get stresslet out of saddle point solution (and add it to the contribution from the Brownian drift, if temperature>0 )
-            stresslet += jnp.reshape(-saddle_x[6 * N : 11 * N], (N, 5))
-            stresslet = resistance.compute_RSU(
+            stresslet += jnp.reshape(-saddle_x[6 * num_particles : 11 * num_particles], (num_particles, 5))
+            stresslet = resistance.compute_rsu(
                 stresslet,
-                saddle_x.at[11 * N :].get(),
+                saddle_x.at[11 * num_particles :].get(),
                 indices_i_lub,
                 indices_j_lub,
                 ResFunction,
                 r_lub,
-                N,
+                num_particles,
             )
             # add shear (near-field) contributions to the stresslet
             if shear_rate_0 != 0:
-                stresslet = resistance.compute_RSE(
-                    N,
+                stresslet = resistance.compute_rse(
+                    num_particles,
                     shear_rate,
                     r_lub,
                     indices_i_lub,
@@ -1196,8 +1195,8 @@ def wrap_SD(
             shear_rate,
             positions,
             displacements_vector_matrix,
-            saddle_x.at[11 * N :].get() + brownian_drift,
-            dt,
+            saddle_x.at[11 * num_particles :].get() + brownian_drift,
+            time_step,
         )
         nbrs_lub_prec = utils.update_nlist(positions, nbrs_lub_prec)
         nbrs_lub = utils.update_nlist(positions, nbrs_lub)
@@ -1206,20 +1205,20 @@ def wrap_SD(
             nbrs_ff = utils.update_nlist(positions, nbrs_ff)
             nl_ff = np.array(nbrs_ff.idx)  # extract lists in sparse format
             # update grid distances for FFT (needed for wave space calculation of mobility)
-            gaussian_grid_spacing = utils.Precompute_grid_distancing(
-                gaussP, gridh[0], xy, positions, N, Nx, Ny, Nz, Lx, Ly, Lz
+            gaussian_grid_spacing = utils.precompute_grid_distancing(
+                gauss_support, gridh[0], xy, positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
             )
 
         # if system is sheared, strain wave-vectors grid and update box tilt factor
         if shear_rate_0 != 0:
-            xy = shear.update_box_tilt_factor(dt, shear_rate_0, xy, step, shear_freq)
+            xy = shear.update_box_tilt_factor(time_step, shear_rate_0, xy, step, shear_frequency)
             displacement, shift = space.periodic_general(
-                jnp.array([[Lx, Ly * xy, Lz * 0.0], [0.0, Ly, Lz * 0.0], [0.0, 0.0, Lz]]),
+                jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
                 fractional_coordinates=False,
             )
             if boundary_flag == 0:
                 gridk = shear.compute_sheared_grid(
-                    int(Nx), int(Ny), int(Nz), xy, Lx, Ly, Lz, eta, xisq
+                    int(grid_x), int(grid_y), int(grid_z), xy, lx, ly, lz, eta, xisq
                 )
 
         # reset Lanczos number of iteration once in a while (avoid to do too many iterations if not needed, can be tuned for better performance)
@@ -1234,7 +1233,7 @@ def wrap_SD(
                 raise ValueError("Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            check_overlap(displacements_vector_matrix, N)
+            check_overlap(displacements_vector_matrix, num_particles)
 
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions
@@ -1242,9 +1241,9 @@ def wrap_SD(
                 np.save(output / "trajectory.npy", trajectory)
 
             # store velocity (linear and angular) to file
-            if velocity_flag > 0:
+            if store_velocity > 0:
                 velocities[int(step / writing_period), :, :] = jnp.reshape(
-                    saddle_x.at[11 * N :].get() + brownian_drift, (N, 6)
+                    saddle_x.at[11 * num_particles :].get() + brownian_drift, (num_particles, 6)
                 )
                 if output is not None:
                     np.save(output / "velocities.npy", velocities)
@@ -1254,12 +1253,12 @@ def wrap_SD(
 
     # perform thermal test if needed
     test_result = 0.0
-    if (T > 0) and (thermal_test_flag == 1):
+    if (temperature > 0) and (thermal_test_flag == 1):
         ff, nf = thermal.compute_exact_thermals(
-            N,
+            num_particles,
             m_self,
-            T,
-            dt,
+            temperature,
+            time_step,
             random_array_nf,
             random_array_real,
             r,
@@ -1291,7 +1290,7 @@ def wrap_SD(
         test_result = [
             jnp.linalg.norm(buffer - nf) / jnp.linalg.norm(nf),
             jnp.linalg.norm(
-                thermal.convert_to_generalized(N, 0, rs_linvel, 0, rs_angvel_strain) - ff
+                thermal.convert_to_generalized(num_particles, 0, rs_linvel, 0, rs_angvel_strain) - ff
             )
             / jnp.linalg.norm(ff),
             n_iter_Lanczos_nf,
@@ -1301,29 +1300,29 @@ def wrap_SD(
     return trajectory, stresslet_history, velocities, test_result
 
 
-def wrap_RPY(
-    Nsteps: int,
+def wrap_rpy(
+    num_steps: int,
     writing_period: int,
-    dt: float,
-    Lx: float,
-    Ly: float,
-    Lz: float,
-    N: int,
+    time_step: float,
+    lx: float,
+    ly: float,
+    lz: float,
+    num_particles: int,
     max_strain: float,
-    T: float,
-    xi: float,
-    error: float,
-    U: float,
+    temperature: float,
+    ewald_xi: float,
+    error_tolerance: float,
+    interaction_strength: float,
     buoyancy_flag: int,
-    U_cutoff: float,
+    interaction_cutoff: float,
     positions: ArrayLike,
     seed_ffwave: int,
     seed_ffreal: int,
     shear_rate_0: float,
-    shear_freq: float,
+    shear_frequency: float,
     output: str,
-    velocity_flag: bool,
-    orient_flag: bool,
+    store_velocity: bool,
+    store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
     boundary_flag: int,
@@ -1332,54 +1331,54 @@ def wrap_RPY(
 
     Parameters
     ----------
-    Nsteps: (int)
+    num_steps: (int)
         Number of timesteps
     writing_period: (int)
         Period for writing to file
-    dt: (float)
+    time_step: (float)
         Timestep
-    Lx: (float)
+    lx: (float)
         Box size (x-direction)
-    Ly: (float)
+    ly: (float)
         Box size (y-direction)
-    Lz: (float)
+    lz: (float)
         Box size (z-direction)
-    N: (int)
+    num_particles: (int)
         Number of particles
     max_strain: (float)
         Max strain applied to the box
-    T: (float)
+    temperature: (float)
         Thermal energy
-    a: (float)
+    particle_radius: (float)
         Particle radius
-    xi: (float)
+    ewald_xi: (float)
         Ewald split parameter
-    U: (float)
+    interaction_strength: (float)
         Interaction strength
     buoyancy_flag: (int)
         Set to 1 to have gravity acting on colloids
-    U_cutoff: (float)
+    interaction_cutoff: (float)
         Distance cutoff for interacting particles
     positions: (float)
-        Array of particles initial positions (N,3)
+        Array of particles initial positions (num_particles,3)
     seed_ffwave: (int)
         Seed for wave space part of far-field velocity slip
     seed_ffreal: (int)
         Seed for real space part of far-field velocity slip
     shear_rate_0: (float)
         Axisymmetric shear rate amplitude
-    shear_freq: (float)
+    shear_frequency: (float)
         Frequency of shear, set to zero to have simple shear
     output: (str)
         File name for output
-    velocity_flag: (int)
+    store_velocity: (int)
         To have velocities in the output/var/log/nvidia-installer.log
-    orient_flag: (int)
+    store_orientation: (int)
         To have particle orientations in the output
     constant_applied_forces: (float)
-        Array of external forces (N,3)
+        Array of external forces (num_particles,3)
     constant_applied_torques: (float)
-        Array of external torques (N,3)
+        Array of external torques (num_particles,3)
     boundary_flag: (int)
         Flag used to set the type of boundary conditions for the hydrodynamic interaction.
 
@@ -1395,7 +1394,7 @@ def wrap_RPY(
         positions: ArrayLike,
         displacements_vector_matrix: ArrayLike,
         net_vel: ArrayLike,
-        dt: float,
+        time_step: float,
     ) -> tuple[Array, Array]:
         """Update particle positions and neighbor lists
 
@@ -1404,12 +1403,12 @@ def wrap_RPY(
         shear_rate: (float)
             Shear rate at current time step
         positions: (float)
-            Array (N,3) of particles positions
+            Array (num_particles,3) of particles positions
         displacements_vector_matrix: (float)
-            Array (N,N,3) of relative displacements between particles
+            Array (num_particles,num_particles,3) of relative displacements between particles
         net_vel: (float)
-            Array (6*N) of linear/angular velocities relative to the background flow
-        dt: (float)
+            Array (6*num_particles) of linear/angular velocities relative to the background flow
+        time_step: (float)
             Timestep used to advance positions
 
         Returns
@@ -1417,24 +1416,24 @@ def wrap_RPY(
         positions, displacements_vector_matrix
 
         """
-        # Define array of displacement r(t+dt)-r(t)
-        dR = jnp.zeros((N, 3), float)
+        # Define array of displacement r(t+time_step)-r(t)
+        dR = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
-        dR = dR.at[:, 0].set(dt * net_vel.at[(0)::6].get())
-        dR = dR.at[:, 1].set(dt * net_vel.at[(1)::6].get())
-        dR = dR.at[:, 2].set(dt * net_vel.at[(2)::6].get())
+        dR = dR.at[:, 0].set(time_step * net_vel.at[(0)::6].get())
+        dR = dR.at[:, 1].set(time_step * net_vel.at[(1)::6].get())
+        dR = dR.at[:, 2].set(time_step * net_vel.at[(2)::6].get())
         # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
         positions = (
-            shift(positions + jnp.array([Lx, Ly, Lz]) / 2, dR) - jnp.array([Lx, Ly, Lz]) * 0.5
+            shift(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
         )
 
-        # Define array of displacement r(t+dt)-r(t) (this time for displacement given by background flow)
-        dR = jnp.zeros((N, 3), float)
+        # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
+        dR = jnp.zeros((num_particles, 3), float)
         dR = dR.at[:, 0].set(
-            dt * shear_rate * positions.at[:, 1].get()
+            time_step * shear_rate * positions.at[:, 1].get()
         )  # Assuming y:gradient direction, x:background flow direction
         positions = (
-            shift(positions + jnp.array([Lx, Ly, Lz]) / 2, dR) - jnp.array([Lx, Ly, Lz]) * 0.5
+            shift(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
         )  # Apply shift
 
         # Compute new relative displacements between particles
@@ -1446,34 +1445,34 @@ def wrap_RPY(
         output.mkdir(exist_ok=True, parents=True)
 
     # set array for output trajectory, velocities and stresslet in time
-    trajectory = np.zeros((int(Nsteps / writing_period), N, 3), float)
-    velocities = np.zeros((int(Nsteps / writing_period), N, 6), float)
+    trajectory = np.zeros((int(num_steps / writing_period), num_particles, 3), float)
+    velocities = np.zeros((int(num_steps / writing_period), num_particles, 6), float)
 
     #  set INITIAL Periodic Space and Displacement Metric
     xy = 0.0  # set box tilt factor to zero to begin (unsheared box)
     displacement, shift = space.periodic_general(
-        jnp.array([[Lx, Ly * xy, Lz * 0.0], [0.0, Ly, Lz * 0.0], [0.0, 0.0, Lz]]),
+        jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
         fractional_coordinates=False,
     )
     # compute matrix of INITIAL displacements between particles (each element is a vector from particle j to i)
     displacements_vector_matrix = (space.map_product(displacement))(positions, positions)
 
     # set external applied forces/torques (no pair-interactions, will be added later)
-    AppliedForce = jnp.zeros(3 * N, float)
-    AppliedTorques = jnp.zeros(3 * N, float)
+    external_forces = jnp.zeros(3 * num_particles, float)
+    external_torques = jnp.zeros(3 * num_particles, float)
     if buoyancy_flag == 1:  # apply buoyancy forces (in z direction)
-        AppliedForce = AppliedForce.at[2::3].add(-1.0)
+        external_forces = external_forces.at[2::3].add(-1.0)
     if np.count_nonzero(constant_applied_forces) > 0:  # apply external forces
-        AppliedForce += jnp.ravel(constant_applied_forces)
+        external_forces += jnp.ravel(constant_applied_forces)
     if np.count_nonzero(constant_applied_torques) > 0:  # apply external torques
-        AppliedTorques += jnp.ravel(constant_applied_torques)
+        external_torques += jnp.ravel(constant_applied_torques)
 
     # compute the Real Space cutoff for the Ewald Summation in the Far-Field computation (used in general to build a neighborlist)
-    ewald_cut = jnp.sqrt(-jnp.log(error)) / xi
+    ewald_cut = jnp.sqrt(-jnp.log(error_tolerance)) / ewald_xi
     # initialize far-field hydrodynamics neighborlists
-    ff_neighbor_fn = utils.initialize_single_neighborlist(ewald_cut, Lx, Ly, Lz, displacement)
+    ff_neighbor_fn = utils.initialize_single_neighborlist(ewald_cut, lx, ly, lz, displacement)
     # allocate neighborlist for first time
-    nbrs_ff = ff_neighbor_fn.allocate(positions + jnp.array([Lx, Ly, Lz]) / 2)
+    nbrs_ff = ff_neighbor_fn.allocate(positions + jnp.array([lx, ly, lz]) / 2)
     # convert to array
     nl_ff = np.array(nbrs_ff.idx)
     n_iter_Lanczos_ff = 2  # set initial Lanczos iterations, for thermal fluctuation calculation
@@ -1489,10 +1488,10 @@ def wrap_RPY(
             key_ffwave,
             ewaldC1,
             m_self,
-            Nx,
-            Ny,
-            Nz,
-            gaussP,
+            grid_x,
+            grid_y,
+            grid_z,
+            gauss_support,
             ewald_n,
             ewald_dr,
             eta,
@@ -1500,27 +1499,27 @@ def wrap_RPY(
             wave_bro_ind,
             wave_bro_nyind,
         ) = utils.init_periodic_box(
-            error, xi, Lx, Ly, Lz, ewald_cut, max_strain, xy, positions, N, T, seed_ffwave
+            error_tolerance, ewald_xi, lx, ly, lz, ewald_cut, max_strain, xy, positions, num_particles, temperature, seed_ffwave
         )
     elif boundary_flag == 1:
-        nl_ff = utils.compute_distinct_pairs(N)
+        nl_ff = utils.compute_distinct_pairs(num_particles)
 
     # create RNG states for real space thermal fluctuations
     key_ffreal = random.PRNGKey(seed_ffreal)
 
     # check if particles overlap
-    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2.0, N)
+    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2.0, num_particles)
     if overlaps > 0:
         print("Warning: initial overlaps are ", (overlaps))
     print("Starting: compiling the code... This should not take more than 1-2 minutes.")
 
-    for step in tqdm(range(Nsteps), mininterval=0.5):
-        # initialize generalized velocity (6*N array, for linear and angular components)
+    for step in tqdm(range(num_steps), mininterval=0.5):
+        # initialize generalized velocity (6*num_particlesarray, for linear and angular components)
         # this array stores the velocity for Brownian Dynamics, or the Brownian drift otherwise
-        general_velocity = jnp.zeros(6 * N, float)
+        general_velocity = jnp.zeros(6 * num_particles, float)
 
         # define rhs array of the linear system Ax=b (with A the saddle point matrix)
-        saddle_b = jnp.zeros(17 * N, float)
+        saddle_b = jnp.zeros(17 * num_particles, float)
 
         if boundary_flag == 0:
             if nbrs_ff.did_buffer_overflow:
@@ -1543,23 +1542,23 @@ def wrap_RPY(
                 h1,
                 h2,
                 h3,
-            ) = utils.precomputeRPY(
+            ) = utils.precompute_rpy(
                 positions,
                 gaussian_grid_spacing,
                 nl_ff,
                 displacements_vector_matrix,
                 xy,
-                N,
-                Lx,
-                Ly,
-                Lz,
-                Nx,
-                Ny,
-                Nz,
+                num_particles,
+                lx,
+                ly,
+                lz,
+                grid_x,
+                grid_y,
+                grid_z,
                 prefac,
                 expfac,
                 quadW,
-                int(gaussP),
+                int(gauss_support),
                 gaussPd2,
                 ewald_n,
                 ewald_dr,
@@ -1567,45 +1566,45 @@ def wrap_RPY(
                 ewaldC1,
             )
         elif boundary_flag == 1:
-            (r, indices_i, indices_j, mobil_scalar) = utils.precomputeRPY_open(
+            (r, indices_i, indices_j, mobil_scalar) = utils.precompute_rpy_open(
                 positions, nl_ff, displacements_vector_matrix
             )
-        # compute shear-rate for current timestep: simple(shear_freq=0) or oscillatory(shear_freq>0)
-        shear_rate = shear.update_shear_rate(dt, step, shear_rate_0, shear_freq, phase=0)
+        # compute shear-rate for current timestep: simple(shear_frequency=0) or oscillatory(shear_frequency>0)
+        shear_rate = shear.update_shear_rate(time_step, step, shear_rate_0, shear_frequency, phase=0)
 
         # add applied forces and conservative (pair potential) forces to right-hand side of system
-        saddle_b = appliedForces.sumAppliedForces(
-            N,
-            AppliedForce,
-            AppliedTorques,
+        saddle_b = applied_forces.sum_applied_forces(
+            num_particles,
+            external_forces,
+            external_torques,
             saddle_b,
-            U,
+            interaction_strength,
             indices_i,
             indices_j,
             displacements_vector_matrix,
-            U_cutoff,
+            interaction_cutoff,
             1,
-            dt,
+            time_step,
         )
 
         # compute Thermal Fluctuations only if temperature is not zero
-        if T > 0:
+        if temperature > 0:
             # compute far-field (real space contribution) slip velocity and set in rhs of linear system
             if boundary_flag == 0:
                 key_ffwave, random_array_wave = utils.generate_random_array(
                     key_ffwave, (3 * 2 * len(wave_bro_ind[:, 0, 0]) + 3 * len(wave_bro_nyind[:, 0]))
                 )
-                key_ffreal, random_array_real = utils.generate_random_array(key_ffreal, (11 * N))
+                key_ffreal, random_array_real = utils.generate_random_array(key_ffreal, (11 * num_particles))
 
                 # compute far-field (wave space contribution) slip velocity and set in rhs of linear system
                 ws_linvel, ws_angvel_strain = thermal.compute_wave_space_slipvelocity(
-                    N,
+                    num_particles,
                     int(Nx),
-                    int(Ny),
-                    int(Nz),
+                    int(grid_y),
+                    int(grid_z),
                     int(gaussP),
-                    T,
-                    dt,
+                    temperature,
+                    time_step,
                     gridh,
                     wave_bro_ind[:, 0, 0],
                     wave_bro_ind[:, 0, 1],
@@ -1626,10 +1625,10 @@ def wrap_RPY(
                 )
                 rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                     thermal.compute_real_space_slipvelocity(
-                        N,
+                        num_particles,
                         m_self,
-                        T,
-                        dt,
+                        temperature,
+                        time_step,
                         int(n_iter_Lanczos_ff),
                         random_array_real,
                         r,
@@ -1648,10 +1647,10 @@ def wrap_RPY(
                     n_iter_Lanczos_ff += 20
                     rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                         thermal.compute_real_space_slipvelocity(
-                            N,
+                            num_particles,
                             m_self,
-                            T,
-                            dt,
+                            temperature,
+                            time_step,
                             int(n_iter_Lanczos_ff),
                             random_array_real,
                             r,
@@ -1667,18 +1666,18 @@ def wrap_RPY(
                         )
                     )
                 # combine real- and wave-space part of thermal fluctuation
-                saddle_b = saddle_b.at[: 11 * N].add(
+                saddle_b = saddle_b.at[: 11 * num_particles].add(
                     thermal.convert_to_generalized(
-                        N, ws_linvel, rs_linvel, ws_angvel_strain, rs_angvel_strain
+                        num_particles, ws_linvel, rs_linvel, ws_angvel_strain, rs_angvel_strain
                     )
                 )
 
             elif boundary_flag == 1:
                 rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                     thermal.compute_real_space_slipvelocity_open(
-                        N,
-                        T,
-                        dt,
+                        num_particles,
+                        temperature,
+                        time_step,
                         int(n_iter_Lanczos_ff),
                         random_array_real,
                         r,
@@ -1691,9 +1690,9 @@ def wrap_RPY(
                     n_iter_Lanczos_ff += 20
                     rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                         thermal.compute_real_space_slipvelocity_open(
-                            N,
-                            T,
-                            dt,
+                            num_particles,
+                            temperature,
+                            time_step,
                             int(n_iter_Lanczos_ff),
                             random_array_real,
                             r,
@@ -1703,9 +1702,9 @@ def wrap_RPY(
                         )
                     )
                 # convert real-space part of thermal fluctuation into a generalized velocity
-                saddle_b = saddle_b.at[: 11 * N].add(
+                saddle_b = saddle_b.at[: 11 * num_particles].add(
                     thermal.convert_to_generalized(
-                        N,
+                        num_particles,
                         jnp.zeros_like(rs_linvel),
                         rs_linvel,
                         jnp.zeros_like(rs_angvel_strain),
@@ -1717,21 +1716,21 @@ def wrap_RPY(
             if (not math.isfinite(stepnormff)) or (
                 (n_iter_Lanczos_ff > 150) and (stepnormff > 0.003)
             ):
-                check_overlap(displacements_vector_matrix, N)
+                check_overlap(displacements_vector_matrix, num_particles)
                 raise ValueError(
                     f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!"
                 )
 
         # add random velocity to total velocity in RPY
-        general_velocity += saddle_b[: 6 * N]
+        general_velocity += saddle_b[: 6 * num_particles]
         # add potential force contribution to total velocity in RPY
         if boundary_flag == 0:
-            general_velocity += mobility.Mobility_periodic(
-                N,
-                Nx,
-                Ny,
-                Nz,
-                gaussP,
+            general_velocity += mobility.mobility_periodic(
+                num_particles,
+                grid_x,
+                grid_y,
+                grid_z,
+                gauss_support,
                 gridk,
                 m_self,
                 all_indices_x,
@@ -1749,21 +1748,21 @@ def wrap_RPY(
                 h1,
                 h2,
                 h3,
-                -saddle_b[11 * N :],
+                -saddle_b[11 * num_particles :],
             )
         elif boundary_flag == 1:
-            general_velocity += mobility.Mobility_open(
-                N,
+            general_velocity += mobility.mobility_open(
+                num_particles,
                 r,
                 displacements_vector_matrix.at[nl_ff[0, :], nl_ff[1, :]].get(),
                 indices_i,
                 indices_j,
-                -saddle_b[11 * N :],
+                -saddle_b[11 * num_particles :],
                 mobil_scalar,
             )
         # update positions and neighborlists
         (positions, displacements_vector_matrix) = update_positions(
-            shear_rate, positions, displacements_vector_matrix, general_velocity, dt
+            shear_rate, positions, displacements_vector_matrix, general_velocity, time_step
         )
         if boundary_flag == 0:
             nbrs_ff = utils.update_nlist(positions, nbrs_ff)
@@ -1771,14 +1770,14 @@ def wrap_RPY(
 
         # if system is sheared, strain wave-vectors grid and update box tilt factor
         if shear_rate_0 != 0:
-            xy = shear.update_box_tilt_factor(dt, shear_rate_0, xy, step, shear_freq)
+            xy = shear.update_box_tilt_factor(time_step, shear_rate_0, xy, step, shear_frequency)
             displacement, shift = space.periodic_general(
-                jnp.array([[Lx, Ly * xy, Lz * 0.0], [0.0, Ly, Lz * 0.0], [0.0, 0.0, Lz]]),
+                jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
                 fractional_coordinates=False,
             )
             if boundary_flag == 0:
                 gridk = shear.compute_sheared_grid(
-                    int(Nx), int(Ny), int(Nz), xy, Lx, Ly, Lz, eta, xisq
+                    int(Nx), int(grid_y), int(grid_z), xy, lx, ly, lz, eta, xisq
                 )
 
         # reset Lanczos number of iteration once in a while (avoid to do too many iterations if not needed, can be tuned for better performance)
@@ -1792,7 +1791,7 @@ def wrap_RPY(
                 raise ValueError("Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            check_overlap(displacements_vector_matrix, N)
+            check_overlap(displacements_vector_matrix, num_particles)
 
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions
@@ -1800,8 +1799,8 @@ def wrap_RPY(
                 np.save(output / "trajectory.npy", trajectory)
 
             # store velocity (linear and angular) to file
-            if velocity_flag > 0:
-                velocities[int(step / writing_period), :, :] = jnp.reshape(general_velocity, (N, 6))
+            if store_velocity > 0:
+                velocities[int(step / writing_period), :, :] = jnp.reshape(general_velocity, (num_particles, 6))
                 if output is not None:
                     np.save(output / "velocities.npy", velocities)
 
@@ -1810,25 +1809,25 @@ def wrap_RPY(
     return trajectory, velocities
 
 
-def wrap_BD(
-    Nsteps: int,
+def wrap_bd(
+    num_steps: int,
     writing_period: int,
-    dt: float,
-    Lx: float,
-    Ly: float,
-    Lz: float,
-    N: int,
-    T: float,
-    U: float,
+    time_step: float,
+    lx: float,
+    ly: float,
+    lz: float,
+    num_particles: int,
+    temperature: float,
+    interaction_strength: float,
     buoyancy_flag: int,
-    U_cutoff: float,
+    interaction_cutoff: float,
     positions: ArrayLike,
     seed: int,
     shear_rate_0: float,
-    shear_freq: float,
+    shear_frequency: float,
     output: str,
-    velocity_flag: bool,
-    orient_flag: bool,
+    store_velocity: bool,
+    store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
 ) -> tuple[Array, Array]:
@@ -1836,48 +1835,48 @@ def wrap_BD(
 
     Parameters
     ----------
-    Nsteps: (int)
+    num_steps: (int)
         Number of timesteps
     writing_period: (int)
         Period for writing to file
-    dt: (float)
+    time_step: (float)
         Timestep
-    Lx: (float)
+    lx: (float)
         Box size (x-direction)
-    Ly: (float)
+    ly: (float)
         Box size (y-direction)
-    Lz: (float)
+    lz: (float)
         Box size (z-direction)
-    N: (int)
+    num_particles: (int)
         Number of particles
-    T: (float)
+    temperature: (float)
         Thermal energy
-    U: (float)
+    interaction_strength: (float)
         Interaction strength
     buoyancy_flag: (int)
         Set to 1 to have gravity acting on colloids
-    U_cutoff: (float)
+    interaction_cutoff: (float)
         Distance cutoff for interacting particles
     positions: (float)
-        Array of particles initial positions (N,3)
+        Array of particles initial positions (num_particles,3)
     seed: (int)
         Seed for random forces
     shear_rate_0: (float)
         Axisymmetric shear rate amplitude
-    shear_freq: (float)
+    shear_frequency: (float)
         Frequency of shear, set to zero to have simple shear
     output: (str)
         File name for output
-    stresslet_flag: (int)
+    store_stresslet: (int)
         To have stresslet in the output
-    velocity_flag: (int)
+    store_velocity: (int)
         To have velocities in the output/var/log/nvidia-installer.log
-    orient_flag: (int)
+    store_orientation: (int)
         To have particle orientations in the output
     constant_applied_forces: (float)
-        Array of external forces (N,3)
+        Array of external forces (num_particles,3)
     constant_applied_torques: (float)
-        Array of external torques (N,3)
+        Array of external torques (num_particles,3)
 
     Returns
     -------
@@ -1891,7 +1890,7 @@ def wrap_BD(
         positions: ArrayLike,
         displacements_vector_matrix: ArrayLike,
         net_vel: ArrayLike,
-        dt: float,
+        time_step: float,
     ) -> tuple[Array, Array]:
         """Update particle positions and neighbor lists
 
@@ -1900,12 +1899,12 @@ def wrap_BD(
         shear_rate: (float)
             Shear rate at current time step
         positions: (float)
-            Array (N,3) of particles positions
+            Array (num_particles,3) of particles positions
         displacements_vector_matrix: (float)
-            Array (N,N,3) of relative displacements between particles
+            Array (num_particles,num_particles,3) of relative displacements between particles
         net_vel: (float)
-            Array (6*N) of linear/angular velocities relative to the background flow
-        dt: (float)
+            Array (6*num_particles) of linear/angular velocities relative to the background flow
+        time_step: (float)
             Timestep used to advance positions
 
         Returns
@@ -1913,24 +1912,24 @@ def wrap_BD(
         positions, displacements_vector_matrix
 
         """
-        # Define array of displacement r(t+dt)-r(t)
-        dR = jnp.zeros((N, 3), float)
+        # Define array of displacement r(t+time_step)-r(t)
+        dR = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
-        dR = dR.at[:, 0].set(dt * net_vel.at[(0)::6].get())
-        dR = dR.at[:, 1].set(dt * net_vel.at[(1)::6].get())
-        dR = dR.at[:, 2].set(dt * net_vel.at[(2)::6].get())
+        dR = dR.at[:, 0].set(time_step * net_vel.at[(0)::6].get())
+        dR = dR.at[:, 1].set(time_step * net_vel.at[(1)::6].get())
+        dR = dR.at[:, 2].set(time_step * net_vel.at[(2)::6].get())
         # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
         positions = (
-            shift(positions + jnp.array([Lx, Ly, Lz]) / 2, dR) - jnp.array([Lx, Ly, Lz]) * 0.5
+            shift(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
         )
 
-        # Define array of displacement r(t+dt)-r(t) (this time for displacement given by background flow)
-        dR = jnp.zeros((N, 3), float)
+        # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
+        dR = jnp.zeros((num_particles, 3), float)
         dR = dR.at[:, 0].set(
-            dt * shear_rate * positions.at[:, 1].get()
+            time_step * shear_rate * positions.at[:, 1].get()
         )  # Assuming y:gradient direction, x:background flow direction
         positions = (
-            shift(positions + jnp.array([Lx, Ly, Lz]) / 2, dR) - jnp.array([Lx, Ly, Lz]) * 0.5
+            shift(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
         )  # Apply shift
 
         # Compute new relative displacements between particles
@@ -1942,13 +1941,13 @@ def wrap_BD(
         output.mkdir(exist_ok=True, parents=True)
 
     # set array for output trajectory, velocities and stresslet in time
-    trajectory = np.zeros((int(Nsteps / writing_period), N, 3), float)
-    velocities = np.zeros((int(Nsteps / writing_period), N, 6), float)
+    trajectory = np.zeros((int(num_steps / writing_period), num_particles, 3), float)
+    velocities = np.zeros((int(num_steps / writing_period), num_particles, 6), float)
 
     #  set INITIAL Periodic Space and Displacement Metric
     xy = 0.0  # set box tilt factor to zero to begin (unsheared box)
     displacement, shift = space.periodic_general(
-        jnp.array([[Lx, Ly * xy, Lz * 0.0], [0.0, Ly, Lz * 0.0], [0.0, 0.0, Lz]]),
+        jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
         fractional_coordinates=False,
     )
 
@@ -1956,81 +1955,81 @@ def wrap_BD(
     displacements_vector_matrix = (space.map_product(displacement))(positions, positions)
 
     # initialize near-field hydrodynamics neighborlists (also used for pair potential)
-    neighbor_fn = utils.initialize_single_neighborlist(4.0, Lx, Ly, Lz, displacement)
+    neighbor_fn = utils.initialize_single_neighborlist(4.0, lx, ly, lz, displacement)
     # allocate neighborlist for first time
-    nbrs = neighbor_fn.allocate(positions + jnp.array([Lx, Ly, Lz]) / 2)
+    nbrs = neighbor_fn.allocate(positions + jnp.array([lx, ly, lz]) / 2)
     # convert to array
     nl = np.array(nbrs.idx)
 
     # set external applied forces/torques (no pair-interactions, will be added later)
-    AppliedForce = jnp.zeros(3 * N, float)
-    AppliedTorques = jnp.zeros(3 * N, float)
+    external_forces = jnp.zeros(3 * num_particles, float)
+    external_torques = jnp.zeros(3 * num_particles, float)
     if buoyancy_flag == 1:  # apply buoyancy forces (in z direction)
-        AppliedForce = AppliedForce.at[2::3].add(-1.0)
+        external_forces = external_forces.at[2::3].add(-1.0)
     if np.count_nonzero(constant_applied_forces) > 0:  # apply external forces
-        AppliedForce += jnp.ravel(constant_applied_forces)
+        external_forces += jnp.ravel(constant_applied_forces)
     if np.count_nonzero(constant_applied_torques) > 0:  # apply external torques
-        AppliedTorques += jnp.ravel(constant_applied_torques)
+        external_torques += jnp.ravel(constant_applied_torques)
 
     # create RNG states
     key = random.PRNGKey(seed)
 
     # check if particles overlap
-    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2.0, N)
+    overlaps, overlaps_indices = utils.find_overlaps(displacements_vector_matrix, 2.0, num_particles)
     if overlaps > 0:
         print("Warning: initial overlaps are ", (overlaps))
     print("Starting: compiling the code... This should not take more than 1-2 minutes.")
 
-    for step in tqdm(range(Nsteps), mininterval=0.5):
+    for step in tqdm(range(num_steps), mininterval=0.5):
         # check that neighborlists buffers did not overflow, if so, re-allocate the lists
         if nbrs.did_buffer_overflow:
             nbrs = utils.allocate_nlist(positions, neighbor_fn)
             nl = np.array(nbrs.idx)
 
-        # initialize generalized velocity (6*N array, for linear and angular components)
+        # initialize generalized velocity (6*num_particlesarray, for linear and angular components)
         # this array stores the velocity for Brownian Dynamics, or the Brownian drift otherwise
-        general_velocity = jnp.zeros(6 * N, float)
+        general_velocity = jnp.zeros(6 * num_particles, float)
 
         # define rhs array of the linear system Ax=b (with A the saddle point matrix)
-        saddle_b = jnp.zeros(17 * N, float)
+        saddle_b = jnp.zeros(17 * num_particles, float)
 
         # precompute quantities for Brownian dynamics calculation
-        (r, indices_i, indices_j) = utils.precomputeBD(
-            positions, nl, displacements_vector_matrix, N, Lx, Ly, Lz
+        (r, indices_i, indices_j) = utils.precompute_bd(
+            positions, nl, displacements_vector_matrix, num_particles, lx, ly, lz
         )
 
-        # compute shear-rate for current timestep: simple(shear_freq=0) or oscillatory(shear_freq>0)
-        shear_rate = shear.update_shear_rate(dt, step, shear_rate_0, shear_freq, phase=0)
+        # compute shear-rate for current timestep: simple(shear_frequency=0) or oscillatory(shear_frequency>0)
+        shear_rate = shear.update_shear_rate(time_step, step, shear_rate_0, shear_frequency, phase=0)
 
         # add applied forces and conservative (pair potential) forces to right-hand side of system
-        saddle_b = appliedForces.sumAppliedForces(
-            N,
-            AppliedForce,
-            AppliedTorques,
+        saddle_b = applied_forces.sum_applied_forces(
+            num_particles,
+            external_forces,
+            external_torques,
             saddle_b,
-            U,
+            interaction_strength,
             indices_i,
             indices_j,
             displacements_vector_matrix,
-            U_cutoff,
+            interaction_cutoff,
             0,
-            dt,
+            time_step,
         )
 
         # compute Thermal Fluctuations only if temperature is not zero
-        if T > 0:
+        if temperature > 0:
             # generate random numbers for the various contributions of thermal noise
-            key, random_array = utils.generate_random_array(key, (6 * N))
+            key, random_array = utils.generate_random_array(key, (6 * num_particles))
 
             # compute random force for Brownian Dynamics
-            random_velocity = thermal.compute_BD_randomforce(N, T, dt, random_array)
+            random_velocity = thermal.compute_bd_randomforce(num_particles, temperature, time_step, random_array)
             general_velocity += random_velocity
 
         # add potential force contribution to total velocity (thermal contribution is already included)
-        general_velocity += -saddle_b[11 * N :]
+        general_velocity += -saddle_b[11 * num_particles :]
         # update positions
         (positions, displacements_vector_matrix) = update_positions(
-            shear_rate, positions, displacements_vector_matrix, general_velocity, dt
+            shear_rate, positions, displacements_vector_matrix, general_velocity, time_step
         )
 
         nbrs = utils.update_nlist(positions, nbrs)
@@ -2038,9 +2037,9 @@ def wrap_BD(
 
         # if system is sheared, strain wave-vectors grid and update box tilt factor
         if shear_rate_0 != 0:
-            xy = shear.update_box_tilt_factor(dt, shear_rate_0, xy, step, shear_freq)
+            xy = shear.update_box_tilt_factor(time_step, shear_rate_0, xy, step, shear_frequency)
             displacement, shift = space.periodic_general(
-                jnp.array([[Lx, Ly * xy, Lz * 0.0], [0.0, Ly, Lz * 0.0], [0.0, 0.0, Lz]]),
+                jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
                 fractional_coordinates=False,
             )
 
@@ -2051,7 +2050,7 @@ def wrap_BD(
                 raise ValueError("Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            check_overlap(displacements_vector_matrix, N)
+            check_overlap(displacements_vector_matrix, num_particles)
 
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions
@@ -2059,8 +2058,8 @@ def wrap_BD(
                 np.save(output / "trajectory.npy", trajectory)
 
             # store velocity (linear and angular) to file
-            if velocity_flag > 0:
-                velocities[int(step / writing_period), :, :] = jnp.reshape(general_velocity, (N, 6))
+            if store_velocity > 0:
+                velocities[int(step / writing_period), :, :] = jnp.reshape(general_velocity, (num_particles, 6))
                 if output is not None:
                     np.save(output / "velocities.npy", velocities)
 

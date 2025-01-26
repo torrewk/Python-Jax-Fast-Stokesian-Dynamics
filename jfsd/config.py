@@ -53,12 +53,12 @@ class JfsdConfiguration:
         params.update(self.general.get_parameters())
         params.update(
             self.initialization.get_parameters(
-                self.box.Lx, self.general.n_particles, self.start_configuration
+                self.box.lx, self.general.n_particles, self.start_configuration
             )
         )
         if self.general.n_particles is None:
             n_particles = params["positions"].shape[0]
-            params["N"] = n_particles
+            params["num_particles"] = n_particles
         else:
             n_particles = self.general.n_particles
         params.update(self.physics.get_parameters(n_particles))
@@ -75,9 +75,9 @@ class General(NamedTuple):
 
     def get_parameters(self):
         return {
-            "Nsteps": self.n_steps,
-            "N": self.n_particles,
-            "dt": self.dt,
+            "num_steps": self.n_steps,
+            "num_particles": self.n_particles,
+            "time_step": self.dt,
         }
 
 
@@ -112,7 +112,7 @@ class Initialization(NamedTuple):
             raise ValueError(f"Unknown source_type {self.position_source_type}")
         return {
             "positions": positions,
-            "a": 1,  # Colloid radius
+            "particle_radius": 1,  # Colloid radius
         }
 
 
@@ -164,27 +164,27 @@ class Physics(NamedTuple):
         constant_torques = np.zeros((n_particles, 3))
         constant_torques[:, :] = self.constant_torque
         return {
-            "HIs_flag": HIs_flag,
+            "hydrodynamic_interaction_flag": HIs_flag,
             "boundary_flag": boundary_flag,
-            "T": self.kT,
-            "U": self.interaction_strength,
-            "U_cutoff": self.interaction_cutoff,
+            "temperature": self.kT,
+            "interaction_strength": self.interaction_strength,
+            "interaction_cutoff": self.interaction_cutoff,
             "shear_rate_0": self.shear_rate,
-            "shear_freq": self.shear_frequency,
-            "alpha_friction": self.friction_coefficient,
-            "ho_friction": self.friction_range,
+            "shear_frequency": self.shear_frequency,
+            "friction_coefficient": self.friction_coefficient,
+            "friction_range": self.friction_range,
             "constant_applied_forces": constant_forces,
             "constant_applied_torques": constant_torques,
             "buoyancy_flag": int(self.buoyancy),
-            "xi": 0.5,  # Ewald parameter
-            "error": 0.001,  # Error tolerance
+            "ewald_xi": 0.5,  # Ewald parameter
+            "error_tolerance": 0.001,  # Error tolerance
         }
 
 
 class Box(NamedTuple):
-    Lx: int = 20
-    Ly: int = 20
-    Lz: int = 20
+    lx: int = 20
+    ly: int = 20
+    lz: int = 20
     max_strain: float = 0.5
 
     def get_parameters(self):
@@ -192,7 +192,7 @@ class Box(NamedTuple):
 
 
 class Seeds(NamedTuple):
-    RFD: int = 9237412
+    rfd: int = 9237412
     ffwave: int = 30498522
     ffreal: int = 57239485
     nf: int = 2343095
@@ -222,9 +222,9 @@ class Output(NamedTuple):
                 " of none, far-field or lubrication"
             )
         return {
-            "stresslet_flag": self.store_stresslet,
-            "velocity_flag": self.store_velocity,
-            "orient_flag": self.store_orientation,
+            "store_stresslet": self.store_stresslet,
+            "store_velocity": self.store_velocity,
+            "store_orientation": self.store_orientation,
             "writing_period": self.writing_period,
             "thermal_test_flag": thermal_fluct,
         }
