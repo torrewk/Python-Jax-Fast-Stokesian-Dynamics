@@ -6,12 +6,12 @@ from jax.typing import ArrayLike
 
 
 @partial(jit, static_argnums=[0, 1, 2, 3, 4])
-def GeneralizedMobility_periodic(
-    N: int,
-    Nx: int,
-    Ny: int,
-    Nz: int,
-    gaussP: int,
+def generalized_mobility_periodic(
+    num_particles: int,
+    grid_nx: int,
+    grid_ny: int,
+    grid_nz: int,
+    gauss_support: int,
     gridk: ArrayLike,
     m_self: ArrayLike,
     all_indices_x: ArrayLike,
@@ -35,30 +35,30 @@ def GeneralizedMobility_periodic(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
-    Nx: (int)
+    grid_nx: (int)
         Number of grid points in x direction
-    Ny: (int)
+    grid_ny: (int)
         Number of grid points in y direction
-    Nz: (int)
+    grid_nz: (int)
         Number of grid points in z direction
-    gaussP: (int)
+    gauss_support: (int)
         Gaussian support size for wave space calculation
     gridk: (float)
-        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+        Array (grid_nx,grid_ny,grid_nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
     m_self: (float)
         Array (,2) containing mobility self contributions
     all_indices_x: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gauss_support*gauss_support*gauss_support) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
     all_indices_y: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gauss_support*gauss_support*gauss_support) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
     all_indices_z: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gauss_support*gauss_support*gauss_support) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
     gaussian_grid_spacing1: (float)
-        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
+        Array (,gauss_support*gauss_support*gauss_support) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
     gaussian_grid_spacing2: (float)
-        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT)
+        Array (,gauss_support*gauss_support*gauss_support) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT)
     r: (float)
         Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
     indices_i: (int)
@@ -80,7 +80,7 @@ def GeneralizedMobility_periodic(
     h3: (float)
         Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
     generalized_forces: (float)
-        Array (,11*N) containing input generalized forces (force/torque/stresslet)
+        Array (,11*num_particles) containing input generalized forces (force/torque/stresslet)
 
     Returns
     -------
@@ -107,24 +107,24 @@ def GeneralizedMobility_periodic(
         """
         return -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
 
-    # Get forces,torques,couplets from generalized forces (3*N vector: f1x,f1y,f1z, ... , fNx,fNy,fNz and same for torque, while couplet is 5N)
-    forces = jnp.zeros(3 * N)
-    forces = forces.at[0::3].set(generalized_forces.at[0 : (6 * N) : 6].get())
-    forces = forces.at[1::3].set(generalized_forces.at[1 : (6 * N) : 6].get())
-    forces = forces.at[2::3].set(generalized_forces.at[2 : (6 * N) : 6].get())
-    torques = jnp.zeros(3 * N)
-    torques = torques.at[0::3].set(generalized_forces.at[3 : (6 * N) : 6].get())
-    torques = torques.at[1::3].set(generalized_forces.at[4 : (6 * N) : 6].get())
-    torques = torques.at[2::3].set(generalized_forces.at[5 : (6 * N) : 6].get())
-    stresslet = jnp.zeros(5 * N)
-    stresslet = stresslet.at[0::5].set(generalized_forces.at[(6 * N + 0) :: 5].get())  # Sxx
-    stresslet = stresslet.at[1::5].set(generalized_forces.at[(6 * N + 1) :: 5].get())  # Sxy
-    stresslet = stresslet.at[2::5].set(generalized_forces.at[(6 * N + 2) :: 5].get())  # Sxz
-    stresslet = stresslet.at[3::5].set(generalized_forces.at[(6 * N + 3) :: 5].get())  # Syz
-    stresslet = stresslet.at[4::5].set(generalized_forces.at[(6 * N + 4) :: 5].get())  # Syy
+    # Get forces,torques,couplets from generalized forces (3*num_particles vector: f1x,f1y,f1z, ... , fNx,fNy,fNz and same for torque, while couplet is 5N)
+    forces = jnp.zeros(3 * num_particles)
+    forces = forces.at[0::3].set(generalized_forces.at[0 : (6 * num_particles) : 6].get())
+    forces = forces.at[1::3].set(generalized_forces.at[1 : (6 * num_particles) : 6].get())
+    forces = forces.at[2::3].set(generalized_forces.at[2 : (6 * num_particles) : 6].get())
+    torques = jnp.zeros(3 * num_particles)
+    torques = torques.at[0::3].set(generalized_forces.at[3 : (6 * num_particles) : 6].get())
+    torques = torques.at[1::3].set(generalized_forces.at[4 : (6 * num_particles) : 6].get())
+    torques = torques.at[2::3].set(generalized_forces.at[5 : (6 * num_particles) : 6].get())
+    stresslet = jnp.zeros(5 * num_particles)
+    stresslet = stresslet.at[0::5].set(generalized_forces.at[(6 * num_particles + 0) :: 5].get())  # Sxx
+    stresslet = stresslet.at[1::5].set(generalized_forces.at[(6 * num_particles + 1) :: 5].get())  # Sxy
+    stresslet = stresslet.at[2::5].set(generalized_forces.at[(6 * num_particles + 2) :: 5].get())  # Sxz
+    stresslet = stresslet.at[3::5].set(generalized_forces.at[(6 * num_particles + 3) :: 5].get())  # Syz
+    stresslet = stresslet.at[4::5].set(generalized_forces.at[(6 * num_particles + 4) :: 5].get())  # Syy
 
-    # Get 'couplet' from generalized forces (8*N vector)
-    couplets = jnp.zeros(8 * N)
+    # Get 'couplet' from generalized forces (8*num_particles vector)
+    couplets = jnp.zeros(8 * num_particles)
     couplets = couplets.at[::8].set(stresslet.at[::5].get())  # C[0] = S[0]
     couplets = couplets.at[1::8].set(
         stresslet.at[1::5].get() + torques.at[2::3].get() * 0.5
@@ -151,26 +151,26 @@ def GeneralizedMobility_periodic(
     ##########################################################################################################################################
 
     # Create Grids for current iteration
-    gridX = jnp.zeros((Nx, Ny, Nz))
-    gridY = jnp.zeros((Nx, Ny, Nz))
-    gridZ = jnp.zeros((Nx, Ny, Nz))
-    gridXX = jnp.zeros((Nx, Ny, Nz))
-    gridXY = jnp.zeros((Nx, Ny, Nz))
-    gridXZ = jnp.zeros((Nx, Ny, Nz))
-    gridYX = jnp.zeros((Nx, Ny, Nz))
-    gridYY = jnp.zeros((Nx, Ny, Nz))
-    gridYZ = jnp.zeros((Nx, Ny, Nz))
-    gridZX = jnp.zeros((Nx, Ny, Nz))
-    gridZY = jnp.zeros((Nx, Ny, Nz))
+    grid_x = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_y = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_z = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_xx = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_xy = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_xz = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_yx = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_yy = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_yz = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_zx = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_zy = jnp.zeros((grid_nx, grid_ny, grid_nz))
 
-    gridX = gridX.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_x = grid_x.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(forces.at[0::3].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(forces.at[0::3].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -183,14 +183,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridY = gridY.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_y = grid_y.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(forces.at[1::3].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(forces.at[1::3].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -203,14 +203,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridZ = gridZ.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_z = grid_z.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(forces.at[2::3].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(forces.at[2::3].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -223,14 +223,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridXX = gridXX.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_xx = grid_xx.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[0::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[0::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -243,14 +243,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridXY = gridXY.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_xy = grid_xy.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[1::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[1::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -263,14 +263,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridXZ = gridXZ.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_xz = grid_xz.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[2::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[2::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -283,14 +283,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridYZ = gridYZ.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_yz = grid_yz.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[3::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[3::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -303,14 +303,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridYY = gridYY.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_yy = grid_yy.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[4::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[4::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -323,14 +323,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridYX = gridYX.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_yx = grid_yx.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[5::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[5::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -343,14 +343,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridZX = gridZX.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_zx = grid_zx.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[6::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[6::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -363,14 +363,14 @@ def GeneralizedMobility_periodic(
             )
         )
     )
-    gridZY = gridZY.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_zy = grid_zy.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(couplets.at[7::8].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(couplets.at[7::8].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -385,18 +385,18 @@ def GeneralizedMobility_periodic(
     )
 
     # Apply FFT
-    gridX = jnp.fft.fftn(gridX)
-    gridY = jnp.fft.fftn(gridY)
-    gridZ = jnp.fft.fftn(gridZ)
-    gridXX = jnp.fft.fftn(gridXX)
-    gridXY = jnp.fft.fftn(gridXY)
-    gridXZ = jnp.fft.fftn(gridXZ)
-    gridYZ = jnp.fft.fftn(gridYZ)
-    gridYY = jnp.fft.fftn(gridYY)
-    gridYX = jnp.fft.fftn(gridYX)
-    gridZX = jnp.fft.fftn(gridZX)
-    gridZY = jnp.fft.fftn(gridZY)
-    gridZZ = -gridXX - gridYY
+    grid_x = jnp.fft.fftn(grid_x)
+    grid_y = jnp.fft.fftn(grid_y)
+    grid_z = jnp.fft.fftn(grid_z)
+    grid_xx = jnp.fft.fftn(grid_xx)
+    grid_xy = jnp.fft.fftn(grid_xy)
+    grid_xz = jnp.fft.fftn(grid_xz)
+    grid_yz = jnp.fft.fftn(grid_yz)
+    grid_yy = jnp.fft.fftn(grid_yy)
+    grid_yx = jnp.fft.fftn(grid_yx)
+    grid_zx = jnp.fft.fftn(grid_zx)
+    grid_zy = jnp.fft.fftn(grid_zy)
+    grid_zz = -grid_xx - grid_yy
 
     gridk_sqr = (
         gridk.at[:, :, :, 0].get() * gridk.at[:, :, :, 0].get()
@@ -405,52 +405,52 @@ def GeneralizedMobility_periodic(
     )
     gridk_mod = jnp.sqrt(gridk_sqr)
 
-    kdF = jnp.where(
+    kdf = jnp.where(
         gridk_mod > 0,
         (
-            gridk.at[:, :, :, 0].get() * gridX
-            + gridk.at[:, :, :, 1].get() * gridY
-            + gridk.at[:, :, :, 2].get() * gridZ
+            gridk.at[:, :, :, 0].get() * grid_x
+            + gridk.at[:, :, :, 1].get() * grid_y
+            + gridk.at[:, :, :, 2].get() * grid_z
         )
         / gridk_sqr,
         0,
     )
 
-    Cdkx = (
-        gridk.at[:, :, :, 0].get() * gridXX
-        + gridk.at[:, :, :, 1].get() * gridXY
-        + gridk.at[:, :, :, 2].get() * gridXZ
+    cdkx = (
+        gridk.at[:, :, :, 0].get() * grid_xx
+        + gridk.at[:, :, :, 1].get() * grid_xy
+        + gridk.at[:, :, :, 2].get() * grid_xz
     )
-    Cdky = (
-        gridk.at[:, :, :, 0].get() * gridYX
-        + gridk.at[:, :, :, 1].get() * gridYY
-        + gridk.at[:, :, :, 2].get() * gridYZ
+    cdky = (
+        gridk.at[:, :, :, 0].get() * grid_yx
+        + gridk.at[:, :, :, 1].get() * grid_yy
+        + gridk.at[:, :, :, 2].get() * grid_yz
     )
-    Cdkz = (
-        gridk.at[:, :, :, 0].get() * gridZX
-        + gridk.at[:, :, :, 1].get() * gridZY
-        + gridk.at[:, :, :, 2].get() * gridZZ
+    cdkz = (
+        gridk.at[:, :, :, 0].get() * grid_zx
+        + gridk.at[:, :, :, 1].get() * grid_zy
+        + gridk.at[:, :, :, 2].get() * grid_zz
     )
 
     kdcdk = jnp.where(
         gridk_mod > 0,
         (
-            gridk.at[:, :, :, 0].get() * Cdkx
-            + gridk.at[:, :, :, 1].get() * Cdky
-            + gridk.at[:, :, :, 2].get() * Cdkz
+            gridk.at[:, :, :, 0].get() * cdkx
+            + gridk.at[:, :, :, 1].get() * cdky
+            + gridk.at[:, :, :, 2].get() * cdkz
         )
         / gridk_sqr,
         0,
     )
 
-    Fkxx = gridk.at[:, :, :, 0].get() * gridX
-    Fkxy = gridk.at[:, :, :, 1].get() * gridX
-    Fkxz = gridk.at[:, :, :, 2].get() * gridX
-    Fkyx = gridk.at[:, :, :, 0].get() * gridY
-    Fkyy = gridk.at[:, :, :, 1].get() * gridY
-    Fkyz = gridk.at[:, :, :, 2].get() * gridY
-    Fkzx = gridk.at[:, :, :, 0].get() * gridZ
-    Fkzy = gridk.at[:, :, :, 1].get() * gridZ
+    fkxx = gridk.at[:, :, :, 0].get() * grid_x
+    fkxy = gridk.at[:, :, :, 1].get() * grid_x
+    fkxz = gridk.at[:, :, :, 2].get() * grid_x
+    fkyx = gridk.at[:, :, :, 0].get() * grid_y
+    fkyy = gridk.at[:, :, :, 1].get() * grid_y
+    fkyz = gridk.at[:, :, :, 2].get() * grid_y
+    fkzx = gridk.at[:, :, :, 0].get() * grid_z
+    fkzy = gridk.at[:, :, :, 1].get() * grid_z
     kkxx = gridk.at[:, :, :, 0].get() * gridk.at[:, :, :, 0].get()
     kkxy = gridk.at[:, :, :, 0].get() * gridk.at[:, :, :, 1].get()
     kkxz = gridk.at[:, :, :, 0].get() * gridk.at[:, :, :, 2].get()
@@ -459,29 +459,29 @@ def GeneralizedMobility_periodic(
     kkyz = gridk.at[:, :, :, 1].get() * gridk.at[:, :, :, 2].get()
     kkzx = gridk.at[:, :, :, 2].get() * gridk.at[:, :, :, 0].get()
     kkzy = gridk.at[:, :, :, 2].get() * gridk.at[:, :, :, 1].get()
-    Cdkkxx = gridk.at[:, :, :, 0].get() * Cdkx
-    Cdkkxy = gridk.at[:, :, :, 1].get() * Cdkx
-    Cdkkxz = gridk.at[:, :, :, 2].get() * Cdkx
-    Cdkkyx = gridk.at[:, :, :, 0].get() * Cdky
-    Cdkkyy = gridk.at[:, :, :, 1].get() * Cdky
-    Cdkkyz = gridk.at[:, :, :, 2].get() * Cdky
-    Cdkkzx = gridk.at[:, :, :, 0].get() * Cdkz
-    Cdkkzy = gridk.at[:, :, :, 1].get() * Cdkz
+    cdkkxx = gridk.at[:, :, :, 0].get() * cdkx
+    cdkkxy = gridk.at[:, :, :, 1].get() * cdkx
+    cdkkxz = gridk.at[:, :, :, 2].get() * cdkx
+    cdkkyx = gridk.at[:, :, :, 0].get() * cdky
+    cdkkyy = gridk.at[:, :, :, 1].get() * cdky
+    cdkkyz = gridk.at[:, :, :, 2].get() * cdky
+    cdkkzx = gridk.at[:, :, :, 0].get() * cdkz
+    cdkkzy = gridk.at[:, :, :, 1].get() * cdkz
 
     # UF part
-    B = jnp.where(
+    b_factor = jnp.where(
         gridk_mod > 0,
         gridk.at[:, :, :, 3].get()
         * (jnp.sin(gridk_mod) / gridk_mod)
         * (jnp.sin(gridk_mod) / gridk_mod),
         0,
     )  # scaling factor
-    gridX = B * (gridX - gridk.at[:, :, :, 0].get() * kdF)
-    gridY = B * (gridY - gridk.at[:, :, :, 1].get() * kdF)
-    gridZ = B * (gridZ - gridk.at[:, :, :, 2].get() * kdF)
+    grid_x = b_factor * (grid_x - gridk.at[:, :, :, 0].get() * kdf)
+    grid_y = b_factor * (grid_y - gridk.at[:, :, :, 1].get() * kdf)
+    grid_z = b_factor * (grid_z - gridk.at[:, :, :, 2].get() * kdf)
 
-    # UC part (here B is imaginary so we absorb the imaginary unit in the funtion 'swap_real_imag()' which returns -Im(c)+i*Re(c)
-    B = jnp.where(
+    # UC part (here b_factor is imaginary so we absorb the imaginary unit in the funtion 'swap_real_imag()' which returns -Im(c)+i*Re(c)
+    b_factor = jnp.where(
         gridk_mod > 0,
         gridk.at[:, :, :, 3].get()
         * (jnp.sin(gridk_mod) / gridk_mod)
@@ -489,12 +489,12 @@ def GeneralizedMobility_periodic(
         0,
     )  # scaling factor
 
-    gridX += B * swap_real_imag((Cdkx - kdcdk * gridk.at[:, :, :, 0].get()))
-    gridY += B * swap_real_imag((Cdky - kdcdk * gridk.at[:, :, :, 1].get()))
-    gridZ += B * swap_real_imag((Cdkz - kdcdk * gridk.at[:, :, :, 2].get()))
+    grid_x += b_factor * swap_real_imag((cdkx - kdcdk * gridk.at[:, :, :, 0].get()))
+    grid_y += b_factor * swap_real_imag((cdky - kdcdk * gridk.at[:, :, :, 1].get()))
+    grid_z += b_factor * swap_real_imag((cdkz - kdcdk * gridk.at[:, :, :, 2].get()))
 
     # DF part
-    B = jnp.where(
+    b_factor = jnp.where(
         gridk_mod > 0,
         gridk.at[:, :, :, 3].get()
         * (-1)
@@ -502,17 +502,17 @@ def GeneralizedMobility_periodic(
         * (3 * (jnp.sin(gridk_mod) - gridk_mod * jnp.cos(gridk_mod)) / (gridk_mod * gridk_sqr)),
         0,
     )  # scaling factor
-    gridXX = B * swap_real_imag((Fkxx - kkxx * kdF))
-    gridXY = B * swap_real_imag((Fkxy - kkxy * kdF))
-    gridXZ = B * swap_real_imag((Fkxz - kkxz * kdF))
-    gridYX = B * swap_real_imag((Fkyx - kkyx * kdF))
-    gridYY = B * swap_real_imag((Fkyy - kkyy * kdF))
-    gridYZ = B * swap_real_imag((Fkyz - kkyz * kdF))
-    gridZX = B * swap_real_imag((Fkzx - kkzx * kdF))
-    gridZY = B * swap_real_imag((Fkzy - kkzy * kdF))
+    grid_xx = b_factor * swap_real_imag((fkxx - kkxx * kdf))
+    grid_xy = b_factor * swap_real_imag((fkxy - kkxy * kdf))
+    grid_xz = b_factor * swap_real_imag((fkxz - kkxz * kdf))
+    grid_yx = b_factor * swap_real_imag((fkyx - kkyx * kdf))
+    grid_yy = b_factor * swap_real_imag((fkyy - kkyy * kdf))
+    grid_yz = b_factor * swap_real_imag((fkyz - kkyz * kdf))
+    grid_zx = b_factor * swap_real_imag((fkzx - kkzx * kdf))
+    grid_zy = b_factor * swap_real_imag((fkzy - kkzy * kdf))
 
     # DC part
-    B = jnp.where(
+    b_factor = jnp.where(
         gridk_mod > 0,
         gridk.at[:, :, :, 3].get()
         * (9)
@@ -520,38 +520,38 @@ def GeneralizedMobility_periodic(
         * ((jnp.sin(gridk_mod) - gridk_mod * jnp.cos(gridk_mod)) / (gridk_mod * gridk_sqr)),
         0,
     )  # scaling factor
-    gridXX += B * (Cdkkxx - kkxx * kdcdk)
-    gridXY += B * (Cdkkxy - kkxy * kdcdk)
-    gridXZ += B * (Cdkkxz - kkxz * kdcdk)
-    gridYX += B * (Cdkkyx - kkyx * kdcdk)
-    gridYY += B * (Cdkkyy - kkyy * kdcdk)
-    gridYZ += B * (Cdkkyz - kkyz * kdcdk)
-    gridZX += B * (Cdkkzx - kkzx * kdcdk)
-    gridZY += B * (Cdkkzy - kkzy * kdcdk)
+    grid_xx += b_factor * (cdkkxx - kkxx * kdcdk)
+    grid_xy += b_factor * (cdkkxy - kkxy * kdcdk)
+    grid_xz += b_factor * (cdkkxz - kkxz * kdcdk)
+    grid_yx += b_factor * (cdkkyx - kkyx * kdcdk)
+    grid_yy += b_factor * (cdkkyy - kkyy * kdcdk)
+    grid_yz += b_factor * (cdkkyz - kkyz * kdcdk)
+    grid_zx += b_factor * (cdkkzx - kkzx * kdcdk)
+    grid_zy += b_factor * (cdkkzy - kkzy * kdcdk)
 
     # Inverse FFT
-    gridX = jnp.real(jnp.fft.ifftn(gridX, norm="forward"))
-    gridY = jnp.real(jnp.fft.ifftn(gridY, norm="forward"))
-    gridZ = jnp.real(jnp.fft.ifftn(gridZ, norm="forward"))
-    gridXX = jnp.real(jnp.fft.ifftn(gridXX, norm="forward"))
-    gridXY = jnp.real(jnp.fft.ifftn(gridXY, norm="forward"))
-    gridXZ = jnp.real(jnp.fft.ifftn(gridXZ, norm="forward"))
-    gridYX = jnp.real(jnp.fft.ifftn(gridYX, norm="forward"))
-    gridYY = jnp.real(jnp.fft.ifftn(gridYY, norm="forward"))
-    gridYZ = jnp.real(jnp.fft.ifftn(gridYZ, norm="forward"))
-    gridZX = jnp.real(jnp.fft.ifftn(gridZX, norm="forward"))
-    gridZY = jnp.real(jnp.fft.ifftn(gridZY, norm="forward"))
+    grid_x = jnp.real(jnp.fft.ifftn(grid_x, norm="forward"))
+    grid_y = jnp.real(jnp.fft.ifftn(grid_y, norm="forward"))
+    grid_z = jnp.real(jnp.fft.ifftn(grid_z, norm="forward"))
+    grid_xx = jnp.real(jnp.fft.ifftn(grid_xx, norm="forward"))
+    grid_xy = jnp.real(jnp.fft.ifftn(grid_xy, norm="forward"))
+    grid_xz = jnp.real(jnp.fft.ifftn(grid_xz, norm="forward"))
+    grid_yx = jnp.real(jnp.fft.ifftn(grid_yx, norm="forward"))
+    grid_yy = jnp.real(jnp.fft.ifftn(grid_yy, norm="forward"))
+    grid_yz = jnp.real(jnp.fft.ifftn(grid_yz, norm="forward"))
+    grid_zx = jnp.real(jnp.fft.ifftn(grid_zx, norm="forward"))
+    grid_zy = jnp.real(jnp.fft.ifftn(grid_zy, norm="forward"))
 
     # Compute Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
-    w_lin_velocities = jnp.zeros((N, 3), float)
-    w_velocity_gradient = jnp.zeros((N, 8), float)
+    w_lin_velocities = jnp.zeros((num_particles, 3), float)
+    w_velocity_gradient = jnp.zeros((num_particles, 8), float)
 
     w_lin_velocities = w_lin_velocities.at[:, 0].set(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_x.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -560,8 +560,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_y.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -570,8 +570,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridZ.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_z.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -581,8 +581,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridXX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_xx.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -592,8 +592,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridXY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_xy.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -603,8 +603,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridXZ.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_xz.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -614,8 +614,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridYZ.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_yz.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -625,8 +625,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridYY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_yy.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -636,8 +636,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridYX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_yx.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -647,8 +647,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridZX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_zx.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -658,8 +658,8 @@ def GeneralizedMobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridZY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_zy.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -670,8 +670,8 @@ def GeneralizedMobility_periodic(
     ##########################################################################################################################################
 
     # Allocate arrays for Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
-    r_lin_velocities = jnp.zeros((N, 3), float)
-    r_velocity_gradient = jnp.zeros((N, 8), float)
+    r_lin_velocities = jnp.zeros((num_particles, 3), float)
+    r_velocity_gradient = jnp.zeros((num_particles, 8), float)
 
     # SELF CONTRIBUTIONS
     r_lin_velocities = r_lin_velocities.at[:, 0].set(m_self.at[0].get() * forces.at[0::3].get())
@@ -718,7 +718,7 @@ def GeneralizedMobility_periodic(
         + r.at[:, 2].get() * forces.at[3 * indices_i + 2].get()
     )
 
-    Cj_dotr = jnp.array(
+    cj_dotr = jnp.array(
         [
             couplets.at[8 * indices_j + 0].get() * r.at[:, 0].get()
             + couplets.at[8 * indices_j + 1].get() * r.at[:, 1].get()
@@ -733,7 +733,7 @@ def GeneralizedMobility_periodic(
         ]
     )
 
-    Ci_dotmr = jnp.array(
+    ci_dotmr = jnp.array(
         [
             -couplets.at[8 * indices_i + 0].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_i + 1].get() * r.at[:, 1].get()
@@ -748,7 +748,7 @@ def GeneralizedMobility_periodic(
         ]
     )
 
-    rdotC_j = jnp.array(
+    rdotc_j = jnp.array(
         [
             couplets.at[8 * indices_j + 0].get() * r.at[:, 0].get()
             + couplets.at[8 * indices_j + 5].get() * r.at[:, 1].get()
@@ -763,7 +763,7 @@ def GeneralizedMobility_periodic(
         ]
     )
 
-    mrdotC_i = jnp.array(
+    mrdotc_i = jnp.array(
         [
             -couplets.at[8 * indices_i + 0].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_i + 5].get() * r.at[:, 1].get()
@@ -778,15 +778,15 @@ def GeneralizedMobility_periodic(
         ]
     )
 
-    rdotC_jj_dotr = (
-        r.at[:, 0].get() * Cj_dotr.at[0, :].get()
-        + r.at[:, 1].get() * Cj_dotr.at[1, :].get()
-        + r.at[:, 2].get() * Cj_dotr.at[2, :].get()
+    rdotc_jj_dotr = (
+        r.at[:, 0].get() * cj_dotr.at[0, :].get()
+        + r.at[:, 1].get() * cj_dotr.at[1, :].get()
+        + r.at[:, 2].get() * cj_dotr.at[2, :].get()
     )
-    mrdotC_ii_dotmr = -(
-        r.at[:, 0].get() * Ci_dotmr.at[0, :].get()
-        + r.at[:, 1].get() * Ci_dotmr.at[1, :].get()
-        + r.at[:, 2].get() * Ci_dotmr.at[2, :].get()
+    mrdotc_ii_dotmr = -(
+        r.at[:, 0].get() * ci_dotmr.at[0, :].get()
+        + r.at[:, 1].get() * ci_dotmr.at[1, :].get()
+        + r.at[:, 2].get() * ci_dotmr.at[2, :].get()
     )
 
     # Compute Velocity for particles i
@@ -800,16 +800,16 @@ def GeneralizedMobility_periodic(
         f1 * forces.at[3 * indices_j + 2].get() + (f2 - f1) * rdotf_j * r.at[:, 2].get()
     )
     r_lin_velocities = r_lin_velocities.at[indices_i, 0].add(
-        g1 * (Cj_dotr.at[0, :].get() - rdotC_jj_dotr * r.at[:, 0].get())
-        + g2 * (rdotC_j.at[0, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 0].get())
+        g1 * (cj_dotr.at[0, :].get() - rdotc_jj_dotr * r.at[:, 0].get())
+        + g2 * (rdotc_j.at[0, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 0].get())
     )
     r_lin_velocities = r_lin_velocities.at[indices_i, 1].add(
-        g1 * (Cj_dotr.at[1, :].get() - rdotC_jj_dotr * r.at[:, 1].get())
-        + g2 * (rdotC_j.at[1, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 1].get())
+        g1 * (cj_dotr.at[1, :].get() - rdotc_jj_dotr * r.at[:, 1].get())
+        + g2 * (rdotc_j.at[1, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 1].get())
     )
     r_lin_velocities = r_lin_velocities.at[indices_i, 2].add(
-        g1 * (Cj_dotr.at[2, :].get() - rdotC_jj_dotr * r.at[:, 2].get())
-        + g2 * (rdotC_j.at[2, :].get() - 4.0 * rdotC_jj_dotr * r.at[:, 2].get())
+        g1 * (cj_dotr.at[2, :].get() - rdotc_jj_dotr * r.at[:, 2].get())
+        + g2 * (rdotc_j.at[2, :].get() - 4.0 * rdotc_jj_dotr * r.at[:, 2].get())
     )
     # Compute Velocity for particles j
     r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(
@@ -822,16 +822,16 @@ def GeneralizedMobility_periodic(
         f1 * forces.at[3 * indices_i + 2].get() - (f2 - f1) * mrdotf_i * r.at[:, 2].get()
     )
     r_lin_velocities = r_lin_velocities.at[indices_j, 0].add(
-        g1 * (Ci_dotmr.at[0, :].get() + mrdotC_ii_dotmr * r.at[:, 0].get())
-        + g2 * (mrdotC_i.at[0, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 0].get())
+        g1 * (ci_dotmr.at[0, :].get() + mrdotc_ii_dotmr * r.at[:, 0].get())
+        + g2 * (mrdotc_i.at[0, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 0].get())
     )
     r_lin_velocities = r_lin_velocities.at[indices_j, 1].add(
-        g1 * (Ci_dotmr.at[1, :].get() + mrdotC_ii_dotmr * r.at[:, 1].get())
-        + g2 * (mrdotC_i.at[1, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 1].get())
+        g1 * (ci_dotmr.at[1, :].get() + mrdotc_ii_dotmr * r.at[:, 1].get())
+        + g2 * (mrdotc_i.at[1, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 1].get())
     )
     r_lin_velocities = r_lin_velocities.at[indices_j, 2].add(
-        g1 * (Ci_dotmr.at[2, :].get() + mrdotC_ii_dotmr * r.at[:, 2].get())
-        + g2 * (mrdotC_i.at[2, :].get() + 4.0 * mrdotC_ii_dotmr * r.at[:, 2].get())
+        g1 * (ci_dotmr.at[2, :].get() + mrdotc_ii_dotmr * r.at[:, 2].get())
+        + g2 * (mrdotc_i.at[2, :].get() + 4.0 * mrdotc_ii_dotmr * r.at[:, 2].get())
     )
 
     # Compute Velocity Gradient for particles i and j
@@ -871,16 +871,16 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 0].get() - 4.0 * couplets.at[8 * indices_j + 0].get())
         + h2
         * (
-            r.at[:, 0].get() * Cj_dotr.at[0, :].get()
-            - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
+            r.at[:, 0].get() * cj_dotr.at[0, :].get()
+            - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
         )
         + h3
         * (
-            rdotC_jj_dotr
-            + Cj_dotr.at[0, :].get() * r.at[:, 0].get()
-            + r.at[:, 0].get() * rdotC_j.at[0, :].get()
-            + rdotC_j.at[0, :].get() * r.at[:, 0].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
+            rdotc_jj_dotr
+            + cj_dotr.at[0, :].get() * r.at[:, 0].get()
+            + r.at[:, 0].get() * rdotc_j.at[0, :].get()
+            + rdotc_j.at[0, :].get() * r.at[:, 0].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_j + 0].get()
         )
     )
@@ -888,16 +888,16 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 0].get() - 4.0 * couplets.at[8 * indices_i + 0].get())
         + h2
         * (
-            -r.at[:, 0].get() * Ci_dotmr.at[0, :].get()
-            - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
+            -r.at[:, 0].get() * ci_dotmr.at[0, :].get()
+            - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
         )
         + h3
         * (
-            mrdotC_ii_dotmr
-            - Ci_dotmr.at[0, :].get() * r.at[:, 0].get()
-            - r.at[:, 0].get() * mrdotC_i.at[0, :].get()
-            - mrdotC_i.at[0, :].get() * r.at[:, 0].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
+            mrdotc_ii_dotmr
+            - ci_dotmr.at[0, :].get() * r.at[:, 0].get()
+            - r.at[:, 0].get() * mrdotc_i.at[0, :].get()
+            - mrdotc_i.at[0, :].get() * r.at[:, 0].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_i + 0].get()
         )
     )
@@ -936,15 +936,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 5].get() - 4.0 * couplets.at[8 * indices_j + 1].get())
         + h2
         * (
-            r.at[:, 1].get() * Cj_dotr.at[0, :].get()
-            - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
+            r.at[:, 1].get() * cj_dotr.at[0, :].get()
+            - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
         )
         + h3
         * (
-            Cj_dotr.at[1, :].get() * r.at[:, 0].get()
-            + r.at[:, 1].get() * rdotC_j.at[0, :].get()
-            + rdotC_j.at[1, :].get() * r.at[:, 0].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
+            cj_dotr.at[1, :].get() * r.at[:, 0].get()
+            + r.at[:, 1].get() * rdotc_j.at[0, :].get()
+            + rdotc_j.at[1, :].get() * r.at[:, 0].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_j + 1].get()
         )
     )
@@ -953,15 +953,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 5].get() - 4.0 * couplets.at[8 * indices_i + 1].get())
         + h2
         * (
-            -r.at[:, 1].get() * Ci_dotmr.at[0, :].get()
-            - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
+            -r.at[:, 1].get() * ci_dotmr.at[0, :].get()
+            - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
         )
         + h3
         * (
-            -Ci_dotmr.at[1, :].get() * r.at[:, 0].get()
-            - r.at[:, 1].get() * mrdotC_i.at[0, :].get()
-            - mrdotC_i.at[1, :].get() * r.at[:, 0].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
+            -ci_dotmr.at[1, :].get() * r.at[:, 0].get()
+            - r.at[:, 1].get() * mrdotc_i.at[0, :].get()
+            - mrdotc_i.at[1, :].get() * r.at[:, 0].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_i + 1].get()
         )
     )
@@ -999,15 +999,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 6].get() - 4.0 * couplets.at[8 * indices_j + 2].get())
         + h2
         * (
-            r.at[:, 2].get() * Cj_dotr.at[0, :].get()
-            - rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
+            r.at[:, 2].get() * cj_dotr.at[0, :].get()
+            - rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
         )
         + h3
         * (
-            Cj_dotr.at[2, :].get() * r.at[:, 0].get()
-            + r.at[:, 2].get() * rdotC_j.at[0, :].get()
-            + rdotC_j.at[2, :].get() * r.at[:, 0].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
+            cj_dotr.at[2, :].get() * r.at[:, 0].get()
+            + r.at[:, 2].get() * rdotc_j.at[0, :].get()
+            + rdotc_j.at[2, :].get() * r.at[:, 0].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_j + 2].get()
         )
     )
@@ -1015,15 +1015,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 6].get() - 4.0 * couplets.at[8 * indices_i + 2].get())
         + h2
         * (
-            r.at[:, 2].get() * Ci_dotmr.at[0, :].get() * (-1)
-            - mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
+            r.at[:, 2].get() * ci_dotmr.at[0, :].get() * (-1)
+            - mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
         )
         + h3
         * (
-            -Ci_dotmr.at[2, :].get() * r.at[:, 0].get()
-            - r.at[:, 2].get() * mrdotC_i.at[0, :].get()
-            - mrdotC_i.at[2, :].get() * r.at[:, 0].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
+            -ci_dotmr.at[2, :].get() * r.at[:, 0].get()
+            - r.at[:, 2].get() * mrdotc_i.at[0, :].get()
+            - mrdotc_i.at[2, :].get() * r.at[:, 0].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 0].get()
             - couplets.at[8 * indices_i + 2].get()
         )
     )
@@ -1062,15 +1062,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 7].get() - 4.0 * couplets.at[8 * indices_j + 3].get())
         + h2
         * (
-            r.at[:, 2].get() * Cj_dotr.at[1, :].get()
-            - rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
+            r.at[:, 2].get() * cj_dotr.at[1, :].get()
+            - rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
         )
         + h3
         * (
-            Cj_dotr.at[2, :].get() * r.at[:, 1].get()
-            + r.at[:, 2].get() * rdotC_j.at[1, :].get()
-            + rdotC_j.at[2, :].get() * r.at[:, 1].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
+            cj_dotr.at[2, :].get() * r.at[:, 1].get()
+            + r.at[:, 2].get() * rdotc_j.at[1, :].get()
+            + rdotc_j.at[2, :].get() * r.at[:, 1].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 2].get() * r.at[:, 1].get()
             - couplets.at[8 * indices_j + 3].get()
         )
     )
@@ -1079,15 +1079,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 7].get() - 4.0 * couplets.at[8 * indices_i + 3].get())
         + h2
         * (
-            -r.at[:, 2].get() * Ci_dotmr.at[1, :].get()
-            - mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
+            -r.at[:, 2].get() * ci_dotmr.at[1, :].get()
+            - mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
         )
         + h3
         * (
-            -Ci_dotmr.at[2, :].get() * r.at[:, 1].get()
-            - r.at[:, 2].get() * mrdotC_i.at[1, :].get()
-            - mrdotC_i.at[2, :].get() * r.at[:, 1].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
+            -ci_dotmr.at[2, :].get() * r.at[:, 1].get()
+            - r.at[:, 2].get() * mrdotc_i.at[1, :].get()
+            - mrdotc_i.at[2, :].get() * r.at[:, 1].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 2].get() * r.at[:, 1].get()
             - couplets.at[8 * indices_i + 3].get()
         )
     )
@@ -1128,16 +1128,16 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 4].get() - 4.0 * couplets.at[8 * indices_j + 4].get())
         + h2
         * (
-            r.at[:, 1].get() * Cj_dotr.at[1, :].get()
-            - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
+            r.at[:, 1].get() * cj_dotr.at[1, :].get()
+            - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
         )
         + h3
         * (
-            rdotC_jj_dotr
-            + Cj_dotr.at[1, :].get() * r.at[:, 1].get()
-            + r.at[:, 1].get() * rdotC_j.at[1, :].get()
-            + rdotC_j.at[1, :].get() * r.at[:, 1].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
+            rdotc_jj_dotr
+            + cj_dotr.at[1, :].get() * r.at[:, 1].get()
+            + r.at[:, 1].get() * rdotc_j.at[1, :].get()
+            + rdotc_j.at[1, :].get() * r.at[:, 1].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 1].get()
             - couplets.at[8 * indices_j + 4].get()
         )
     )
@@ -1146,16 +1146,16 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 4].get() - 4.0 * couplets.at[8 * indices_i + 4].get())
         + h2
         * (
-            -r.at[:, 1].get() * Ci_dotmr.at[1, :].get()
-            - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
+            -r.at[:, 1].get() * ci_dotmr.at[1, :].get()
+            - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
         )
         + h3
         * (
-            mrdotC_ii_dotmr
-            - Ci_dotmr.at[1, :].get() * r.at[:, 1].get()
-            - r.at[:, 1].get() * mrdotC_i.at[1, :].get()
-            - mrdotC_i.at[1, :].get() * r.at[:, 1].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
+            mrdotc_ii_dotmr
+            - ci_dotmr.at[1, :].get() * r.at[:, 1].get()
+            - r.at[:, 1].get() * mrdotc_i.at[1, :].get()
+            - mrdotc_i.at[1, :].get() * r.at[:, 1].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 1].get()
             - couplets.at[8 * indices_i + 4].get()
         )
     )
@@ -1194,15 +1194,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 1].get() - 4.0 * couplets.at[8 * indices_j + 5].get())
         + h2
         * (
-            r.at[:, 0].get() * Cj_dotr.at[1, :].get()
-            - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
+            r.at[:, 0].get() * cj_dotr.at[1, :].get()
+            - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
         )
         + h3
         * (
-            Cj_dotr.at[0, :].get() * r.at[:, 1].get()
-            + r.at[:, 0].get() * rdotC_j.at[1, :].get()
-            + rdotC_j.at[0, :].get() * r.at[:, 1].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
+            cj_dotr.at[0, :].get() * r.at[:, 1].get()
+            + r.at[:, 0].get() * rdotc_j.at[1, :].get()
+            + rdotc_j.at[0, :].get() * r.at[:, 1].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 1].get()
             - couplets.at[8 * indices_j + 5].get()
         )
     )
@@ -1211,15 +1211,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 1].get() - 4.0 * couplets.at[8 * indices_i + 5].get())
         + h2
         * (
-            -r.at[:, 0].get() * Ci_dotmr.at[1, :].get()
-            - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
+            -r.at[:, 0].get() * ci_dotmr.at[1, :].get()
+            - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
         )
         + h3
         * (
-            -Ci_dotmr.at[0, :].get() * r.at[:, 1].get()
-            - r.at[:, 0].get() * mrdotC_i.at[1, :].get()
-            - mrdotC_i.at[0, :].get() * r.at[:, 1].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
+            -ci_dotmr.at[0, :].get() * r.at[:, 1].get()
+            - r.at[:, 0].get() * mrdotc_i.at[1, :].get()
+            - mrdotc_i.at[0, :].get() * r.at[:, 1].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 1].get()
             - couplets.at[8 * indices_i + 5].get()
         )
     )
@@ -1258,15 +1258,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 2].get() - 4.0 * couplets.at[8 * indices_j + 6].get())
         + h2
         * (
-            r.at[:, 0].get() * Cj_dotr.at[2, :].get()
-            - rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
+            r.at[:, 0].get() * cj_dotr.at[2, :].get()
+            - rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
         )
         + h3
         * (
-            Cj_dotr.at[0, :].get() * r.at[:, 2].get()
-            + r.at[:, 0].get() * rdotC_j.at[2, :].get()
-            + rdotC_j.at[0, :].get() * r.at[:, 2].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
+            cj_dotr.at[0, :].get() * r.at[:, 2].get()
+            + r.at[:, 0].get() * rdotc_j.at[2, :].get()
+            + rdotc_j.at[0, :].get() * r.at[:, 2].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 0].get() * r.at[:, 2].get()
             - couplets.at[8 * indices_j + 6].get()
         )
     )
@@ -1275,15 +1275,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 2].get() - 4.0 * couplets.at[8 * indices_i + 6].get())
         + h2
         * (
-            -r.at[:, 0].get() * Ci_dotmr.at[2, :].get()
-            - mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
+            -r.at[:, 0].get() * ci_dotmr.at[2, :].get()
+            - mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
         )
         + h3
         * (
-            -Ci_dotmr.at[0, :].get() * r.at[:, 2].get()
-            - r.at[:, 0].get() * mrdotC_i.at[2, :].get()
-            - mrdotC_i.at[0, :].get() * r.at[:, 2].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
+            -ci_dotmr.at[0, :].get() * r.at[:, 2].get()
+            - r.at[:, 0].get() * mrdotc_i.at[2, :].get()
+            - mrdotc_i.at[0, :].get() * r.at[:, 2].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 0].get() * r.at[:, 2].get()
             - couplets.at[8 * indices_i + 6].get()
         )
     )
@@ -1322,15 +1322,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_j + 3].get() - 4.0 * couplets.at[8 * indices_j + 7].get())
         + h2
         * (
-            r.at[:, 1].get() * Cj_dotr.at[2, :].get()
-            - rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
+            r.at[:, 1].get() * cj_dotr.at[2, :].get()
+            - rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
         )
         + h3
         * (
-            Cj_dotr.at[1, :].get() * r.at[:, 2].get()
-            + r.at[:, 1].get() * rdotC_j.at[2, :].get()
-            + rdotC_j.at[1, :].get() * r.at[:, 2].get()
-            - 6.0 * rdotC_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
+            cj_dotr.at[1, :].get() * r.at[:, 2].get()
+            + r.at[:, 1].get() * rdotc_j.at[2, :].get()
+            + rdotc_j.at[1, :].get() * r.at[:, 2].get()
+            - 6.0 * rdotc_jj_dotr * r.at[:, 1].get() * r.at[:, 2].get()
             - couplets.at[8 * indices_j + 7].get()
         )
     )
@@ -1339,15 +1339,15 @@ def GeneralizedMobility_periodic(
         h1 * (couplets.at[8 * indices_i + 3].get() - 4.0 * couplets.at[8 * indices_i + 7].get())
         + h2
         * (
-            -r.at[:, 1].get() * Ci_dotmr.at[2, :].get()
-            - mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
+            -r.at[:, 1].get() * ci_dotmr.at[2, :].get()
+            - mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
         )
         + h3
         * (
-            -Ci_dotmr.at[1, :].get() * r.at[:, 2].get()
-            - r.at[:, 1].get() * mrdotC_i.at[2, :].get()
-            - mrdotC_i.at[1, :].get() * r.at[:, 2].get()
-            - 6.0 * mrdotC_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
+            -ci_dotmr.at[1, :].get() * r.at[:, 2].get()
+            - r.at[:, 1].get() * mrdotc_i.at[2, :].get()
+            - mrdotc_i.at[1, :].get() * r.at[:, 2].get()
+            - 6.0 * mrdotc_ii_dotmr * r.at[:, 1].get() * r.at[:, 2].get()
             - couplets.at[8 * indices_i + 7].get()
         )
     )
@@ -1360,7 +1360,7 @@ def GeneralizedMobility_periodic(
     velocity_gradient = w_velocity_gradient + r_velocity_gradient
 
     # # Convert to angular velocities and rate of strain
-    ang_vel_and_strain = jnp.zeros((N, 8))
+    ang_vel_and_strain = jnp.zeros((num_particles, 8))
     ang_vel_and_strain = ang_vel_and_strain.at[:, 0].set(
         (velocity_gradient.at[:, 3].get() - velocity_gradient.at[:, 7].get()) * 0.5
     )
@@ -1388,34 +1388,34 @@ def GeneralizedMobility_periodic(
 
     # Convert to Generalized Velocities+Strain
     generalized_velocities = jnp.zeros(
-        11 * N
+        11 * num_particles
     )  # First 6N entries for U and last 5N for strain rates
 
-    generalized_velocities = generalized_velocities.at[0 : 6 * N : 6].set(lin_vel.at[:, 0].get())
-    generalized_velocities = generalized_velocities.at[1 : 6 * N : 6].set(lin_vel.at[:, 1].get())
-    generalized_velocities = generalized_velocities.at[2 : 6 * N : 6].set(lin_vel.at[:, 2].get())
-    generalized_velocities = generalized_velocities.at[3 : 6 * N : 6].set(
+    generalized_velocities = generalized_velocities.at[0 : 6 * num_particles : 6].set(lin_vel.at[:, 0].get())
+    generalized_velocities = generalized_velocities.at[1 : 6 * num_particles : 6].set(lin_vel.at[:, 1].get())
+    generalized_velocities = generalized_velocities.at[2 : 6 * num_particles : 6].set(lin_vel.at[:, 2].get())
+    generalized_velocities = generalized_velocities.at[3 : 6 * num_particles : 6].set(
         ang_vel_and_strain.at[:, 0].get()
     )
-    generalized_velocities = generalized_velocities.at[4 : 6 * N : 6].set(
+    generalized_velocities = generalized_velocities.at[4 : 6 * num_particles : 6].set(
         ang_vel_and_strain.at[:, 1].get()
     )
-    generalized_velocities = generalized_velocities.at[5 : 6 * N : 6].set(
+    generalized_velocities = generalized_velocities.at[5 : 6 * num_particles : 6].set(
         ang_vel_and_strain.at[:, 2].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 0) :: 5].set(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 0) :: 5].set(
         ang_vel_and_strain.at[:, 3].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 1) :: 5].set(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 1) :: 5].set(
         ang_vel_and_strain.at[:, 4].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 2) :: 5].set(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 2) :: 5].set(
         ang_vel_and_strain.at[:, 5].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 3) :: 5].set(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 3) :: 5].set(
         ang_vel_and_strain.at[:, 6].get()
     )
-    generalized_velocities = generalized_velocities.at[(6 * N + 4) :: 5].set(
+    generalized_velocities = generalized_velocities.at[(6 * num_particles + 4) :: 5].set(
         ang_vel_and_strain.at[:, 7].get()
     )
 
@@ -1423,12 +1423,12 @@ def GeneralizedMobility_periodic(
 
 
 @partial(jit, static_argnums=[0, 1, 2, 3, 4])
-def Mobility_periodic(
-    N: int,
-    Nx: int,
-    Ny: int,
-    Nz: int,
-    gaussP: int,
+def mobility_periodic(
+    num_particles: int,
+    grid_nx: int,
+    grid_ny: int,
+    grid_nz: int,
+    gauss_support: int,
     gridk: ArrayLike,
     m_self: ArrayLike,
     all_indices_x: ArrayLike,
@@ -1452,30 +1452,30 @@ def Mobility_periodic(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
-    Nx: (int)
+    grid_nx: (int)
         Number of grid points in x direction
-    Ny: (int)
+    grid_ny: (int)
         Number of grid points in y direction
-    Nz: (int)
+    grid_nz: (int)
         Number of grid points in z direction
-    gaussP: (int)
+    gauss_support: (int)
         Gaussian support size for wave space calculation
     gridk: (float)
-        Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+        Array (grid_nx,grid_ny,grid_nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
     m_self: (float)
         Array (,2) containing mobility self contributions
     all_indices_x: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gauss_support*gauss_support*gauss_support) containing all the x-indices of wave grid points overlapping with each particle Gaussian support
     all_indices_y: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gauss_support*gauss_support*gauss_support) containing all the y-indices of wave grid points overlapping with each particle Gaussian support
     all_indices_z: (int)
-        Array (,N*gaussP*gaussP*gaussP) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
+        Array (,num_particles*gauss_support*gauss_support*gauss_support) containing all the z-indices of wave grid points overlapping with each particle Gaussian support
     gaussian_grid_spacing1: (float)
-        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
+        Array (,gauss_support*gauss_support*gauss_support) containing scaled distances from support center to each gridpoint in the gaussian support (for FFT)
     gaussian_grid_spacing2: (float)
-        Array (,gaussP*gaussP*gaussP) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT)
+        Array (,gauss_support*gauss_support*gauss_support) containing scaled distances from support center to each gridpoint in the gaussian support (for inverse FFT)
     r: (float)
         Array (n_pair_ff,3) containing units vectors connecting each pair of particles in the far-field neighbor list
     indices_i: (int)
@@ -1497,7 +1497,7 @@ def Mobility_periodic(
     h3: (float)
         Array (,n_pair_ff) containing mobility scalar function evaluated for the current particle configuration
     generalized_forces: (float)
-        Array (,6*N) containing input generalized forces (force/torque)
+        Array (,6*num_particles) containing input generalized forces (force/torque)
 
     Returns
     -------
@@ -1524,31 +1524,31 @@ def Mobility_periodic(
         """
         return -jnp.imag(cplx_arr) + 1j * jnp.real(cplx_arr)
 
-    # Get forces,torques,couplets from generalized forces (3*N vector: f1x,f1y,f1z, ... , fNx,fNy,fNz and same for torque, while couplet is 5N)
-    forces = jnp.zeros(3 * N)
-    forces = forces.at[0::3].set(generalized_forces.at[0 : (6 * N) : 6].get())
-    forces = forces.at[1::3].set(generalized_forces.at[1 : (6 * N) : 6].get())
-    forces = forces.at[2::3].set(generalized_forces.at[2 : (6 * N) : 6].get())
-    torques = jnp.zeros(3 * N)
-    torques = torques.at[0::3].set(generalized_forces.at[3 : (6 * N) : 6].get())
-    torques = torques.at[1::3].set(generalized_forces.at[4 : (6 * N) : 6].get())
-    torques = torques.at[2::3].set(generalized_forces.at[5 : (6 * N) : 6].get())
+    # Get forces,torques,couplets from generalized forces (3*num_particles vector: f1x,f1y,f1z, ... , fNx,fNy,fNz and same for torque, while couplet is 5N)
+    forces = jnp.zeros(3 * num_particles)
+    forces = forces.at[0::3].set(generalized_forces.at[0 : (6 * num_particles) : 6].get())
+    forces = forces.at[1::3].set(generalized_forces.at[1 : (6 * num_particles) : 6].get())
+    forces = forces.at[2::3].set(generalized_forces.at[2 : (6 * num_particles) : 6].get())
+    torques = jnp.zeros(3 * num_particles)
+    torques = torques.at[0::3].set(generalized_forces.at[3 : (6 * num_particles) : 6].get())
+    torques = torques.at[1::3].set(generalized_forces.at[4 : (6 * num_particles) : 6].get())
+    torques = torques.at[2::3].set(generalized_forces.at[5 : (6 * num_particles) : 6].get())
 
     ######################################## WAVE SPACE CONTRIBUTION #########################################################################
 
     # Create Grids for current iteration
-    gridX = jnp.zeros((Nx, Ny, Nz))
-    gridY = jnp.zeros((Nx, Ny, Nz))
-    gridZ = jnp.zeros((Nx, Ny, Nz))
+    grid_x = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_y = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_z = jnp.zeros((grid_nx, grid_ny, grid_nz))
 
-    gridX = gridX.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_x = grid_x.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(forces.at[0::3].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(forces.at[0::3].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -1561,14 +1561,14 @@ def Mobility_periodic(
             )
         )
     )
-    gridY = gridY.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_y = grid_y.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(forces.at[1::3].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(forces.at[1::3].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -1581,14 +1581,14 @@ def Mobility_periodic(
             )
         )
     )
-    gridZ = gridZ.at[all_indices_x, all_indices_y, all_indices_z].add(
+    grid_z = grid_z.at[all_indices_x, all_indices_y, all_indices_z].add(
         jnp.ravel(
             (
                 jnp.swapaxes(
                     jnp.swapaxes(
                         jnp.swapaxes(
                             gaussian_grid_spacing1
-                            * jnp.resize(forces.at[2::3].get(), (gaussP, gaussP, gaussP, N)),
+                            * jnp.resize(forces.at[2::3].get(), (gauss_support, gauss_support, gauss_support, num_particles)),
                             3,
                             2,
                         ),
@@ -1603,9 +1603,9 @@ def Mobility_periodic(
     )
 
     # Apply FFT
-    gridX = jnp.fft.fftn(gridX)
-    gridY = jnp.fft.fftn(gridY)
-    gridZ = jnp.fft.fftn(gridZ)
+    grid_x = jnp.fft.fftn(grid_x)
+    grid_y = jnp.fft.fftn(grid_y)
+    grid_z = jnp.fft.fftn(grid_z)
 
     gridk_sqr = (
         gridk.at[:, :, :, 0].get() * gridk.at[:, :, :, 0].get()
@@ -1614,44 +1614,44 @@ def Mobility_periodic(
     )
     gridk_mod = jnp.sqrt(gridk_sqr)
 
-    kdF = jnp.where(
+    kdf = jnp.where(
         gridk_mod > 0,
         (
-            gridk.at[:, :, :, 0].get() * gridX
-            + gridk.at[:, :, :, 1].get() * gridY
-            + gridk.at[:, :, :, 2].get() * gridZ
+            gridk.at[:, :, :, 0].get() * grid_x
+            + gridk.at[:, :, :, 1].get() * grid_y
+            + gridk.at[:, :, :, 2].get() * grid_z
         )
         / gridk_sqr,
         0,
     )
 
     # UF part
-    B = jnp.where(
+    b_factor = jnp.where(
         gridk_mod > 0,
         gridk.at[:, :, :, 3].get()
         * (jnp.sin(gridk_mod) / gridk_mod)
         * (jnp.sin(gridk_mod) / gridk_mod),
         0,
     )  # scaling factor
-    gridX = B * (gridX - gridk.at[:, :, :, 0].get() * kdF)
-    gridY = B * (gridY - gridk.at[:, :, :, 1].get() * kdF)
-    gridZ = B * (gridZ - gridk.at[:, :, :, 2].get() * kdF)
+    grid_x = b_factor * (grid_x - gridk.at[:, :, :, 0].get() * kdf)
+    grid_y = b_factor * (grid_y - gridk.at[:, :, :, 1].get() * kdf)
+    grid_z = b_factor * (grid_z - gridk.at[:, :, :, 2].get() * kdf)
 
     # Inverse FFT
-    gridX = jnp.real(jnp.fft.ifftn(gridX, norm="forward"))
-    gridY = jnp.real(jnp.fft.ifftn(gridY, norm="forward"))
-    gridZ = jnp.real(jnp.fft.ifftn(gridZ, norm="forward"))
+    grid_x = jnp.real(jnp.fft.ifftn(grid_x, norm="forward"))
+    grid_y = jnp.real(jnp.fft.ifftn(grid_y, norm="forward"))
+    grid_z = jnp.real(jnp.fft.ifftn(grid_z, norm="forward"))
 
     # Compute Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
-    w_lin_velocities = jnp.zeros((N, 3), float)
-    w_velocity_gradient = jnp.zeros((N, 8), float)
+    w_lin_velocities = jnp.zeros((num_particles, 3), float)
+    w_velocity_gradient = jnp.zeros((num_particles, 8), float)
 
     w_lin_velocities = w_lin_velocities.at[:, 0].add(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridX.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_x.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -1660,8 +1660,8 @@ def Mobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridY.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_y.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -1670,8 +1670,8 @@ def Mobility_periodic(
         jnp.sum(
             gaussian_grid_spacing2
             * jnp.reshape(
-                gridZ.at[all_indices_x, all_indices_y, all_indices_z].get(),
-                (N, gaussP, gaussP, gaussP),
+                grid_z.at[all_indices_x, all_indices_y, all_indices_z].get(),
+                (num_particles, gauss_support, gauss_support, gauss_support),
             ),
             axis=(1, 2, 3),
         )
@@ -1680,8 +1680,8 @@ def Mobility_periodic(
     ######################################## REAL SPACE CONTRIBUTION #########################################################################
 
     # Allocate arrays for Linear velocities and Velocity gradients (from which we can extract angular velocities and rate of strain)
-    r_lin_velocities = jnp.zeros((N, 3), float)
-    r_velocity_gradient = jnp.zeros((N, 8), float)
+    r_lin_velocities = jnp.zeros((num_particles, 3), float)
+    r_velocity_gradient = jnp.zeros((num_particles, 8), float)
 
     # SELF CONTRIBUTIONS
     r_lin_velocities = r_lin_velocities.at[:, 0].set(m_self.at[0].get() * forces.at[0::3].get())
@@ -1976,7 +1976,7 @@ def Mobility_periodic(
     velocity_gradient = w_velocity_gradient + r_velocity_gradient
 
     # # Convert to angular velocities and rate of strain
-    ang_vel_and_strain = jnp.zeros((N, 3))
+    ang_vel_and_strain = jnp.zeros((num_particles, 3))
     ang_vel_and_strain = ang_vel_and_strain.at[:, 0].set(
         (velocity_gradient.at[:, 3].get() - velocity_gradient.at[:, 7].get()) * 0.5
     )
@@ -1989,33 +1989,33 @@ def Mobility_periodic(
 
     # Convert to Generalized Velocities
     generalized_velocities = jnp.zeros(
-        6 * N
+        6 * num_particles
     )  # First 6N entries for U (linear and angular velocities)
 
-    generalized_velocities = generalized_velocities.at[0 : 6 * N : 6].set(lin_vel.at[:, 0].get())
-    generalized_velocities = generalized_velocities.at[1 : 6 * N : 6].set(lin_vel.at[:, 1].get())
-    generalized_velocities = generalized_velocities.at[2 : 6 * N : 6].set(lin_vel.at[:, 2].get())
-    generalized_velocities = generalized_velocities.at[3 : 6 * N : 6].set(
+    generalized_velocities = generalized_velocities.at[0 : 6 * num_particles : 6].set(lin_vel.at[:, 0].get())
+    generalized_velocities = generalized_velocities.at[1 : 6 * num_particles : 6].set(lin_vel.at[:, 1].get())
+    generalized_velocities = generalized_velocities.at[2 : 6 * num_particles : 6].set(lin_vel.at[:, 2].get())
+    generalized_velocities = generalized_velocities.at[3 : 6 * num_particles : 6].set(
         ang_vel_and_strain.at[:, 0].get()
     )
-    generalized_velocities = generalized_velocities.at[4 : 6 * N : 6].set(
+    generalized_velocities = generalized_velocities.at[4 : 6 * num_particles : 6].set(
         ang_vel_and_strain.at[:, 1].get()
     )
-    generalized_velocities = generalized_velocities.at[5 : 6 * N : 6].set(
+    generalized_velocities = generalized_velocities.at[5 : 6 * num_particles : 6].set(
         ang_vel_and_strain.at[:, 2].get()
     )
 
     # Clean Grids for next iteration
-    gridX = jnp.zeros((Nx, Ny, Nz))
-    gridY = jnp.zeros((Nx, Ny, Nz))
-    gridZ = jnp.zeros((Nx, Ny, Nz))
+    grid_x = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_y = jnp.zeros((grid_nx, grid_ny, grid_nz))
+    grid_z = jnp.zeros((grid_nx, grid_ny, grid_nz))
 
     return generalized_velocities
 
 
 @partial(jit, static_argnums=[0])
-def GeneralizedMobility_open(
-    N: int,
+def generalized_mobility_open(
+    num_particles: int,
     r: ArrayLike,
     indices_i: ArrayLike,
     indices_j: ArrayLike,
@@ -2026,38 +2026,38 @@ def GeneralizedMobility_open(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
     r: (float)
-        Array (N*(N-1)/2) ,3) containing the interparticle unit vectors for each pair of particle
+        Array (num_particles*(num_particles-1)/2) ,3) containing the interparticle unit vectors for each pair of particle
     indices_i: (int)
-        Array (,N*(N-1)/2) of indices of first particle in open boundaries list of pairs
+        Array (,num_particles*(num_particles-1)/2) of indices of first particle in open boundaries list of pairs
     indices_j: (int)
-        Array (,N*(N-1)/2) of indices of second particle in open boundaries list of pairs
+        Array (,num_particles*(num_particles-1)/2) of indices of second particle in open boundaries list of pairs
     generalized_forces: (float)
-        Array (,11*N) containing input generalized forces (force/torque/stresslet)
+        Array (,11*num_particles) containing input generalized forces (force/torque/stresslet)
     mobil_scal: (float)
-        Array (11,N*(N-1)/2)) containing mobility functions evaluated for the current particle configuration
+        Array (11,num_particles*(num_particles-1)/2)) containing mobility functions evaluated for the current particle configuration
 
     Returns
     -------
     generalized_velocities (linear/angular velocities and rateOfStrain)
 
     """
-    strain = jnp.zeros((N, 5), float)
-    velocities = jnp.zeros((N, 6), float)
+    strain = jnp.zeros((num_particles, 5), float)
+    velocities = jnp.zeros((num_particles, 6), float)
 
-    forces_torques = generalized_forces[: 6 * N]
+    forces_torques = generalized_forces[: 6 * num_particles]
     forces_torques = -forces_torques
-    ft_i = (jnp.reshape(forces_torques, (N, 6))).at[indices_i].get()
-    ft_j = (jnp.reshape(forces_torques, (N, 6))).at[indices_j].get()
+    ft_i = (jnp.reshape(forces_torques, (num_particles, 6))).at[indices_i].get()
+    ft_j = (jnp.reshape(forces_torques, (num_particles, 6))).at[indices_j].get()
 
     stresslets = generalized_forces[
-        6 * N :
+        6 * num_particles :
     ]  # stresslet in vector form has the format [Sxx,Sxy,Sxz,Syz,Syy]
     # stresslets = -stresslets
 
-    s_i = (jnp.reshape(stresslets, (N, 5))).at[indices_i].get()
+    s_i = (jnp.reshape(stresslets, (num_particles, 5))).at[indices_i].get()
     # s_i = jnp.array([[(1.0/3.0) * ( 2.0 * s_i[:,0] - s_i[:,4] ) ,    0.5 * s_i[:,1]                 ,     0.5 * s_i[:,2] ],
     #                   [0.5 * s_i[:,1]                        ,(1.0/3.0)*(-s_i[:,0]+2.0*s_i[:,4])    ,     0.5 * s_i[:,3] ],
     #                   [0.5 * s_i[:,2]                        ,0.5 * s_i[:,3]                     ,  (-1.0/3.0) * ( s_i[:,0] + s_i[:,4] ) ]])
@@ -2069,7 +2069,7 @@ def GeneralizedMobility_open(
         ]
     )
 
-    s_j = (jnp.reshape(stresslets, (N, 5))).at[indices_j].get()
+    s_j = (jnp.reshape(stresslets, (num_particles, 5))).at[indices_j].get()
     s_j = jnp.array(
         [
             [s_j[:, 0], s_j[:, 1], s_j[:, 2]],
@@ -2082,9 +2082,9 @@ def GeneralizedMobility_open(
     # Dot product of levi-civita-symbol and r
     epsr = jnp.array(
         [
-            [jnp.zeros(int(N * (N - 1) / 2)), r[:, 2], -r[:, 1]],
-            [-r[:, 2], jnp.zeros(int(N * (N - 1) / 2)), r[:, 0]],
-            [r[:, 1], -r[:, 0], jnp.zeros(int(N * (N - 1) / 2))],
+            [jnp.zeros(int(num_particles * (num_particles - 1) / 2)), r[:, 2], -r[:, 1]],
+            [-r[:, 2], jnp.zeros(int(num_particles * (num_particles - 1) / 2)), r[:, 0]],
+            [r[:, 1], -r[:, 0], jnp.zeros(int(num_particles * (num_particles - 1) / 2))],
         ]
     )
 
@@ -2143,7 +2143,7 @@ def GeneralizedMobility_open(
         ]
     )
 
-    Sdri = jnp.array(
+    sdri = jnp.array(
         [
             s_i.at[0, 0, :].get() * r.at[:, 0].get()
             + s_i.at[0, 1, :].get() * r.at[:, 1].get()
@@ -2157,7 +2157,7 @@ def GeneralizedMobility_open(
         ]
     )
 
-    Sdrj = jnp.array(
+    sdrj = jnp.array(
         [
             s_j.at[0, 0, :].get() * r.at[:, 0].get()
             + s_j.at[0, 1, :].get() * r.at[:, 1].get()
@@ -2171,29 +2171,29 @@ def GeneralizedMobility_open(
         ]
     )
 
-    rdSdri = (
-        r.at[:, 0].get() * Sdri.at[0].get()
-        + r.at[:, 1].get() * Sdri.at[1].get()
-        + r.at[:, 2].get() * Sdri.at[2].get()
+    rdsdri = (
+        r.at[:, 0].get() * sdri.at[0].get()
+        + r.at[:, 1].get() * sdri.at[1].get()
+        + r.at[:, 2].get() * sdri.at[2].get()
     )
-    rdSdrj = (
-        r.at[:, 0].get() * Sdrj.at[0].get()
-        + r.at[:, 1].get() * Sdrj.at[1].get()
-        + r.at[:, 2].get() * Sdrj.at[2].get()
+    rdsdrj = (
+        r.at[:, 0].get() * sdrj.at[0].get()
+        + r.at[:, 1].get() * sdrj.at[1].get()
+        + r.at[:, 2].get() * sdrj.at[2].get()
     )
 
-    epsrdSdri = jnp.array(
+    epsrdsdri = jnp.array(
         [
-            epsr[0, 0, :] * Sdri[0, :] + epsr[0, 1, :] * Sdri[1, :] + epsr[0, 2, :] * Sdri[2, :],
-            epsr[1, 0, :] * Sdri[0, :] + epsr[1, 1, :] * Sdri[1, :] + epsr[1, 2, :] * Sdri[2, :],
-            epsr[2, 0, :] * Sdri[0, :] + epsr[2, 1, :] * Sdri[1, :] + epsr[2, 2, :] * Sdri[2, :],
+            epsr[0, 0, :] * sdri[0, :] + epsr[0, 1, :] * sdri[1, :] + epsr[0, 2, :] * sdri[2, :],
+            epsr[1, 0, :] * sdri[0, :] + epsr[1, 1, :] * sdri[1, :] + epsr[1, 2, :] * sdri[2, :],
+            epsr[2, 0, :] * sdri[0, :] + epsr[2, 1, :] * sdri[1, :] + epsr[2, 2, :] * sdri[2, :],
         ]
     )
-    epsrdSdrj = jnp.array(
+    epsrdsdrj = jnp.array(
         [
-            epsr[0, 0, :] * Sdrj[0, :] + epsr[0, 1, :] * Sdrj[1, :] + epsr[0, 2, :] * Sdrj[2, :],
-            epsr[1, 0, :] * Sdrj[0, :] + epsr[1, 1, :] * Sdrj[1, :] + epsr[1, 2, :] * Sdrj[2, :],
-            epsr[2, 0, :] * Sdrj[0, :] + epsr[2, 1, :] * Sdrj[1, :] + epsr[2, 2, :] * Sdrj[2, :],
+            epsr[0, 0, :] * sdrj[0, :] + epsr[0, 1, :] * sdrj[1, :] + epsr[0, 2, :] * sdrj[2, :],
+            epsr[1, 0, :] * sdrj[0, :] + epsr[1, 1, :] * sdrj[1, :] + epsr[1, 2, :] * sdrj[2, :],
+            epsr[2, 0, :] * sdrj[0, :] + epsr[2, 1, :] * sdrj[1, :] + epsr[2, 2, :] * sdrj[2, :],
         ]
     )
 
@@ -2208,10 +2208,10 @@ def GeneralizedMobility_open(
     xg12 = mobil_scal[8]
     yg12 = mobil_scal[9]
     yh12 = mobil_scal[10]
-    n_pairs = int(N * (N - 1) / 2)
+    n_pairs = int(num_particles * (num_particles - 1) / 2)
 
     # normalize self terms (avoid double counting)
-    normaliz_factor = jnp.where(N > 1, N - 1, 1)
+    normaliz_factor = jnp.where(num_particles > 1, num_particles - 1, 1)
 
     # M_UF * F
 
@@ -2250,18 +2250,18 @@ def GeneralizedMobility_open(
 
     # M_US * S
 
-    u = ((-xg12) - 2.0 * (-yg12)).at[:, None].get() * (rdSdrj.at[:, None].get()) * r + 2.0 * (
+    u = ((-xg12) - 2.0 * (-yg12)).at[:, None].get() * (rdsdrj.at[:, None].get()) * r + 2.0 * (
         -yg12
-    ).at[:, None].get() * (Sdrj.T)
-    w = yh12.at[:, None].get() * (2.0 * epsrdSdrj.T)
+    ).at[:, None].get() * (sdrj.T)
+    w = yh12.at[:, None].get() * (2.0 * epsrdsdrj.T)
 
     velocities = velocities.at[indices_i, :3].add(u)
     velocities = velocities.at[indices_i, 3:].add(w)
 
-    u = ((-xg12) - 2.0 * (-yg12)).at[:, None].get() * (rdSdri.at[:, None].get()) * (-r) + 2.0 * (
+    u = ((-xg12) - 2.0 * (-yg12)).at[:, None].get() * (rdsdri.at[:, None].get()) * (-r) + 2.0 * (
         -yg12
-    ).at[:, None].get() * (-Sdri.T)
-    w = yh12.at[:, None].get() * (2.0 * epsrdSdri.T)
+    ).at[:, None].get() * (-sdri.T)
+    w = yh12.at[:, None].get() * (2.0 * epsrdsdri.T)
 
     velocities = velocities.at[indices_j, :3].add(u)
     velocities = velocities.at[indices_j, 3:].add(w)
@@ -2345,133 +2345,133 @@ def GeneralizedMobility_open(
     # strain_xx component
     strain_xx_i = (
         9 / 10 * jnp.ones(n_pairs) * (s_i[0, 0, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 0] * r[:, 0] - 1.0 / 3.0) * rdSdrj
-        + 0.5 * ym12 * (4.0 * r[:, 0] * Sdrj[0] - 4.0 * rdSdrj * r[:, 0] * r[:, 0])
+        + 1.5 * xm12 * (r[:, 0] * r[:, 0] - 1.0 / 3.0) * rdsdrj
+        + 0.5 * ym12 * (4.0 * r[:, 0] * sdrj[0] - 4.0 * rdsdrj * r[:, 0] * r[:, 0])
         + 0.5
         * zm12
-        * (2.0 * s_j[0, 0, :] + (1.0 + r[:, 0] * r[:, 0]) * rdSdrj - 4.0 * r[:, 0] * Sdrj[0])
+        * (2.0 * s_j[0, 0, :] + (1.0 + r[:, 0] * r[:, 0]) * rdsdrj - 4.0 * r[:, 0] * sdrj[0])
     )
     strain_xx_j = (
         9 / 10 * jnp.ones(n_pairs) * (s_j[0, 0, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 0] * r[:, 0] - 1.0 / 3.0) * rdSdri
-        + 0.5 * ym12 * (4.0 * r[:, 0] * Sdri[0] - 4.0 * rdSdri * r[:, 0] * r[:, 0])
+        + 1.5 * xm12 * (r[:, 0] * r[:, 0] - 1.0 / 3.0) * rdsdri
+        + 0.5 * ym12 * (4.0 * r[:, 0] * sdri[0] - 4.0 * rdsdri * r[:, 0] * r[:, 0])
         + 0.5
         * zm12
-        * (2.0 * s_i[0, 0, :] + (1.0 + r[:, 0] * r[:, 0]) * rdSdri - 4.0 * r[:, 0] * Sdri[0])
+        * (2.0 * s_i[0, 0, :] + (1.0 + r[:, 0] * r[:, 0]) * rdsdri - 4.0 * r[:, 0] * sdri[0])
     )
 
     # strain_xy component
     strain_xy_i = (
         9 / 10 * jnp.ones(n_pairs) * (s_i[0, 1, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 0] * r[:, 1]) * rdSdrj
+        + 1.5 * xm12 * (r[:, 0] * r[:, 1]) * rdsdrj
         + 0.5
         * ym12
-        * (2.0 * r[:, 0] * Sdrj[1] + 2.0 * r[:, 1] * Sdrj[0] - 4.0 * rdSdrj * r[:, 0] * r[:, 1])
+        * (2.0 * r[:, 0] * sdrj[1] + 2.0 * r[:, 1] * sdrj[0] - 4.0 * rdsdrj * r[:, 0] * r[:, 1])
         + 0.5
         * zm12
         * (
             2.0 * s_j[0, 1, :]
-            + (r[:, 0] * r[:, 1]) * rdSdrj
-            - 2.0 * r[:, 0] * Sdrj[1]
-            - 2.0 * r[:, 1] * Sdrj[0]
+            + (r[:, 0] * r[:, 1]) * rdsdrj
+            - 2.0 * r[:, 0] * sdrj[1]
+            - 2.0 * r[:, 1] * sdrj[0]
         )
     )
     strain_xy_j = (
         9 / 10 * jnp.ones(n_pairs) * (s_j[0, 1, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 0] * r[:, 1]) * rdSdri
+        + 1.5 * xm12 * (r[:, 0] * r[:, 1]) * rdsdri
         + 0.5
         * ym12
-        * (2.0 * r[:, 0] * Sdri[1] + 2.0 * r[:, 1] * Sdri[0] - 4.0 * rdSdri * r[:, 0] * r[:, 1])
+        * (2.0 * r[:, 0] * sdri[1] + 2.0 * r[:, 1] * sdri[0] - 4.0 * rdsdri * r[:, 0] * r[:, 1])
         + 0.5
         * zm12
         * (
             2.0 * s_i[0, 1, :]
-            + (r[:, 0] * r[:, 1]) * rdSdri
-            - 2.0 * r[:, 0] * Sdri[1]
-            - 2.0 * r[:, 1] * Sdri[0]
+            + (r[:, 0] * r[:, 1]) * rdsdri
+            - 2.0 * r[:, 0] * sdri[1]
+            - 2.0 * r[:, 1] * sdri[0]
         )
     )
 
     # strain_xz component
     strain_xz_i = (
         9 / 10 * jnp.ones(n_pairs) * (s_i[0, 2, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 0] * r[:, 2]) * rdSdrj
+        + 1.5 * xm12 * (r[:, 0] * r[:, 2]) * rdsdrj
         + 0.5
         * ym12
-        * (2.0 * r[:, 0] * Sdrj[2] + 2.0 * r[:, 2] * Sdrj[0] - 4.0 * rdSdrj * r[:, 0] * r[:, 2])
+        * (2.0 * r[:, 0] * sdrj[2] + 2.0 * r[:, 2] * sdrj[0] - 4.0 * rdsdrj * r[:, 0] * r[:, 2])
         + 0.5
         * zm12
         * (
             2.0 * s_j[0, 2, :]
-            + (r[:, 0] * r[:, 2]) * rdSdrj
-            - 2.0 * r[:, 0] * Sdrj[2]
-            - 2.0 * r[:, 2] * Sdrj[0]
+            + (r[:, 0] * r[:, 2]) * rdsdrj
+            - 2.0 * r[:, 0] * sdrj[2]
+            - 2.0 * r[:, 2] * sdrj[0]
         )
     )
     strain_xz_j = (
         9 / 10 * jnp.ones(n_pairs) * (s_j[0, 2, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 0] * r[:, 2]) * rdSdri
+        + 1.5 * xm12 * (r[:, 0] * r[:, 2]) * rdsdri
         + 0.5
         * ym12
-        * (2.0 * r[:, 0] * Sdri[2] + 2.0 * r[:, 2] * Sdri[0] - 4.0 * rdSdri * r[:, 0] * r[:, 2])
+        * (2.0 * r[:, 0] * sdri[2] + 2.0 * r[:, 2] * sdri[0] - 4.0 * rdsdri * r[:, 0] * r[:, 2])
         + 0.5
         * zm12
         * (
             2.0 * s_i[0, 2, :]
-            + (r[:, 0] * r[:, 2]) * rdSdri
-            - 2.0 * r[:, 0] * Sdri[2]
-            - 2.0 * r[:, 2] * Sdri[0]
+            + (r[:, 0] * r[:, 2]) * rdsdri
+            - 2.0 * r[:, 0] * sdri[2]
+            - 2.0 * r[:, 2] * sdri[0]
         )
     )
 
     # strain_yz component
     strain_yz_i = (
         9 / 10 * jnp.ones(n_pairs) * (s_i[1, 2, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 1] * r[:, 2]) * rdSdrj
+        + 1.5 * xm12 * (r[:, 1] * r[:, 2]) * rdsdrj
         + 0.5
         * ym12
-        * (2.0 * r[:, 1] * Sdrj[2] + 2.0 * r[:, 2] * Sdrj[1] - 4.0 * rdSdrj * r[:, 1] * r[:, 2])
+        * (2.0 * r[:, 1] * sdrj[2] + 2.0 * r[:, 2] * sdrj[1] - 4.0 * rdsdrj * r[:, 1] * r[:, 2])
         + 0.5
         * zm12
         * (
             2.0 * s_j[1, 2, :]
-            + (r[:, 1] * r[:, 2]) * rdSdrj
-            - 2.0 * r[:, 1] * Sdrj[2]
-            - 2.0 * r[:, 2] * Sdrj[1]
+            + (r[:, 1] * r[:, 2]) * rdsdrj
+            - 2.0 * r[:, 1] * sdrj[2]
+            - 2.0 * r[:, 2] * sdrj[1]
         )
     )
     strain_yz_j = (
         9 / 10 * jnp.ones(n_pairs) * (s_j[1, 2, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 1] * r[:, 2]) * rdSdri
+        + 1.5 * xm12 * (r[:, 1] * r[:, 2]) * rdsdri
         + 0.5
         * ym12
-        * (2.0 * r[:, 1] * Sdri[2] + 2.0 * r[:, 2] * Sdri[1] - 4.0 * rdSdri * r[:, 1] * r[:, 2])
+        * (2.0 * r[:, 1] * sdri[2] + 2.0 * r[:, 2] * sdri[1] - 4.0 * rdsdri * r[:, 1] * r[:, 2])
         + 0.5
         * zm12
         * (
             2.0 * s_i[1, 2, :]
-            + (r[:, 1] * r[:, 2]) * rdSdri
-            - 2.0 * r[:, 1] * Sdri[2]
-            - 2.0 * r[:, 2] * Sdri[1]
+            + (r[:, 1] * r[:, 2]) * rdsdri
+            - 2.0 * r[:, 1] * sdri[2]
+            - 2.0 * r[:, 2] * sdri[1]
         )
     )
 
     # strain_yy component
     strain_yy_i = (
         9 / 10 * jnp.ones(n_pairs) * (s_i[1, 1, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 1] * r[:, 1] - 1.0 / 3.0) * rdSdrj
-        + 0.5 * ym12 * (4.0 * r[:, 1] * Sdrj[1] - 4.0 * rdSdrj * r[:, 1] * r[:, 1])
+        + 1.5 * xm12 * (r[:, 1] * r[:, 1] - 1.0 / 3.0) * rdsdrj
+        + 0.5 * ym12 * (4.0 * r[:, 1] * sdrj[1] - 4.0 * rdsdrj * r[:, 1] * r[:, 1])
         + 0.5
         * zm12
-        * (2.0 * s_j[1, 1, :] + (1.0 + r[:, 1] * r[:, 1]) * rdSdrj - 4.0 * r[:, 1] * Sdrj[1])
+        * (2.0 * s_j[1, 1, :] + (1.0 + r[:, 1] * r[:, 1]) * rdsdrj - 4.0 * r[:, 1] * sdrj[1])
     )
     strain_yy_j = (
         9 / 10 * jnp.ones(n_pairs) * (s_j[1, 1, :]) / normaliz_factor
-        + 1.5 * xm12 * (r[:, 1] * r[:, 1] - 1.0 / 3.0) * rdSdri
-        + 0.5 * ym12 * (4.0 * r[:, 1] * Sdri[1] - 4.0 * rdSdri * r[:, 1] * r[:, 1])
+        + 1.5 * xm12 * (r[:, 1] * r[:, 1] - 1.0 / 3.0) * rdsdri
+        + 0.5 * ym12 * (4.0 * r[:, 1] * sdri[1] - 4.0 * rdsdri * r[:, 1] * r[:, 1])
         + 0.5
         * zm12
-        * (2.0 * s_i[1, 1, :] + (1.0 + r[:, 1] * r[:, 1]) * rdSdri - 4.0 * r[:, 1] * Sdri[1])
+        * (2.0 * s_i[1, 1, :] + (1.0 + r[:, 1] * r[:, 1]) * rdsdri - 4.0 * r[:, 1] * sdri[1])
     )
 
     strain = strain.at[indices_i, 0].add((2.0 * strain_xx_i + strain_yy_i))
@@ -2489,19 +2489,19 @@ def GeneralizedMobility_open(
     r = -r  # reset sign to original
     velocities = jnp.ravel(velocities)
     strain = jnp.ravel(strain)
-    gen_vel = jnp.zeros(11 * N)
+    gen_vel = jnp.zeros(11 * num_particles)
     # mobility is build to return the particle velocity (instead of -velocity)
     # and minus the ambient rate of strain (instead of the ambient rate of strain)
     # this is because of the input 'r' 'stresslets' and 'forces/torques'
-    gen_vel = gen_vel.at[: 6 * N].set(-velocities)
-    gen_vel = gen_vel.at[6 * N :].set(strain)
+    gen_vel = gen_vel.at[: 6 * num_particles].set(-velocities)
+    gen_vel = gen_vel.at[6 * num_particles :].set(strain)
 
     return gen_vel
 
 
 @partial(jit, static_argnums=[0])
-def Mobility_open(
-    N: int,
+def mobility_open(
+    num_particles: int,
     r: ArrayLike,
     indices_i: ArrayLike,
     indices_j: ArrayLike,
@@ -2512,28 +2512,28 @@ def Mobility_open(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
     r: (float)
-        Array (N*(N-1)/2) ,3) containing the interparticle unit vectors for each pair of particle
+        Array (num_particles*(num_particles-1)/2) ,3) containing the interparticle unit vectors for each pair of particle
     indices_i: (int)
-        Array (,N*(N-1)/2) of indices of first particle in open boundaries list of pairs
+        Array (,num_particles*(num_particles-1)/2) of indices of first particle in open boundaries list of pairs
     indices_j: (int)
-        Array (,N*(N-1)/2) of indices of second particle in open boundaries list of pairs
+        Array (,num_particles*(num_particles-1)/2) of indices of second particle in open boundaries list of pairs
     generalized_forces: (float)
-        Array (,6*N) containing input generalized forces (force/torque)
+        Array (,6*num_particles) containing input generalized forces (force/torque)
     mobil_scal: (float)
-        Array (11,N*(N-1)/2)) containing mobility functions evaluated for the current particle configuration
+        Array (11,num_particles*(num_particles-1)/2)) containing mobility functions evaluated for the current particle configuration
 
     Returns
     -------
     generalized_velocities (linear/angular velocities)
 
     """
-    velocities = jnp.zeros((N, 6), float)
-    forces_torques = generalized_forces[: 6 * N]
-    ft_i = (jnp.reshape(forces_torques, (N, 6))).at[indices_i].get()
-    ft_j = (jnp.reshape(forces_torques, (N, 6))).at[indices_j].get()
+    velocities = jnp.zeros((num_particles, 6), float)
+    forces_torques = generalized_forces[: 6 * num_particles]
+    ft_i = (jnp.reshape(forces_torques, (num_particles, 6))).at[indices_i].get()
+    ft_j = (jnp.reshape(forces_torques, (num_particles, 6))).at[indices_j].get()
 
     # Dot product of r and U, i.e. axisymmetric projection (minus sign of rj is taken into account at the end of calculation)
     rdfi = (
@@ -2591,14 +2591,14 @@ def Mobility_open(
     )
 
     # normalize self terms (avoid double counting)
-    normaliz_factor = jnp.where(N > 1, N - 1, 1)
+    normaliz_factor = jnp.where(num_particles > 1, num_particles - 1, 1)
 
     xa12 = mobil_scal[0]
     ya12 = mobil_scal[1]
     yb12 = mobil_scal[2]
     xc12 = mobil_scal[3]
     yc12 = mobil_scal[4]
-    n_pairs = int(N * (N - 1) / 2)
+    n_pairs = int(num_particles * (num_particles - 1) / 2)
 
     # M_UF * F
 

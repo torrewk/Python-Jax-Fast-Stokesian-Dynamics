@@ -6,17 +6,17 @@ from jax.typing import ArrayLike
 
 
 @partial(jit, static_argnums=[0])
-def sumAppliedForces(
-    N: int,
-    AppliedForce: ArrayLike,
-    AppliedTorques: ArrayLike,
+def sum_applied_forces(
+    num_particles: int,
+    constant_forces: ArrayLike,
+    constant_torques: ArrayLike,
     saddle_b: ArrayLike,
-    U: float,
+    interaction_strength: float,
     indices_i: ArrayLike,
     indices_j: ArrayLike,
     dist: ArrayLike,
-    Ucutoff: float,
-    HIs_flag: int,
+    interaction_cutoff: float,
+    hydrodynamics_flag: int,
     dt: float,
 ) -> Array:
     """Sum all applied forces/torques for each particle.
@@ -28,15 +28,15 @@ def sumAppliedForces(
 
     Parameters
     ----------
-    N: (int)
+    num_particles: (int)
         Number of particles
-    AppliedForce: (float)
-        Array (N,3) of applied (external) forces, e.g. buoyancy
-    AppliedTorques: (float)
-        Array (N,3) of applied (external) torques
+    constant_forces: (float)
+        Array (num_particles,3) of applied (external) forces, e.g. buoyancy
+    constant_torques: (float)
+        Array (num_particles,3) of applied (external) torques
     saddle_b: (float)
-        Right-hand side vector (17*N) of saddle point system Ax=b
-    U: (float)
+        Right-hand side vector (17*num_particles) of saddle point system Ax=b
+    interaction_strength: (float)
         Energy of a single colloidal bond
     indices_i: (int)
         Array (n_pair) of indices of first particle in neighbor list pairs
@@ -44,9 +44,9 @@ def sumAppliedForces(
         Array (n_pair) of indices of second particle in neighbor list pairs
     dist: (float)
         Array (n_pair,3) of distance vectors between particles in neighbor list
-    Ucutoff: (float)
+    interaction_cutoff: (float)
         Cutoff (max) distance for pair-interactions
-    HIs_flag: (int)
+    hydrodynamics_flag: (int)
         Flag used to set level of hydrodynamic interaction. 0 for BD, 1 for SD.
     dt: (float)
         Timestep. Needed to compute 'potential-free' hard sphere repulsion
@@ -57,14 +57,14 @@ def sumAppliedForces(
 
     """
 
-    def compute_LJhe_potentialforces(
-        U: float, indices_i: ArrayLike, indices_j: ArrayLike, dist: ArrayLike
+    def compute_lj_highexponent(
+        interaction_strength: float, indices_i: ArrayLike, indices_j: ArrayLike, dist: ArrayLike
     ) -> Array:
         """Compute pair interactions using a "high exponent" Lennard-Jones potential (attractions+repulsions)
 
         Parameters
         ----------
-        U: (float)
+        interaction_strength: (float)
             Energy of a single colloidal bond
         indices_i: (int)
             Array (n_pair) of indices of first particle in neighbor list pairs
@@ -75,10 +75,10 @@ def sumAppliedForces(
 
         Returns
         -------
-        Fp
+        fp
 
         """
-        Fp = jnp.zeros((N, N, 3))
+        fp = jnp.zeros((num_particles, num_particles, 3))
         dist_mod = jnp.sqrt(
             dist[:, :, 0] * dist[:, :, 0]
             + dist[:, :, 1] * dist[:, :, 1]
@@ -93,36 +93,36 @@ def sumAppliedForces(
         sigmdr = jnp.power(sigmdr, 48)
 
         # compute forces for each pair
-        Fp_mod = (
+        fp_mod = (
             96
-            * U
+            * interaction_strength
             / (dist_mod[indices_i, indices_j] * dist_mod[indices_i, indices_j])
             * sigmdr
             * (1 - sigmdr)
         )
-        Fp_mod = jnp.where((dist_mod[indices_i, indices_j]) > sigma * Ucutoff, 0.0, Fp_mod)
+        fp_mod = jnp.where((dist_mod[indices_i, indices_j]) > sigma * interaction_cutoff, 0.0, fp_mod)
 
         # get forces in components
-        Fp = Fp.at[indices_i, indices_j, 0].add(Fp_mod * dist[indices_i, indices_j, 0])
-        Fp = Fp.at[indices_i, indices_j, 1].add(Fp_mod * dist[indices_i, indices_j, 1])
-        Fp = Fp.at[indices_i, indices_j, 2].add(Fp_mod * dist[indices_i, indices_j, 2])
-        Fp = Fp.at[indices_j, indices_i, 0].add(Fp_mod * dist[indices_j, indices_i, 0])
-        Fp = Fp.at[indices_j, indices_i, 1].add(Fp_mod * dist[indices_j, indices_i, 1])
-        Fp = Fp.at[indices_j, indices_i, 2].add(Fp_mod * dist[indices_j, indices_i, 2])
+        fp = fp.at[indices_i, indices_j, 0].add(fp_mod * dist[indices_i, indices_j, 0])
+        fp = fp.at[indices_i, indices_j, 1].add(fp_mod * dist[indices_i, indices_j, 1])
+        fp = fp.at[indices_i, indices_j, 2].add(fp_mod * dist[indices_i, indices_j, 2])
+        fp = fp.at[indices_j, indices_i, 0].add(fp_mod * dist[indices_j, indices_i, 0])
+        fp = fp.at[indices_j, indices_i, 1].add(fp_mod * dist[indices_j, indices_i, 1])
+        fp = fp.at[indices_j, indices_i, 2].add(fp_mod * dist[indices_j, indices_i, 2])
 
         # sum all forces in each particle
-        Fp = jnp.sum(Fp, 1)
+        fp = jnp.sum(fp, 1)
 
-        return Fp
+        return fp
 
-    def compute_AO_potentialforces(
-        U: float, indices_i: ArrayLike, indices_j: ArrayLike, dist: ArrayLike
+    def compute_asakura_oosawa_vrij(
+        interaction_strength: float, indices_i: ArrayLike, indices_j: ArrayLike, dist: ArrayLike
     ) -> Array:
         """Compute attractive pair interactions using an Asakura-Osawa potential.
 
         Parameters
         ----------
-        U: (float)
+        interaction_strength: (float)
             Energy of a single colloidal bond
         indices_i: (int)
             Array (n_pair) of indices of first particle in neighbor list pairs
@@ -133,10 +133,10 @@ def sumAppliedForces(
 
         Returns
         -------
-        Fp
+        fp
 
         """
-        Fp = jnp.zeros((N, N, 3))
+        fp = jnp.zeros((num_particles, num_particles, 3))
         dist_sqr = (
             dist[:, :, 0] * dist[:, :, 0]
             + dist[:, :, 1] * dist[:, :, 1]
@@ -147,11 +147,11 @@ def sumAppliedForces(
         diameter = 2.002
         alpha = diameter * onepdelta
         # compute forces for each pair
-        # Fp_mod = U * (-3*onepdelta*onepdelta/2 + 3 / 8 * dist_sqr[indices_i, indices_j]) / (
+        # fp_mod = interaction_strength * (-3*onepdelta*onepdelta/2 + 3 / 8 * dist_sqr[indices_i, indices_j]) / (
         #     2+onepdelta*onepdelta*onepdelta-3*onepdelta*onepdelta+1)
 
-        Fp_mod = (
-            U
+        fp_mod = (
+            interaction_strength
             * 3
             * (-alpha * alpha + dist_sqr[indices_i, indices_j])
             / (
@@ -161,24 +161,24 @@ def sumAppliedForces(
             )
         )
 
-        Fp_mod = jnp.where((dist_sqr[indices_i, indices_j]) <= (diameter * diameter), 0.0, Fp_mod)
-        Fp_mod = jnp.where(
-            (dist_sqr[indices_i, indices_j]) >= (4.0 * onepdelta * onepdelta), 0.0, Fp_mod
+        fp_mod = jnp.where((dist_sqr[indices_i, indices_j]) <= (diameter * diameter), 0.0, fp_mod)
+        fp_mod = jnp.where(
+            (dist_sqr[indices_i, indices_j]) >= (4.0 * onepdelta * onepdelta), 0.0, fp_mod
         )
-        Fp_mod = -Fp_mod / jnp.sqrt(dist_sqr[indices_i, indices_j])
+        fp_mod = -fp_mod / jnp.sqrt(dist_sqr[indices_i, indices_j])
 
         # get forces in components
-        Fp = Fp.at[indices_i, indices_j, 0].add(Fp_mod * dist[indices_i, indices_j, 0])
-        Fp = Fp.at[indices_i, indices_j, 1].add(Fp_mod * dist[indices_i, indices_j, 1])
-        Fp = Fp.at[indices_i, indices_j, 2].add(Fp_mod * dist[indices_i, indices_j, 2])
-        Fp = Fp.at[indices_j, indices_i, 0].add(Fp_mod * dist[indices_j, indices_i, 0])
-        Fp = Fp.at[indices_j, indices_i, 1].add(Fp_mod * dist[indices_j, indices_i, 1])
-        Fp = Fp.at[indices_j, indices_i, 2].add(Fp_mod * dist[indices_j, indices_i, 2])
+        fp = fp.at[indices_i, indices_j, 0].add(fp_mod * dist[indices_i, indices_j, 0])
+        fp = fp.at[indices_i, indices_j, 1].add(fp_mod * dist[indices_i, indices_j, 1])
+        fp = fp.at[indices_i, indices_j, 2].add(fp_mod * dist[indices_i, indices_j, 2])
+        fp = fp.at[indices_j, indices_i, 0].add(fp_mod * dist[indices_j, indices_i, 0])
+        fp = fp.at[indices_j, indices_i, 1].add(fp_mod * dist[indices_j, indices_i, 1])
+        fp = fp.at[indices_j, indices_i, 2].add(fp_mod * dist[indices_j, indices_i, 2])
 
         # sum all forces in each particle
-        Fp = jnp.sum(Fp, 1)
+        fp = jnp.sum(fp, 1)
 
-        return Fp
+        return fp
 
     def compute_hs_forces(
         indices_i: ArrayLike, indices_j: ArrayLike, dist: ArrayLike, dt: float
@@ -196,10 +196,10 @@ def sumAppliedForces(
 
         Returns
         -------
-        Fp
+        fp
 
         """
-        Fp = jnp.zeros((N, N, 3))
+        fp = jnp.zeros((num_particles, num_particles, 3))
         dist_mod = jnp.sqrt(
             dist[:, :, 0] * dist[:, :, 0]
             + dist[:, :, 1] * dist[:, :, 1]
@@ -211,65 +211,65 @@ def sumAppliedForces(
         # compute forces for each pair
         # spring constant must be calibrated to exactly remove the current overlap
         # with lubrication hydrodynamic this is ~ o(1000) because of divergent (at contact) effective drag coeff
-        k = jnp.where(HIs_flag > 1, (2500.839791) / dt, 1 / dt)
+        k = jnp.where(hydrodynamics_flag > 1, (2500.839791) / dt, 1 / dt)
 
-        Fp_mod = jnp.where(
+        fp_mod = jnp.where(
             indices_i != indices_j, k * (1 - sigma / dist_mod[indices_i, indices_j]), 0.0
         )
-        Fp_mod = jnp.where((dist_mod[indices_i, indices_j]) < sigma, Fp_mod, 0.0)
+        fp_mod = jnp.where((dist_mod[indices_i, indices_j]) < sigma, fp_mod, 0.0)
 
         # get forces in components
-        Fp = Fp.at[indices_i, indices_j, 0].add(Fp_mod * dist[indices_i, indices_j, 0])
-        Fp = Fp.at[indices_i, indices_j, 1].add(Fp_mod * dist[indices_i, indices_j, 1])
-        Fp = Fp.at[indices_i, indices_j, 2].add(Fp_mod * dist[indices_i, indices_j, 2])
-        Fp = Fp.at[indices_j, indices_i, 0].add(Fp_mod * dist[indices_j, indices_i, 0])
-        Fp = Fp.at[indices_j, indices_i, 1].add(Fp_mod * dist[indices_j, indices_i, 1])
-        Fp = Fp.at[indices_j, indices_i, 2].add(Fp_mod * dist[indices_j, indices_i, 2])
+        fp = fp.at[indices_i, indices_j, 0].add(fp_mod * dist[indices_i, indices_j, 0])
+        fp = fp.at[indices_i, indices_j, 1].add(fp_mod * dist[indices_i, indices_j, 1])
+        fp = fp.at[indices_i, indices_j, 2].add(fp_mod * dist[indices_i, indices_j, 2])
+        fp = fp.at[indices_j, indices_i, 0].add(fp_mod * dist[indices_j, indices_i, 0])
+        fp = fp.at[indices_j, indices_i, 1].add(fp_mod * dist[indices_j, indices_i, 1])
+        fp = fp.at[indices_j, indices_i, 2].add(fp_mod * dist[indices_j, indices_i, 2])
 
         # sum all forces in each particle
-        Fp = jnp.sum(Fp, 1)
+        fp = jnp.sum(fp, 1)
 
-        return Fp
+        return fp
 
     # compute hard sphere repulsion, and short-range attractions
     hs_Force = compute_hs_forces(indices_i, indices_j, dist, dt)
-    AO_force = compute_AO_potentialforces(U, indices_i, indices_j, dist)
+    aov_force = compute_asakura_oosawa_vrij(interaction_strength, indices_i, indices_j, dist)
 
     # add imposed (-forces) to rhs of linear system
-    saddle_b = saddle_b.at[(11 * N + 0) :: 6].add(
-        -AppliedForce.at[0::3].get() - hs_Force.at[:, 0].get() - AO_force.at[:, 0].get()
+    saddle_b = saddle_b.at[(11 * num_particles + 0) :: 6].add(
+        -constant_forces.at[0::3].get() - hs_Force.at[:, 0].get() - aov_force.at[:, 0].get()
     )
-    saddle_b = saddle_b.at[(11 * N + 1) :: 6].add(
-        -AppliedForce.at[1::3].get() - hs_Force.at[:, 1].get() - AO_force.at[:, 1].get()
+    saddle_b = saddle_b.at[(11 * num_particles + 1) :: 6].add(
+        -constant_forces.at[1::3].get() - hs_Force.at[:, 1].get() - aov_force.at[:, 1].get()
     )
-    saddle_b = saddle_b.at[(11 * N + 2) :: 6].add(
-        -AppliedForce.at[2::3].get() - hs_Force.at[:, 2].get() - AO_force.at[:, 2].get()
+    saddle_b = saddle_b.at[(11 * num_particles + 2) :: 6].add(
+        -constant_forces.at[2::3].get() - hs_Force.at[:, 2].get() - aov_force.at[:, 2].get()
     )
 
     # add imposed (-torques) to rhs of linear system
-    saddle_b = saddle_b.at[(11 * N + 3) :: 6].add(-AppliedTorques.at[0::3].get())
-    saddle_b = saddle_b.at[(11 * N + 4) :: 6].add(-AppliedTorques.at[1::3].get())
-    saddle_b = saddle_b.at[(11 * N + 5) :: 6].add(-AppliedTorques.at[2::3].get())
+    saddle_b = saddle_b.at[(11 * num_particles + 3) :: 6].add(-constant_torques.at[0::3].get())
+    saddle_b = saddle_b.at[(11 * num_particles + 4) :: 6].add(-constant_torques.at[1::3].get())
+    saddle_b = saddle_b.at[(11 * num_particles + 5) :: 6].add(-constant_torques.at[2::3].get())
     # if there are no HIs, divide torques by rotational drag coeff (not done for forces as the translational drag coeff is set to 1 in simulation units)
-    saddle_b = saddle_b.at[(11 * N + 3) :: 6].set(
+    saddle_b = saddle_b.at[(11 * num_particles + 3) :: 6].set(
         jnp.where(
-            HIs_flag > 0,
-            saddle_b.at[(11 * N + 3) :: 6].get(),
-            saddle_b.at[(11 * N + 3) :: 6].get() * 3 / 4,
+            hydrodynamics_flag > 0,
+            saddle_b.at[(11 * num_particles + 3) :: 6].get(),
+            saddle_b.at[(11 * num_particles + 3) :: 6].get() * 3 / 4,
         )
     )
-    saddle_b = saddle_b.at[(11 * N + 4) :: 6].set(
+    saddle_b = saddle_b.at[(11 * num_particles + 4) :: 6].set(
         jnp.where(
-            HIs_flag > 0,
-            saddle_b.at[(11 * N + 4) :: 6].get(),
-            saddle_b.at[(11 * N + 4) :: 6].get() * 3 / 4,
+            hydrodynamics_flag > 0,
+            saddle_b.at[(11 * num_particles + 4) :: 6].get(),
+            saddle_b.at[(11 * num_particles + 4) :: 6].get() * 3 / 4,
         )
     )
-    saddle_b = saddle_b.at[(11 * N + 5) :: 6].set(
+    saddle_b = saddle_b.at[(11 * num_particles + 5) :: 6].set(
         jnp.where(
-            HIs_flag > 0,
-            saddle_b.at[(11 * N + 5) :: 6].get(),
-            saddle_b.at[(11 * N + 5) :: 6].get() * 3 / 4,
+            hydrodynamics_flag > 0,
+            saddle_b.at[(11 * num_particles + 5) :: 6].get(),
+            saddle_b.at[(11 * num_particles + 5) :: 6].get() * 3 / 4,
         )
     )
 
