@@ -4,26 +4,18 @@ jfsd package
 Submodules
 ----------
 
-jfsd.JFSD module
-----------------
-
-.. automodule:: jfsd.JFSD
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-jfsd.appliedForces module
+jfsd.applied\_forces module
 -------------------------
 
-.. automodule:: jfsd.appliedForces
+.. automodule:: jfsd.applied_forces
    :members:
    :undoc-members:
    :show-inheritance:
 
-jfsd.ewaldTables module
+jfsd.ewald\_tables module
 -----------------------
 
-.. automodule:: jfsd.ewaldTables
+.. automodule:: jfsd.ewald_tables
    :members:
    :undoc-members:
    :show-inheritance:
