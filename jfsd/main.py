@@ -238,7 +238,8 @@ def main(
     return trajectory, stresslet_history, velocities, test_results
 
 
-def check_overlap(positions: ArrayLike, num_particles: int, nlist: ArrayLike) -> bool:
+def check_overlap(positions: ArrayLike, num_particles: int, 
+                  nlist: ArrayLike, box: ArrayLike) -> bool:
     """Check for overlapping particles in the current configuration.
 
     Prints indices and distances of overlapping pairs.
@@ -251,14 +252,14 @@ def check_overlap(positions: ArrayLike, num_particles: int, nlist: ArrayLike) ->
         Number of particles.
     nlist : ArrayLike
         Neighbor list.
-    
+        
     Returns
     -------
     bool
         True if overlaps are present, False otherwise.
     """
     overlaps = utils.find_overlaps(
-        positions, 2.0, num_particles, nlist
+        positions, 2.0, num_particles, nlist, box
     )
     if overlaps > 0:
         print(
@@ -505,7 +506,7 @@ def wrap_sd(
     if np.count_nonzero(constant_applied_torques) > 0:  # apply external torques
         external_torques += jnp.ravel(constant_applied_torques)
     # Check if particles overlap
-    overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs)
+    overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs, box)
     if overlaps > 0:
         print("Warning: initial overlaps are ", (overlaps))
     print("Starting: compiling the code... This should not take more than 1-2 minutes.")
@@ -821,6 +822,7 @@ def wrap_sd(
             interaction_cutoff,
             2,
             time_step,
+            box
         )
 
         # add (-) the ambient rate of strain to the right-hand side
@@ -975,7 +977,7 @@ def wrap_sd(
             if (not math.isfinite(stepnormff)) or (
                 (n_iter_Lanczos_ff > 150) and (stepnormff > 0.02)
             ):
-                check_overlap(positions, num_particles, unique_pairs)
+                check_overlap(positions, num_particles, unique_pairs, box)
                 raise ValueError(
                     f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!"
                 )
@@ -1035,7 +1037,7 @@ def wrap_sd(
                 if (not math.isfinite(stepnormnf)) or (
                     (n_iter_Lanczos_nf > 250) and (stepnormnf > 1e-3)
                 ):
-                    check_overlap(positions, num_particles, unique_pairs)
+                    check_overlap(positions, num_particles, unique_pairs, box)
                     raise ValueError(
                         f"Near-field Lanczos did not converge! Stepnorm is {stepnormnf}, iterations are {n_iter_Lanczos_nf}. Eigenvalues of tridiagonal matrix are {diag_nf}. Abort!"
                     )
@@ -1170,7 +1172,7 @@ def wrap_sd(
                 raise ValueError("Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            check_overlap(positions, num_particles, unique_pairs)
+            check_overlap(positions, num_particles, unique_pairs, box)
 
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions
@@ -1375,7 +1377,7 @@ def wrap_rpy(
     if output is not None:
         output = Path(output)
         output.mkdir(exist_ok=True, parents=True)
-
+    
     # set array for output trajectory, velocities and stresslet in time
     trajectory = np.zeros((int(num_steps / writing_period), num_particles, 3), float)
     velocities = np.zeros((int(num_steps / writing_period), num_particles, 6), float)
@@ -1386,7 +1388,7 @@ def wrap_rpy(
         jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
         fractional_coordinates=False,
     )
-
+    box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
     # set external applied forces/torques (no pair-interactions, will be added later)
     external_forces = jnp.zeros(3 * num_particles, float)
     external_torques = jnp.zeros(3 * num_particles, float)
@@ -1436,7 +1438,7 @@ def wrap_rpy(
     key_ffreal = random.PRNGKey(seed_ffreal)
 
     # check if particles overlap
-    overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs)
+    overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs, box)
     if overlaps > 0:
         print("Warning: initial overlaps are ", (overlaps))
     print("Starting: compiling the code... This should not take more than 1-2 minutes.")
@@ -1505,9 +1507,11 @@ def wrap_rpy(
             interaction_strength,
             indices_i,
             indices_j,
+            positions,
             interaction_cutoff,
             1,
             time_step,
+            box
         )
 
         # compute Thermal Fluctuations only if temperature is not zero
@@ -1639,7 +1643,7 @@ def wrap_rpy(
             if (not math.isfinite(stepnormff)) or (
                 (n_iter_Lanczos_ff > 150) and (stepnormff > 0.003)
             ):
-                check_overlap(positions, num_particles, unique_pairs)
+                check_overlap(positions, num_particles, unique_pairs, box)
                 raise ValueError(
                     f"Far-field Lanczos did not converge! Stepnorm is {stepnormff}, iterations are {n_iter_Lanczos_ff}. Eigenvalues of tridiagonal matrix are {diag_ff}. Abort!"
                 )
@@ -1720,7 +1724,7 @@ def wrap_rpy(
                 raise ValueError("Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            check_overlap(positions, num_particles, unique_pairs)
+            check_overlap(positions, num_particles, unique_pairs, box)
 
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions
@@ -1873,6 +1877,7 @@ def wrap_bd(
         jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
         fractional_coordinates=False,
     )
+    box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
     # compute neighbor lists 
     unique_pairs, nl, _, _, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), interaction_cutoff, 0., 0., xy)
 
@@ -1890,7 +1895,7 @@ def wrap_bd(
     key = random.PRNGKey(seed)
 
     # check if particles overlap
-    overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs)
+    overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs, box)
     if overlaps > 0:
         print("Warning: initial overlaps are ", (overlaps))
     print("Starting: compiling the code... This should not take more than 1-2 minutes.")
@@ -1920,9 +1925,11 @@ def wrap_bd(
             interaction_strength,
             indices_i,
             indices_j,
+            positions,
             interaction_cutoff,
             0,
             time_step,
+            box
         )
 
         # compute Thermal Fluctuations only if temperature is not zero
@@ -1960,7 +1967,7 @@ def wrap_bd(
                 raise ValueError("Invalid particles positions. Abort!")
 
             # check that current configuration does not have overlapping particles
-            check_overlap(positions, num_particles, unique_pairs)
+            check_overlap(positions, num_particles, unique_pairs, box)
 
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions

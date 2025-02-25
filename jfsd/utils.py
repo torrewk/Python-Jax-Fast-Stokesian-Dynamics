@@ -579,7 +579,7 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
         return net_vel
 
     @jit
-    def update_pos(positions, displacements, net_vel):
+    def update_pos(positions):
         # Define array of displacement r(t+dt)-r(t)
         dr = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities
@@ -592,8 +592,7 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
         # re-shift origin back to box center
         positions = positions - jnp.array([l, l, l]) * 0.5
         # Compute new relative displacements between particles
-        displacements = (space.map_product(displacement))(positions, positions)
-        return positions, nbrs, displacements, net_vel
+        return positions
 
     @jit
     def add_thermal_noise(net_vel, brow):
@@ -627,7 +626,7 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
     displacements = (space.map_product(displacement))(positions, positions)
     unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), 3., 0., 0., 0.)
 
-    overlaps, _ = find_overlaps(positions, 2.002, num_particles, nl)
+    overlaps = find_overlaps(positions, 2.002, num_particles, nl, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
     k = 30 * np.sqrt(6 * temperature / (sigma * sigma * dt))  # spring constant
 
     if phi_eff > 0.6754803226762013:
@@ -657,9 +656,10 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
             net_vel = add_thermal_noise(net_vel, brow)
 
             # Update positions
-            new_positions, nbrs, new_displacements, net_vel = update_pos(
-                positions, displacements, net_vel
+            positions = update_pos(
+                positions, net_vel
             )
+            
 
             # Update neighborlists
             nl, _, _, nl_list_bound = update_neighborlist(num_particles, positions, l, 3., 0., 0., 0., unique_pairs)
@@ -667,7 +667,7 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
                 unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), 3., 0., 0., 0.)
 
 
-        overlaps, _ = find_overlaps(displacements, 2.002, num_particles, nl)
+        overlaps = find_overlaps(displacements, 2.002, num_particles, nl, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
         if (time.time() - start_time) > 1800:  # interrupt if too computationally expensive
             raise ValueError("Creation of initial configuration failed. Abort!")
     print("Initial configuration created. Volume fraction is ", phi_actual)
@@ -696,7 +696,8 @@ def generate_random_array(key: dtypes.prng_key, size: int) -> tuple[dtypes.prng_
 
 
 @partial(jit, static_argnums=[2])
-def find_overlaps(positions: ArrayLike, sigma: float, num_particles: int, nlist: ArrayLike) -> tuple[int, float]:
+def find_overlaps(positions: ArrayLike, sigma: float, num_particles: int,
+                  nlist: ArrayLike, box: ArrayLike) -> tuple[int, float]:
     """Check overlaps between particles and returns number of overlaps + number of particles.
 
     The radius of a particle is set to 1.
@@ -720,7 +721,7 @@ def find_overlaps(positions: ArrayLike, sigma: float, num_particles: int, nlist:
         Number of overlaps
 
     """
-    dr = positions[nlist[1,:],:] - positions[nlist[0,:],:]
+    dr = displacement_fn(positions[nlist[0,:],:], positions[nlist[1,:],:], box)
     dist_sq = jnp.sum(dr*dr,axis=1)    
     sigma_sq = sigma * sigma
     mask = jnp.where(dist_sq < sigma_sq, 1.0, 0.0)  # build mask from distances < cutoff    

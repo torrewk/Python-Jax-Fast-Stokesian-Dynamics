@@ -3,7 +3,7 @@ from functools import partial
 import jax.numpy as jnp
 from jax import Array, jit, ops
 from jax.typing import ArrayLike
-
+from jfsd import utils
 
 @partial(jit, static_argnums=[0])
 def sum_applied_forces(
@@ -18,6 +18,7 @@ def sum_applied_forces(
     interaction_cutoff: float,
     hydrodynamics_flag: int,
     dt: float,
+    box: ArrayLike
 ) -> Array:
     """Sum all applied forces/torques for each particle.
 
@@ -176,7 +177,7 @@ def sum_applied_forces(
         fp -= ops.segment_sum(fp_mod[:,None] * dist, indices_j, num_particles)  # Subtract contributions from j
         return fp
     
-    dist = positions[indices_j] - positions[indices_i]
+    dist = utils.displacement_fn(positions[indices_i,:], positions[indices_j,:], box)    
     dist_sqr = dist[:,0]*dist[:,0]+ dist[:,1]*dist[:,1]+ dist[:,2]*dist[:,2]
     dist_mod = jnp.sqrt(dist_sqr)
     # compute hard sphere repulsion, and short-range attractions
