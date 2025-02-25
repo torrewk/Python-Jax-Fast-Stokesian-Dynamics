@@ -3,36 +3,39 @@ from functools import partial
 import jax.numpy as jnp
 from jax import Array, jit
 from jax.typing import ArrayLike
-
+from jfsd import utils
 from jfsd import jaxmd_space as space
 
-
-@partial(jit, static_argnums=[2, 3])
-def rfu_precondition(
-    ichol_relaxer: float, r: ArrayLike, num_particles: int, n_pairs_lub_prec: int, nl_lub_prec: ArrayLike
+@partial(jit, static_argnums=[1,2])
+def rfu_sparse_precondition(
+    pos: ArrayLike, num_particles: int, n_pairs_lub_prec: int, nl_lub_prec: ArrayLike, box: ArrayLike
 ) -> tuple[Array, Array]:
-    """Construct the lubrication resistance matrix R_FU for particle pairs very close (d <= 2.1*radius).
+    """Construct an approximate resistance matrix R_FU for particle pairs very close (d <= 2.1*radius).
 
     This is used as part of the full precondition matrix used in the saddle point problem.
 
     Parameters
     ----------
-    ichol_relaxer: (float)
-        Relaxation factor for Cholesky decomposition
-    r: (float)
+    pos: (float)
         Array (n_pair_nf_prec,3) of distance vectors between particles in neighbor list
     num_particles: (int)
         Number of particles
     n_pairs_lub_prec: (int)
-        Number of particle pairs to include in the lubrication matrix
+        Number of particle pairs to include in the lubrication precondition
+    n_part_prec: (int)
+        Number of particles for which action of precondition is needed
     nl_lub_prec: (int)
         Array (2,n_pairs_nf) containing near-field precondition neighborlist indices
+    box: (float)
+        Array (3,3) containing box affine transformation. 
 
     Returns
     -------
-    rfu_precondition, diagonal_elements_for_brownian
+
 
     """
+    # Compute distances between particles, for each pair
+    r = utils.displacement_fn(pos[nl_lub_prec[0,:],:], pos[nl_lub_prec[1,:],:], box)
     # Load resistance table
     restable_dist = jnp.load("files/ResTableDist.npy")
     restable_vals = jnp.load("files/ResTableVals.npy")
@@ -41,12 +44,10 @@ def rfu_precondition(
     # Table discretization (log space), i.e. ind * dr.set(log10( h[ind] / min )
     restable_dr = 0.004305
 
-    # Define empty matrix
-    rfu_precondition = jnp.zeros((6 * num_particles, 6 * num_particles), float)
-
     # By definition, r points from particle 1 to particle 2 (i to j), otherwise the handedness and symmetry of the lubrication functions is lost
     dist = space.distance(r)  # distance between particle i and j
-    r_unit = r / dist[:, None]  # unit vector from particle j to i
+    dist = jnp.where(dist == 0., 999999., dist)
+    r = r / dist[:, None]  # unit vector from particle j to i
 
     # # Indices in resistance table
     ind = jnp.log10((dist - 2.0) / restable_min) / restable_dr
@@ -152,318 +153,100 @@ def rfu_precondition(
 
     epsr = jnp.array(
         [
-            [jnp.zeros(n_pairs_lub_prec), r_unit[:, 2], -r_unit[:, 1]],
-            [-r_unit[:, 2], jnp.zeros(n_pairs_lub_prec), r_unit[:, 0]],
-            [r_unit[:, 1], -r_unit[:, 0], jnp.zeros(n_pairs_lub_prec)],
-        ]
-    )
-    identity_m_rr = jnp.array(
-        [
-            [jnp.ones(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec)],
-            [jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec)],
-            [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec)],
+            [jnp.zeros(n_pairs_lub_prec), r[:, 2], -r[:, 1]],
+            [-r[:, 2], jnp.zeros(n_pairs_lub_prec), r[:, 0]],
+            [r[:, 1], -r[:, 0], jnp.zeros(n_pairs_lub_prec)],
         ]
     )
 
     rr = jnp.array(
         [
-            [r_unit[:, 0] * r_unit[:, 0], r_unit[:, 0] * r_unit[:, 1], r_unit[:, 0] * r_unit[:, 2]],
-            [r_unit[:, 1] * r_unit[:, 0], r_unit[:, 1] * r_unit[:, 1], r_unit[:, 1] * r_unit[:, 2]],
-            [r_unit[:, 2] * r_unit[:, 0], r_unit[:, 2] * r_unit[:, 1], r_unit[:, 2] * r_unit[:, 2]],
+            [r[:, 0] * r[:, 0], r[:, 0] * r[:, 1], r[:, 0] * r[:, 2]],
+            [r[:, 1] * r[:, 0], r[:, 1] * r[:, 1], r[:, 1] * r[:, 2]],
+            [r[:, 2] * r[:, 0], r[:, 2] * r[:, 1], r[:, 2] * r[:, 2]],
         ]
     )
-    identity_m_rr = identity_m_rr - rr
+    identity_m_rr = (jnp.array(
+        [
+            [jnp.ones(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec)],
+            [jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec)],
+            [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec)],
+        ]
+    ) - rr)
+    
+    rfu_pair = jnp.zeros((6 , 6, n_pairs_lub_prec))
+    rfu_self = jnp.zeros((6 , 6, n_pairs_lub_prec))
+    rfu_self2 = jnp.zeros((6 , 6, n_pairs_lub_prec))
 
-    a_neigh = xa12 * (rr) + ya12 * (identity_m_rr)
-    a_self = xa11 * (rr) + ya11 * (identity_m_rr)
-    b_neigh = yb12 * (epsr)
-    b_self = yb11 * (epsr)
-    c_neigh = xc12 * (rr) + yc12 * (identity_m_rr)
-    c_self = xc11 * (rr) + yc11 * (identity_m_rr)
-
-    # Fill in matrix (pair contributions)
-    # # this is for all the A12 blocks
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[1, :]].add(
-        a_neigh[0, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[1, :] + 1].add(
-        a_neigh[0, 1, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[1, :] + 2].add(
-        a_neigh[0, 2, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[1, :]].add(
-        a_neigh[1, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[1, :] + 1
-    ].add(a_neigh[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[1, :] + 2
-    ].add(a_neigh[1, 2, :])
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[1, :]].add(
-        a_neigh[2, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[1, :] + 1
-    ].add(a_neigh[2, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[1, :] + 2
-    ].add(a_neigh[2, 2, :])
-
-    # # this is for all the C12 blocks
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[1, :] + 3
-    ].add(c_neigh[0, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[1, :] + 4
-    ].add(c_neigh[0, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[1, :] + 5
-    ].add(c_neigh[0, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[1, :] + 3
-    ].add(c_neigh[1, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[1, :] + 4
-    ].add(c_neigh[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[1, :] + 5
-    ].add(c_neigh[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 5, 6 * nl_lub_prec[1, :] + 3
-    ].add(c_neigh[2, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 5, 6 * nl_lub_prec[1, :] + 4
-    ].add(c_neigh[2, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 5, 6 * nl_lub_prec[1, :] + 5
-    ].add(c_neigh[2, 2, :])
-
-    # # this is for all the Bt12 blocks (Bt12 = B12)
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[1, :] + 3].add(
-        b_neigh[0, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[1, :] + 4].add(
-        b_neigh[0, 1, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[1, :] + 5].add(
-        b_neigh[0, 2, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[1, :] + 3
-    ].add(b_neigh[1, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[1, :] + 4
-    ].add(b_neigh[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[1, :] + 5
-    ].add(b_neigh[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[1, :] + 3
-    ].add(b_neigh[2, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[1, :] + 4
-    ].add(b_neigh[2, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[1, :] + 5
-    ].add(b_neigh[2, 2, :])
-
-    # # this is for all the B12 blocks (Bt12 = B12)
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[1, :]].add(
-        b_neigh[0, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[1, :] + 1
-    ].add(b_neigh[0, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[1, :] + 2
-    ].add(b_neigh[0, 2, :])
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[1, :]].add(
-        b_neigh[1, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[1, :] + 1
-    ].add(b_neigh[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[1, :] + 2
-    ].add(b_neigh[1, 2, :])
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :] + 5, 6 * nl_lub_prec[1, :]].add(
-        b_neigh[2, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 5, 6 * nl_lub_prec[1, :] + 1
-    ].add(b_neigh[2, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 5, 6 * nl_lub_prec[1, :] + 2
-    ].add(b_neigh[2, 2, :])
-
-    # Fill in matrix (self contributions) (these are a sum of contributions from each pairs:
-    # self contribution of particle 'i' will be a sum over all neighboring particles)
-
-    # A11 Block
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[0, :]].add(
-        a_self[0, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[0, :] + 1].add(
-        a_self[0, 1, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[0, :] + 2].add(
-        a_self[0, 2, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[0, :] + 1
-    ].add(a_self[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[0, :] + 2
-    ].add(a_self[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[0, :] + 2
-    ].add(a_self[2, 2, :])
-
-    # A22 Block
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[1, :], 6 * nl_lub_prec[1, :]].add(
-        a_self[0, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[1, :], 6 * nl_lub_prec[1, :] + 1].add(
-        a_self[0, 1, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[1, :], 6 * nl_lub_prec[1, :] + 2].add(
-        a_self[0, 2, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 1, 6 * nl_lub_prec[1, :] + 1
-    ].add(a_self[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 1, 6 * nl_lub_prec[1, :] + 2
-    ].add(a_self[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 2, 6 * nl_lub_prec[1, :] + 2
-    ].add(a_self[2, 2, :])
-
-    # C11 Block
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[0, :] + 3
-    ].add(c_self[0, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[0, :] + 4
-    ].add(c_self[0, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 3, 6 * nl_lub_prec[0, :] + 5
-    ].add(c_self[0, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[0, :] + 4
-    ].add(c_self[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 4, 6 * nl_lub_prec[0, :] + 5
-    ].add(c_self[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 5, 6 * nl_lub_prec[0, :] + 5
-    ].add(c_self[2, 2, :])
-
-    # C22 Block
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 3, 6 * nl_lub_prec[1, :] + 3
-    ].add(c_self[0, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 3, 6 * nl_lub_prec[1, :] + 4
-    ].add(c_self[0, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 3, 6 * nl_lub_prec[1, :] + 5
-    ].add(c_self[0, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 4, 6 * nl_lub_prec[1, :] + 4
-    ].add(c_self[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 4, 6 * nl_lub_prec[1, :] + 5
-    ].add(c_self[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 5, 6 * nl_lub_prec[1, :] + 5
-    ].add(c_self[2, 2, :])
-
-    # Bt11 Block
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[0, :] + 3].add(
-        -b_self[0, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[0, :] + 4].add(
-        -b_self[0, 1, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[0, :], 6 * nl_lub_prec[0, :] + 5].add(
-        -b_self[0, 2, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[0, :] + 3
-    ].add(-b_self[1, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[0, :] + 4
-    ].add(-b_self[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 1, 6 * nl_lub_prec[0, :] + 5
-    ].add(-b_self[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[0, :] + 3
-    ].add(-b_self[2, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[0, :] + 4
-    ].add(-b_self[2, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[0, :] + 2, 6 * nl_lub_prec[0, :] + 5
-    ].add(-b_self[2, 2, :])
-
-    # Bt22 Block
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[1, :], 6 * nl_lub_prec[1, :] + 3].add(
-        b_self[0, 0, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[1, :], 6 * nl_lub_prec[1, :] + 4].add(
-        b_self[0, 1, :]
-    )
-    rfu_precondition = rfu_precondition.at[6 * nl_lub_prec[1, :], 6 * nl_lub_prec[1, :] + 5].add(
-        b_self[0, 2, :]
-    )
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 1, 6 * nl_lub_prec[1, :] + 3
-    ].add(b_self[1, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 1, 6 * nl_lub_prec[1, :] + 4
-    ].add(b_self[1, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 1, 6 * nl_lub_prec[1, :] + 5
-    ].add(b_self[1, 2, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 2, 6 * nl_lub_prec[1, :] + 3
-    ].add(b_self[2, 0, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 2, 6 * nl_lub_prec[1, :] + 4
-    ].add(b_self[2, 1, :])
-    rfu_precondition = rfu_precondition.at[
-        6 * nl_lub_prec[1, :] + 2, 6 * nl_lub_prec[1, :] + 5
-    ].add(b_self[2, 2, :])
-
-    # Symmetrize R_fu_nf
-    diagonal_elements = rfu_precondition.diagonal()  # extract the diagonal
-    rfu_precondition += jnp.transpose(rfu_precondition - jnp.diag(diagonal_elements))
-    # now we have a symmetrix matrix
-
-    # Compress diagonal values (needed later for brownian calculations, to perform Lanczos decomposition and square root)
-    diagonal_elements_for_brownian = jnp.where(
-        (diagonal_elements >= 1) | (diagonal_elements == 0), 1, jnp.sqrt(1 / diagonal_elements)
-    )  # compress diagonal elements
-
-    # Add identity for far field contribution and scale it properly
-    # Because all values are made dimensionless on 6*pi*eta*a, the diagonal elements for FU (forces - velocities) are 1, but those for LW are 4/3(torques - angular velocities)
-    diagonal_elements = jnp.where(
-        (jnp.arange(6 * num_particles) - 6 * (jnp.repeat(jnp.arange(num_particles), 6))) < 3,
-        ichol_relaxer,
-        ichol_relaxer * 1.33333333333,
+    buffer = yb12 * (epsr)
+    rfu_pair = rfu_pair.at[:3,:3,:].set(xa12 * (rr) + ya12 * (identity_m_rr)) #a_neigh
+    rfu_pair = rfu_pair.at[3:6,3:6,:].set(xc12 * (rr) + yc12 * (identity_m_rr))  #c_neigh
+    rfu_pair = rfu_pair.at[:3,3:6,:].set(buffer) #b_tilde_neigh
+    rfu_pair = rfu_pair.at[3:6,:3,:].set(buffer) #b_neigh
+    
+    epsr = jnp.array(
+        [
+            [jnp.zeros(n_pairs_lub_prec), r[:, 2], -r[:, 1]],
+            [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), r[:, 0]],
+            [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec)],
+        ]
     )
 
-    # sum the diagonal to the rest of the precondition matrix (add far-field precondition...)
-    rfu_precondition += jnp.diag(diagonal_elements)
+    rr = jnp.array(
+        [
+            [r[:, 0] * r[:, 0], r[:, 0] * r[:, 1], r[:, 0] * r[:, 2]],
+            [jnp.zeros(n_pairs_lub_prec), r[:, 1] * r[:, 1], r[:, 1] * r[:, 2]],
+            [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), r[:, 2] * r[:, 2]],
+        ]
+    )
+    identity_m_rr = (jnp.array(
+        [
+            [jnp.ones(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec)],
+            [jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec)],
+            [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec)],
+        ]
+    ) - rr)
+    
+    
+    buffer = xa11 * (rr) + ya11 * (identity_m_rr)
+    rfu_self = rfu_self.at[:3,:3,:].set(buffer) #a_self (particle i)
+    rfu_self2 = rfu_self2.at[:3,:3,:].set(buffer) #a_self (particle j)
+    
+    buffer = xc11 * (rr) + yc11 * (identity_m_rr) 
+    rfu_self = rfu_self.at[3:6,3:6,:].set(buffer) #c_self (particle i)
+    rfu_self2 = rfu_self2.at[3:6,3:6,:].set(buffer) #c_self (particle j)
+        
+    buffer = yb11 * (epsr) # b_self
+    rfu_self = rfu_self.at[:3,3:6,:].set(-buffer) # b_tilde_self (particle i)
+    rfu_self = rfu_self.at[3:6,:3,:].set(buffer) # b_self (particle i)
+    rfu_self2 = rfu_self2.at[:3,3:6,:].set(buffer) # b_tilde_self (particle j)
+    rfu_self2 = rfu_self2.at[3:6,:3,:].set(-buffer) # b_self (particle j)
+    
+    # Define empty arrays for indices and values of resistance matrix in sparse format
+    row  = jnp.zeros(6 * 6 * (n_pairs_lub_prec * 3) )
+    col  = jnp.zeros(6 * 6 * (n_pairs_lub_prec * 3) )
+    data = jnp.zeros(6 * 6 * (n_pairs_lub_prec * 3) )
+    # Generate indices and data for non-zero diagonal blocks
+    j_shift = jnp.tile(jnp.arange(6), 6)
+    i_shift = jnp.repeat(jnp.arange(6), 6)
+    # Generate indices and data for off-diagonal blocks (upper right)
+    indices_i = nl_lub_prec[0, :]  # Pair indices (i<j always)
+    indices_j = nl_lub_prec[1, :]
+    indices_mi =  jnp.repeat(indices_i, 6 * 6) * 6
+    indices_mj =  jnp.repeat(indices_j, 6 * 6) * 6        
+    row = row.at[:   6 * 6 * (n_pairs_lub_prec)].set(indices_mi + jnp.tile(i_shift, n_pairs_lub_prec))
+    col = col.at[:   6 * 6 * (n_pairs_lub_prec)].set(indices_mj + jnp.tile(j_shift, n_pairs_lub_prec))
+    data = data.at[: 6 * 6 * (n_pairs_lub_prec)].set(jnp.ravel(jnp.reshape(rfu_pair, (6 * 6, n_pairs_lub_prec)).T))
+    # Generate indices and data for diagonal blocks    
+    row = row.at[   6 * 6 * (n_pairs_lub_prec) : 6 * 6 * (n_pairs_lub_prec*2)].set(indices_mi + jnp.tile(i_shift, n_pairs_lub_prec))
+    col = col.at[   6 * 6 * (n_pairs_lub_prec) : 6 * 6 * (n_pairs_lub_prec*2)].set(indices_mi + jnp.tile(j_shift, n_pairs_lub_prec))
+    data = data.at[ 6 * 6 * (n_pairs_lub_prec) : 6 * 6 * (n_pairs_lub_prec*2)].set(jnp.ravel(jnp.reshape(rfu_self, (6 * 6, n_pairs_lub_prec)).T))
+    row = row.at[  6 * 6 * (n_pairs_lub_prec*2) : 6 * 6 * (n_pairs_lub_prec*3)].set(indices_mj + jnp.tile(i_shift, n_pairs_lub_prec))
+    col = col.at[  6 * 6 * (n_pairs_lub_prec*2) : 6 * 6 * (n_pairs_lub_prec*3)].set(indices_mj + jnp.tile(j_shift, n_pairs_lub_prec))
+    data = data.at[6 * 6 * (n_pairs_lub_prec*2) : 6 * 6 * (n_pairs_lub_prec*3)].set(jnp.ravel(jnp.reshape(rfu_self2, (6 * 6, n_pairs_lub_prec)).T))
+    
+    return row, col, data 
 
-    return rfu_precondition, diagonal_elements_for_brownian
-
-
-@partial(jit, static_argnums=[5])
 def compute_lubrication_fu(
     velocities: ArrayLike,
     indices_i_lub: ArrayLike,
@@ -630,7 +413,7 @@ def compute_lubrication_fu(
         + yc12.at[:, None].get() * vel_i.at[:, 3:].get()
     )
     forces = forces.at[indices_j_lub, 3:].add(l)
-
+    # print('compiling: lubrication fu')
     return jnp.ravel(forces)
 
 

@@ -101,32 +101,13 @@ def random_force_on_grid_indexing(
         nyquist_indices_z,
     )
 
-
-def number_of_neigh(num_particles: int, indices_i_lub: ArrayLike, indices_j_lub: ArrayLike) -> Array:
-    """Count number of neighbors for each particle.
-
-    Use result to construct projector needed for thermal fluctuation calculations.
-
-    Parameters
-    ----------
-    num_particles: (int)
-        Number of particles
-    indices_i_lub: (int)
-        Array (n_pair_nf) of indices of first particle in neighbor list pairs
-    indices_j_lub: (int)
-        Array (n_pair_nf) of indices of second particle in neighbor list pairs
-
-    Returns
-    -------
-    brow_lub_precondition
-
-    """
-    brow_lub_precondition = np.zeros(num_particles)
-    for i in range(num_particles):
-        brow_lub_precondition[i] = np.sum(np.where(indices_i_lub == i, 1, 0))
-        brow_lub_precondition[i] += np.sum(np.where(indices_j_lub == i, 1, 0))
-    brow_lub_precondition = jnp.repeat(brow_lub_precondition, 6)
-    return brow_lub_precondition
+@partial(jit, static_argnums=[0])
+def number_of_neigh_jit(num_particles: int, indices_i_lub, indices_j_lub):
+    # Count occurrences of each particle in the neighbor list arrays
+    counts_i = jnp.bincount(indices_i_lub, minlength=num_particles, length=num_particles)
+    counts_j = jnp.bincount(indices_j_lub, minlength=num_particles, length=num_particles)
+    brow_lub_precondition = counts_i + counts_j
+    return jnp.repeat(brow_lub_precondition, 6)
 
 
 @partial(jit, static_argnums=[0, 2, 3, 4])
@@ -1949,7 +1930,7 @@ def compute_wave_space_slipvelocity(
     return w_lin_vel, w_ang_vel_and_strain
 
 
-@partial(jit, static_argnums=[0, 21])
+@partial(jit, static_argnums=[0, 19])
 def compute_nearfield_brownianforce(
     num_particles: int,
     temperature: float,
@@ -1969,8 +1950,8 @@ def compute_nearfield_brownianforce(
     yc11: ArrayLike,
     yc12: ArrayLike,
     yb21: ArrayLike,
-    diagonal_elements_for_brownian: ArrayLike,
-    R_fu_prec_lower_triang: ArrayLike,
+    # diagonal_elements_for_brownian: ArrayLike,
+    # R_fu_prec_lower_triang: ArrayLike,
     diagonal_zeroes_for_brownian: ArrayLike,
     n_iter_lanczos_nf: int,
 ) -> tuple[Array, float, Array]:
@@ -3447,7 +3428,7 @@ def compute_exact_thermals(
         r_fu_matrix[:, iii] = rei
     sqrt_r_fu = scipy.linalg.sqrtm(
         r_fu_matrix
-    )  # EXTEMELY NOT EFFICIENT! need to be replaced with faster method
+    )
     r_fu12psi_correct = jnp.dot(sqrt_r_fu, random_array_nf * np.sqrt(2.0 * temperature / dt))
 
     random_array_real = (2 * random_array_real - 1) * jnp.sqrt(3.0)

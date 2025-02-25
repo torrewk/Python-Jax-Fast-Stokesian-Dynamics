@@ -4,8 +4,6 @@ import jax.numpy as jnp
 from jax import Array, jit
 from jax.typing import ArrayLike
 
-
-@partial(jit, static_argnums=[0, 1, 2, 3, 4])
 def generalized_mobility_periodic(
     num_particles: int,
     grid_nx: int,
@@ -1418,7 +1416,7 @@ def generalized_mobility_periodic(
     generalized_velocities = generalized_velocities.at[(6 * num_particles + 4) :: 5].set(
         ang_vel_and_strain.at[:, 7].get()
     )
-
+    # print('compiling: generalized mobility periodic')
     return generalized_velocities
 
 
