@@ -9,6 +9,7 @@ except ImportError:
     import tomli as tomllib  # type: ignore  # noqa
 
 from jfsd.utils import create_hardsphere_configuration
+import io_utils as io
 
 
 class JfsdConfiguration:
@@ -99,6 +100,7 @@ class Initialization(NamedTuple):
                     "or switch to 'file' source type."
                 )
             positions = create_hardsphere_configuration(box_x, n_particles, self.init_seed, 0.001)
+            radii = np.ones(positions.shape[0])  # All particles have radius 1
         elif self.position_source_type == "file":
             if n_particles is not None:
                 raise ValueError(
@@ -108,11 +110,31 @@ class Initialization(NamedTuple):
             if numpy_file is None:
                 raise ValueError("Please supply the numpy file if using the source_type 'file'.")
             positions = np.load(numpy_file)
+            radii = np.ones(positions.shape[0])  # All particles have radius 1
+        elif self.position_source_type == "data":
+            if n_particles is not None:
+                msg = "An initial position file has been supplied, remove the number of particles from the configuration file."
+                io.logger.error(msg)
+                raise ValueError(msg)
+            if numpy_file is None:
+                msg = "Please supply the numpy file if using the source_type 'file'."
+                io.logger.error(msg)
+                raise ValueError(msg)
+            
+            lammps_reader = io.LAMMPSDataReader(numpy_file)
+            atoms = lammps_reader.extract_atoms()
+            
+            x = [atom["x"] for atom in atoms]
+            y = [atom["y"] for atom in atoms]
+            z = [atom["z"] for atom in atoms]
+            positions = np.column_stack((x, y, z))
+            radii = np.array([atom["diameter"] / 2 for atom in atoms])
         else:
             raise ValueError(f"Unknown source_type {self.position_source_type}")
+        
         return {
             "positions": positions,
-            "particle_radius": 1,  # Colloid radius
+            "radii": radii,
         }
 
 

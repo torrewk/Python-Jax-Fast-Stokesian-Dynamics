@@ -80,7 +80,7 @@ def sum_applied_forces(
 
         """
         fp = jnp.zeros((num_particles, 3))
-        sigma = 2.0  # particle diameter
+        sigma = 2.0  # particle diameter (TODO: make this a parameter)
         # 1% shift to avoid overlaps for the hydrodynamic integrator (and non-positive def operators)
         sigma += sigma * 0.01
         # compute sigma/delta_r for each pair
@@ -121,7 +121,7 @@ def sum_applied_forces(
         fp = jnp.zeros((num_particles, 3))
         # sum of polymer and colloid radii (in unit of colloid radius)
         onepdelta = 1.1
-        diameter = 2.002
+        diameter = 2.002 # particle diameter (TODO: make this a parameter)
         alpha = diameter * onepdelta
         # compute forces for each pair
         fp_mod = (
@@ -162,7 +162,7 @@ def sum_applied_forces(
         """
         fp = jnp.zeros((num_particles, 3))
         # particle diameter (shifted of 1% to help numerical stability)
-        sigma = 2.0 * (1.001)
+        sigma = 2.0 * (1.001) # particle diameter (TODO: make this a parameter)
 
         # compute forces for each pair
         # spring constant must be calibrated to exactly remove the current overlap

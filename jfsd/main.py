@@ -6,14 +6,22 @@ import scipy.sparse as sp
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, jit, random
-from jax.config import config
+try:
+    from jax.config import config #< Older versions of JAX
+except ImportError:
+    from jax import config #< Newer versions of JAX
+    
 from jax.lib import xla_bridge
 from jax.typing import ArrayLike
 
 from tqdm import tqdm
+import time
 
 from jfsd import applied_forces, mobility, resistance, shear, solver, thermal, utils
 from jfsd import jaxmd_space as space
+import io_utils as io
+import stokeskit as sk
+
 
 config.update("jax_enable_x64", False)  # Disable double precision by default
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"  # Avoid JAX preallocating most GPU memory
@@ -28,13 +36,13 @@ def main(
     num_particles: int,
     max_strain: float,
     temperature: float,
-    particle_radius: float,
     ewald_xi: float,
     error_tolerance: float,
     interaction_strength: float,
     buoyancy_flag: int,
     interaction_cutoff: float,
     positions: ArrayLike,
+    radii: ArrayLike,
     seed_rfd: int,
     seed_ffwave: int,
     seed_ffreal: int,
@@ -77,8 +85,6 @@ def main(
         Maximum strain applied to the box.
     temperature : float
         Thermal energy.
-    particle_radius : float
-        Radius of each particle.
     ewald_xi : float
         Ewald splitting parameter.
     error_tolerance : float
@@ -91,6 +97,8 @@ def main(
         Cutoff distance for interaction forces.
     positions : ArrayLike
         Initial positions of the particles, shape (num_particles, 3).
+    radii : ArrayLike
+        Radii of the particles, shape (num_particles,).
     seed_rfd : int
         Seed for Brownian Drift computation.
     seed_ffwave : int
@@ -211,13 +219,13 @@ def main(
             num_particles,
             max_strain,
             temperature,
-            particle_radius,
             ewald_xi,
             error_tolerance,
             interaction_strength,
             buoyancy_flag,
             interaction_cutoff,
             positions,
+            radii,
             seed_rfd,
             seed_ffwave,
             seed_ffreal,
@@ -280,13 +288,13 @@ def wrap_sd(
     num_particles: int,
     max_strain: float,
     temperature: float,
-    particle_radius: float,
     ewald_xi: float,
     error_tolerance: float,
     interaction_strength: float,
     buoyancy_flag: int,
     interaction_cutoff: float,
     positions: ArrayLike,
+    radii: ArrayLike,
     seed_rfd: int,
     seed_ffwave: int,
     seed_ffreal: int,
@@ -326,8 +334,6 @@ def wrap_sd(
         Max strain applied to the box
     temperature: (float)
         Thermal energy
-    particle_radius: (float)
-        Particle radius
     ewald_xi: (float)
         Ewald split parameter
     error_tolerance: (float)
@@ -340,6 +346,8 @@ def wrap_sd(
         Distance cutoff for interacting particles
     positions: (float)
         Array of particles initial positions (num_particles,3)
+    radii: (float)
+        Array of particles radii (num_particles)
     seed_rfd: (int)
         Seed for Brownian Drift calculation
     seed_ffwave: (int)
@@ -434,6 +442,13 @@ def wrap_sd(
     trajectory = np.zeros((int(num_steps / writing_period), num_particles, 3), float)
     stresslet_history = np.zeros((int(num_steps / writing_period), num_particles, 5), float)
     velocities = np.zeros((int(num_steps / writing_period), num_particles, 6), float)
+    
+    # Calculate radii ratios of the particles. It should be a 2D array of shape (num_particles, num_particles)
+    # Create the full radii ratios matrix
+    radii_matrix = np.zeros((num_particles, num_particles))
+    for i in range(num_particles):
+        for j in range(num_particles):
+            radii_matrix[i,j] = radii[i] / radii[j]
 
     # set initial number of Lanczos iterations, for both thermal fluctuations
     n_iter_Lanczos_ff = 2

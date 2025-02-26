@@ -634,11 +634,7 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
         raise ValueError(
             "Attempted to create particles configuration too dense. Use imported coordinates instead. Abort!"
         )
-    print(
-        "Creating initial configuration with volume fraction ",
-        phi_actual,
-        ". This could take several minutes in dense systems.",
-    )
+    print(f"Creating initial configuration with volume fraction {phi_actual:.3g}. This could take several minutes in dense systems.")
     start_time = time.time()
     while overlaps > 0:
         for i_step in range(Nsteps):
@@ -1334,7 +1330,7 @@ def precompute_open(
     dist = space.distance(r)  # distances between particles i and j
     r_unit = -r / dist.at[:, None].get()  # unit vector from particle j to i
 
-    # compute mobility scalar functions in open boundaries (this should be moved to a separate module, and performed in double precision)
+    # compute mobility scalar functions in open boundaries (TODO: this should be moved to a separate module, and performed in double precision)
     xa12 = 3 / (2 * dist) - 1 / (dist * dist * dist)
     ya12 = 3 / (4 * dist) + 1 / (2 * dist * dist * dist)
     yb12 = -3 / (4 * dist * dist)

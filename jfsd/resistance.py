@@ -1,11 +1,63 @@
 from functools import partial
 
+import sys
 import jax.numpy as jnp
-from jax import Array, jit
+from jax import Array, jit, vmap
 from jax.typing import ArrayLike
-from jfsd import utils
+from jfsd import utilsimport numpy as np
 from jfsd import jaxmd_space as space
+import stokeskit as sk
+import time
 
+
+def calculate_XA11(d, l, lubr_cutoff=2.001, cutoff=4.0, maxIter=200, rtol=1E-4, atol=1E-8):
+    """Calculate the XA11A resistance function.
+
+    Parameters
+    ----------
+    d: (np.array)
+        Distance between two particles
+    l: (np.array)
+        Ratios of the particle radii
+    lubr_cutoff: (float)
+        Cutoff distance for lubrication resistance
+    cutoff: (float)
+        Cutoff distance for resistance
+    maxIter: (int)
+        Maximum number of iterations
+    rtol: (float)
+        Relative tolerance
+    atol: (float)
+        Absolute tolerance
+
+    Returns
+    -------
+    res_functions: (tuple)
+        Tuple of resistance functions (XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12)
+
+    """
+    
+    print("Calculating XA11 resistance function")
+    
+    
+    res_functions = sk.compute_resistance_functions(
+        d,
+        l,
+        lubr_cutoff=lubr_cutoff,
+        cutoff=cutoff,
+        maxIter=maxIter,
+        rtol=rtol,
+        atol=atol
+    )
+    
+    # Make all members of the dict jnp arrays
+    for key, value in res_functions.items():
+        res_functions[key] = jnp.array(value)
+        
+    
+    print("Done calculating XA11 resistance function")
+    
+    return res_functions
 @partial(jit, static_argnums=[1,2])
 def rfu_sparse_precondition(
     pos: ArrayLike, num_particles: int, n_pairs_lub_prec: int, nl_lub_prec: ArrayLike, box: ArrayLike
