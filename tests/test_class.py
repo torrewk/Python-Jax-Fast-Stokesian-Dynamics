@@ -55,7 +55,6 @@ class TestClass:
             None, 0, 0, 0,np.array([0]), np.array([0]),
             2,0,0,0.,0.)
         error = np.linalg.norm(reference_traj-traj)/np.linalg.norm(reference_traj)
-        print(error)
         assert (error < 0.000516)
 
     def test_thermal_1body(self):
@@ -127,8 +126,6 @@ class TestClass:
                     2,0,1,0,0)
         error_nf = testresults[0]
         error_ff = testresults[1]
-        # error_nf = 1
-        # error_ff = 1
         assert (error_nf < 0.01)
         assert (error_ff < 0.01)
             
@@ -160,7 +157,6 @@ class TestClass:
         assert (error < 9*1e-5)
     
     @pytest.mark.parametrize("delta", [0.0001, 0.001, 0.01, 0.1, 1, 10])
-    # @pytest.mark.parametrize("delta", [1])
     def test_shear(self,delta):
         """Physical unit test for deterministic shear part of hydrodynamic calculations, that can run also on CPU. 
         

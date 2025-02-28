@@ -5,12 +5,14 @@ from typing import Any, Callable
 
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, dtypes, jit, random
+from jax import Array, dtypes, jit, random, ops
 from jax import random as jrandom
 from jax.typing import ArrayLike
 
 from jfsd import ewald_tables, shear, thermal
 from jfsd import jaxmd_space as space
+
+from tqdm import tqdm
 
 # Define types for the functions
 DisplacementFn = Callable[[Any, Any], Any]
@@ -279,7 +281,7 @@ def debug_nlist(positions, cutoff, box):
     return nlist[0,:], nlist[1,:], distances
 
 @partial(jit, static_argnums=[0])
-def update_neighborlist(num_particles, positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, unique_pairs):
+def update_neighborlist(num_particles, positions, nl_cutoff, second_cutoff, third_cutoff, unique_pairs, box):
     """
     Update the neighbor list by reactivating previously masked pairs.
 
@@ -287,11 +289,8 @@ def update_neighborlist(num_particles, positions, l, nl_cutoff, second_cutoff, t
     -------
     
     """
-    delta = (positions[unique_pairs[0],:]-positions[unique_pairs[1],:])
-    delta.at[:, 0].add( - xy * delta[:, 1])
-    delta -= jnp.round(delta / l) * l
+    delta = displacement_fn(positions[unique_pairs[0],:], positions[unique_pairs[1],:], box)
     dist_sq = jnp.sum(delta ** 2, axis=-1)
-    
     nlist1 = jnp.where(dist_sq > nl_cutoff*nl_cutoff, num_particles, unique_pairs)
     nlist2 = jnp.where(dist_sq > second_cutoff*second_cutoff, num_particles, unique_pairs)
     nlist3 = jnp.where(dist_sq > third_cutoff*third_cutoff, num_particles, unique_pairs)
@@ -543,43 +542,18 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
     """
 
     @jit
-    def compute_hardsphere(net_vel, displacements, indices_i, indices_j):
-        fp = jnp.zeros((num_particles, num_particles, 3))
-
-        # Reset particle velocity
-        net_vel *= 0.0
-
-        # Compute velocity from hard-sphere repulsion
-        dist_mod = jnp.sqrt(
-            displacements[:, :, 0] * displacements[:, :, 0]
-            + displacements[:, :, 1] * displacements[:, :, 1]
-            + displacements[:, :, 2] * displacements[:, :, 2]
-        )
-
-        fp_mod = jnp.where(
-            indices_i != indices_j, k * (1 - sigma / dist_mod[indices_i, indices_j]), 0.0
-        )
-        fp_mod = jnp.where((dist_mod[indices_i, indices_j]) < sigma, fp_mod, 0.0)
-
-        # get forces in components
-        fp = fp.at[indices_i, indices_j, 0].add(fp_mod * displacements[indices_i, indices_j, 0])
-        fp = fp.at[indices_i, indices_j, 1].add(fp_mod * displacements[indices_i, indices_j, 1])
-        fp = fp.at[indices_i, indices_j, 2].add(fp_mod * displacements[indices_i, indices_j, 2])
-        fp = fp.at[indices_j, indices_i, 0].add(fp_mod * displacements[indices_j, indices_i, 0])
-        fp = fp.at[indices_j, indices_i, 1].add(fp_mod * displacements[indices_j, indices_i, 1])
-        fp = fp.at[indices_j, indices_i, 2].add(fp_mod * displacements[indices_j, indices_i, 2])
-
-        # sum all forces in each particle
-        fp = jnp.sum(fp, 1)
-
-        net_vel = net_vel.at[(0)::3].add(fp.at[:, 0].get())
-        net_vel = net_vel.at[(1)::3].add(fp.at[:, 1].get())
-        net_vel = net_vel.at[(2)::3].add(fp.at[:, 2].get())
-
-        return net_vel
+    def precompute_hs(positions, nl, box):
+        # Brownian Dynamics calculation quantities
+        indices_i = nl[0, :]  # Pair indices (i<j always)
+        indices_j = nl[1, :]
+        # array of vectors from particle i to j (size = npairs)
+        dist = displacement_fn(positions[indices_i,:], positions[indices_j,:], box)
+        dist_mod = space.distance(dist)
+        # unit vector from particle j to i
+        return dist, dist_mod, indices_i, indices_j
 
     @jit
-    def update_pos(positions):
+    def update_pos(positions, net_vel):
         # Define array of displacement r(t+dt)-r(t)
         dr = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities
@@ -600,14 +574,30 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
         net_vel = net_vel.at[1::3].add(brow[1::6])
         net_vel = net_vel.at[2::3].add(brow[2::6])
         return net_vel
+    
+    @jit
+    def compute_hs_forces(dist: ArrayLike, dist_mod: ArrayLike,
+        indices_i: ArrayLike, indices_j: ArrayLike, dt: float
+    ) -> Array:
 
-    displacement, shift = space.periodic_general(
+        fp = jnp.zeros((num_particles, 3))
+        # particle diameter (shifted of 1% to help numerical stability)
+        k = 1/dt * 0.1
+        fp_mod = jnp.where(
+            indices_i != indices_j, k * (1 - sigma / dist_mod), 0.0
+        )
+        fp_mod = jnp.where((dist_mod) < sigma, fp_mod, 0.0)
+        fp += ops.segment_sum(fp_mod[:,None] * dist, indices_i, num_particles)  # Add contributions from i
+        fp -= ops.segment_sum(fp_mod[:,None] * dist, indices_j, num_particles)  # Subtract contributions from j
+        return jnp.ravel(fp)
+
+    _, shift = space.periodic_general(
         jnp.array([[l, 0.0, 0.0], [0.0, l, 0.0], [0.0, 0.0, l]]), fractional_coordinates=False
     )
 
     net_vel = jnp.zeros(3 * num_particles)
     key = jrandom.PRNGKey(seed)
-    temperature = 0.001
+    temperature = 0.0005
     sigma = 2.15  # 2.15 #2.05 #particle diameter
     phi_eff = num_particles / (l * l * l) * (sigma * sigma * sigma) * np.pi / 6
     phi_actual = ((np.pi / 6) * (2 * 2 * 2) * num_particles) / (l * l * l)
@@ -615,20 +605,17 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
 
     dt = brow_time / (1e5)
 
-    Nsteps = int(brow_time / dt)
+    num_steps = int(brow_time / dt)
     key, random_coord = generate_random_array(key, (num_particles * 3))
     random_coord = (random_coord - 1 / 2) * l
     positions = jnp.zeros((num_particles, 3))
     positions = positions.at[:, 0].set(random_coord[0::3])
     positions = positions.at[:, 1].set(random_coord[1::3])
     positions = positions.at[:, 2].set(random_coord[2::3])
-
-    displacements = (space.map_product(displacement))(positions, positions)
-    unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), 3., 0., 0., 0.)
-
-    overlaps = find_overlaps(positions, 2.002, num_particles, nl, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
-    k = 30 * np.sqrt(6 * temperature / (sigma * sigma * dt))  # spring constant
-
+    unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), min(6,l/2), 0., 0., 0., initial_safety_margin=3.)
+    overlaps = find_overlaps(positions, 2.002, num_particles, unique_pairs, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
+    box = jnp.array([[l, 0., 0.], [0., l, 0.], [0., 0., l]])
+    print('Initial overlaps in creating HS conf are', overlaps)
     if phi_eff > 0.6754803226762013:
         print("System Volume Fraction is ", phi_actual, phi_eff)
         raise ValueError(
@@ -641,14 +628,14 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
     )
     start_time = time.time()
     while overlaps > 0:
-        for i_step in range(Nsteps):
+        for i_step in tqdm(range(num_steps), mininterval=0.5):
             # Compute Velocity (Brownian + hard-sphere)
 
             # Compute distance vectors and neighbor list indices
-            (r, indices_i, indices_j) = precompute_bd(positions, nl, num_particles, l, l, l)
+            (dist, dist_mod, indices_i, indices_j) = precompute_hs(positions, nl, box)
 
             # compute forces for each pair
-            net_vel = compute_hardsphere(net_vel, displacements, indices_i, indices_j)
+            net_vel = compute_hs_forces(dist, dist_mod, indices_i, indices_j, dt)
 
             # Compute and add Brownian velocity
             key, random_noise = generate_random_array(key, (6 * num_particles))
@@ -659,15 +646,13 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
             positions = update_pos(
                 positions, net_vel
             )
-            
-
             # Update neighborlists
-            nl, _, _, nl_list_bound = update_neighborlist(num_particles, positions, l, 3., 0., 0., 0., unique_pairs)
-            if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
-                unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), 3., 0., 0., 0.)
+            nl, _, _, nl_list_bound = update_neighborlist(num_particles, positions, 3., 0., 0., unique_pairs, box)
+            if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.   
+                unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]),  3., 0., 0., 0., initial_safety_margin=3.)
 
-
-        overlaps = find_overlaps(displacements, 2.002, num_particles, nl, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
+        overlaps = find_overlaps(positions, 2.002, num_particles, unique_pairs, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
+        print('Thermalized for 1 Brownian time, found ', overlaps, 'overlaps')
         if (time.time() - start_time) > 1800:  # interrupt if too computationally expensive
             raise ValueError("Creation of initial configuration failed. Abort!")
     print("Initial configuration created. Volume fraction is ", phi_actual)
@@ -948,18 +933,18 @@ def precompute(
     # Lubrication calculation quantities
     indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
     indices_j_lub = nl_lub[1, :]
-    # array of vectors from particle i to j (size = npairs)
+    # Array of vectors from particle i to j (size = npairs)
     r_lub = displacement_fn(positions[indices_i_lub,:], positions[indices_j_lub,:], box)
     dist_lub = space.distance(r_lub)  # distance between particle i and j
     # unit vector from particle j to i
     r_lub_unit = r_lub / dist_lub.at[:, None].get()
 
-    # # Indices in resistance table
+    # Indices in resistance table
     ind = jnp.log10((dist_lub - 2.0) / res_table_min) / res_table_dr
     ind = ind.astype(int)
     dist_lub_lower = res_table_dist.at[ind].get()
     dist_lub_upper = res_table_dist.at[ind + 1].get()
-    # # Linear interpolation of the Table values
+    # Linear interpolation of the Table values
     fac_lub = jnp.where(
         dist_lub_upper - dist_lub_lower > 0.0,
         (dist_lub - dist_lub_lower) / (dist_lub_upper - dist_lub_lower),
@@ -1761,7 +1746,6 @@ def precompute_rpy(
     indices_i = nl_ff[0, :]  # Pair indices (i<j always)
     indices_j = nl_ff[1, :]
     # array of vectors from particles i to j (size = npairs)
-    # r = positions[indices_j,:] - positions[indices_i,:]
     r = displacement_fn(positions[indices_i,:], positions[indices_j,:], box)
     dist = space.distance(r)  # distances between particles i and j
     r_unit = -r / dist.at[:, None].get()  # unit vector from particle j to i
@@ -1851,11 +1835,10 @@ def precompute_rpy_open(
     return (r_unit, indices_i, indices_j, mobil_scalar)
 
 
-@partial(jit, static_argnums=[2])
+@jit
 def precompute_bd(
     positions: ArrayLike,
     nl: ArrayLike,
-    num_particles: int,
     box_x: float,
     box_y: float,
     box_z: float,
@@ -1890,7 +1873,6 @@ def precompute_bd(
     indices_i = nl[0, :]  # Pair indices (i<j always)
     indices_j = nl[1, :]
     # array of vectors from particle i to j (size = npairs)
-    # r = positions[indices_j,:] - positions[indices_i,:]
     r = displacement_fn(positions[indices_i,:], positions[indices_j,:], box)
     dist_lub = space.distance(r)  # distance between particle i and j
     # unit vector from particle j to i
