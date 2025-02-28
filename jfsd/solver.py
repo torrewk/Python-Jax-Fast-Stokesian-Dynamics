@@ -128,19 +128,6 @@ def solve_linear_system(
 
         return ax
 
-    # def compute_precond_sd(x: ArrayLike) -> Array:
-    #     ppx = jnp.zeros(17 * num_particles, float)
-    #     ppx = ppx.at[: 11 * num_particles].add(x[: 11 * num_particles])
-    #     buffer = jscipy.linalg.solve_triangular(rfu_pre_low_tri_dens, x[: 6 * num_particles], lower=True)
-    #     buffer = jscipy.linalg.solve_triangular(jnp.transpose(rfu_pre_low_tri_dens), buffer, lower=False)
-    #     ppx = ppx.at[: 6 * num_particles].add(-buffer)
-    #     ppx = ppx.at[11 * num_particles :].set(buffer)
-    #     buffer = jscipy.linalg.solve_triangular(rfu_pre_low_tri_dens, x[11 * num_particles :], lower=True)
-    #     buffer = jscipy.linalg.solve_triangular(jnp.transpose(rfu_pre_low_tri_dens), buffer, lower=False)
-    #     ppx = ppx.at[: 6 * num_particles].add(buffer)
-    #     ppx = ppx.at[11 * num_particles :].add(-buffer)        
-    #     return ppx
-
     def compute_precond_sd_kwt(x: jnp.ndarray) -> jnp.ndarray:
         """
         Computes the preconditioner by solving a single system R x = b using JAX CG.

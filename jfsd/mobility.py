@@ -1416,7 +1416,7 @@ def generalized_mobility_periodic(
     generalized_velocities = generalized_velocities.at[(6 * num_particles + 4) :: 5].set(
         ang_vel_and_strain.at[:, 7].get()
     )
-    # print('compiling: generalized mobility periodic')
+
     return generalized_velocities
 
 

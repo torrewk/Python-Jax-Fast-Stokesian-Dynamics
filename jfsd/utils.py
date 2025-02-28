@@ -20,15 +20,24 @@ DisplacementFn = Callable[[Any, Any], Any]
 def preprocess_sparse_triangular(m_sparse, num_particles, max_nonzero_per_row):
     """
     Efficiently precomputes sparse lookup structures for forward substitution.
-
-    Parameters:
-    - l_low: JAX sparse BCOO lower triangular matrix
-    - num_particles: int, number of particles
-
-    Returns:
-    - row_indices: (num_particles, max_nonzero_per_row) indices of nonzero entries
-    - row_values: (num_particles, max_nonzero_per_row) corresponding values
+    
+    Parameters
+    ----------
+    m_sparse : ndarray
+        Sparse representation of precondition matrix.
+    num_particles: int 
+        Number of particles.
+    max_nonzero_per_row: int
+        Max number of non-zero entries per row that can be stored.
+    
+    Returns
+    -------
+    row_indices : ndarray
+        (num_particles, max_nonzero_per_row)  indices of nonzero entries
+    row_values: ndarray
+        (num_particles, max_nonzero_per_row) corresponding values
     """
+    
     # Convert scipy sparse structure to NumPy for fast processing
     values = np.array(m_sparse.data)
     indices = np.array(m_sparse.nonzero()).T
@@ -55,10 +64,7 @@ def preprocess_sparse_triangular(m_sparse, num_particles, max_nonzero_per_row):
         row_indices[i, :len(row_data)] = row_data
         row_values[i, :len(row_vals)] = row_vals
 
-    return (
-        row_indices,
-        row_values,
-        )
+    return row_indices, row_values
 
 def displacement_fn(ra, rb, box):
 
@@ -261,9 +267,7 @@ def debug_nlist(positions, cutoff, box):
     
     disp = displacement_fn(positions[nlist[0,:]], positions[nlist[1,:]], box)    
     
-    # disp = disp - np.round(disp / box) * box
     # Compute the pairwise distances (N, N) by taking the norm along the last axis.
-    # dist = np.linalg.norm(disp, axis=2)
     dist = np.array(space.distance(disp))
     
     # Identify all pairs where the distance is below the cutoff.
@@ -287,6 +291,15 @@ def update_neighborlist(num_particles, positions, nl_cutoff, second_cutoff, thir
 
     Returns
     -------
+    nlist1 : jnp.array
+        Neighbor list where pairs with distance >= nl_cutoff are replaced with num_particles.
+    nlist2 : jnp.array
+        Neighbor list where pairs with distance >= second_cutoff are replaced with num_particles.
+    nlist3 : jnp.array
+        Neighbor list where pairs with distance >= third_cutoff are replaced with num_particles,
+        sorted by the first index and truncated to a fixed maximum number of columns.
+    jnp.any(jnp.equal(nlist1, num_particles)) : bool
+        Boolean flag to indicate when lists need to be re-allocated.
     
     """
     delta = displacement_fn(positions[unique_pairs[0],:], positions[unique_pairs[1],:], box)
@@ -643,9 +656,7 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
             net_vel = add_thermal_noise(net_vel, brow)
 
             # Update positions
-            positions = update_pos(
-                positions, net_vel
-            )
+            positions = update_pos(positions, net_vel)
             # Update neighborlists
             nl, _, _, nl_list_bound = update_neighborlist(num_particles, positions, 3., 0., 0., unique_pairs, box)
             if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.   

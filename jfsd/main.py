@@ -1134,7 +1134,7 @@ def wrap_sd(
             if output is not None:
                 np.save(output / "stresslet.npy", stresslet_history)
         # Update positions
-        (positions) = update_positions(
+        positions = update_positions(
             shear_rate,
             positions,
             saddle_x[11 * num_particles :] + brownian_drift,
@@ -1944,7 +1944,7 @@ def wrap_bd(
         # add potential force contribution to total velocity (thermal contribution is already included)
         general_velocity += -saddle_b[11 * num_particles :]
         # update positions
-        (positions) = update_positions(
+        positions = update_positions(
             shear_rate, positions, general_velocity, time_step
         )
         # Update neighborlists

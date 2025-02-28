@@ -179,8 +179,8 @@ def rfu_sparse_precondition(
     rfu_self2 = jnp.zeros((6 , 6, n_pairs_lub_prec))
 
     buffer = yb12 * (epsr)
-    rfu_pair = rfu_pair.at[:3,:3,:].set(xa12 * (rr) + ya12 * (identity_m_rr)) #a_neigh
-    rfu_pair = rfu_pair.at[3:6,3:6,:].set(xc12 * (rr) + yc12 * (identity_m_rr))  #c_neigh
+    rfu_pair = rfu_pair.at[:3,:3,:].set(xa12 * rr + ya12 * (identity_m_rr)) #a_neigh
+    rfu_pair = rfu_pair.at[3:6,3:6,:].set(xc12 * rr + yc12 * (identity_m_rr))  #c_neigh
     rfu_pair = rfu_pair.at[:3,3:6,:].set(buffer) #b_tilde_neigh
     rfu_pair = rfu_pair.at[3:6,:3,:].set(buffer) #b_neigh
     
@@ -208,11 +208,11 @@ def rfu_sparse_precondition(
     ) - rr)
     
     
-    buffer = xa11 * (rr) + ya11 * (identity_m_rr)
+    buffer = xa11 * rr + ya11 * (identity_m_rr)
     rfu_self = rfu_self.at[:3,:3,:].set(buffer) #a_self (particle i)
     rfu_self2 = rfu_self2.at[:3,:3,:].set(buffer) #a_self (particle j)
     
-    buffer = xc11 * (rr) + yc11 * (identity_m_rr) 
+    buffer = xc11 * rr + yc11 * (identity_m_rr) 
     rfu_self = rfu_self.at[3:6,3:6,:].set(buffer) #c_self (particle i)
     rfu_self2 = rfu_self2.at[3:6,3:6,:].set(buffer) #c_self (particle j)
         
@@ -413,7 +413,7 @@ def compute_lubrication_fu(
         + yc12.at[:, None].get() * vel_i.at[:, 3:].get()
     )
     forces = forces.at[indices_j_lub, 3:].add(l)
-    # print('compiling: lubrication fu')
+
     return jnp.ravel(forces)
 
 
