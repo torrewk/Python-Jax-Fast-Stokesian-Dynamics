@@ -20,22 +20,6 @@ jfsd.ewald\_tables module
    :undoc-members:
    :show-inheritance:
 
-jfsd.jaxmd\_dataclasses module
-------------------------------
-
-.. automodule:: jfsd.jaxmd_dataclasses
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-jfsd.jaxmd\_partition module
-----------------------------
-
-.. automodule:: jfsd.jaxmd_partition
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 jfsd.jaxmd\_space module
 ------------------------
 
