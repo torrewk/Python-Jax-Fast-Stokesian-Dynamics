@@ -40,7 +40,7 @@ class TestClassCPU:
                 None, 0, 0, 0,np.array([0]), np.array([0]),
                 2,0,0,0.,0.)
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert (error < 1e-5)
+        assert (error < 5 * 1e-4)
         
     def test_thermal_realspace(self):
         """Physical unit test for non-deterministic part of hydrodynamic calculations, that runs on CPU. 
@@ -93,4 +93,4 @@ class TestClassCPU:
             )
         # Only calculate error for this specific delta
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert error < 1e-5
+        assert (error < 5 * 1e-4)

@@ -4,8 +4,6 @@ import jax.numpy as jnp
 from jax import Array, jit
 from jax.typing import ArrayLike
 
-
-@partial(jit, static_argnums=[0, 1, 2, 3, 4])
 def generalized_mobility_periodic(
     num_particles: int,
     grid_nx: int,
