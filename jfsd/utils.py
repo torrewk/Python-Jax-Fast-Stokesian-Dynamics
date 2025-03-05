@@ -58,26 +58,102 @@ def preprocess_sparse_triangular(m_sparse, num_particles, max_nonzero_per_row):
         row_values,
         )
 
-def displacement_fn(ra, rb, box):
-
-    def _get_free_indices(n: int) -> str:
-        return "".join([chr(ord("a") + i) for i in range(n)])    
-
-    def transform(box, r):
-        free_indices = _get_free_indices(r.ndim - 1)
-        left_indices = free_indices + "j"
-        right_indices = free_indices + "i"
-        return jnp.einsum(f"ij,{left_indices}->{right_indices}", box, r)
+@partial(jit, static_argnums=())
+def displacement_fn(
+    ra: ArrayLike, rb: ArrayLike, box: ArrayLike
+    ) -> ArrayLike:
+    """
+    Calculate the minimum image displacement vector between two points under periodic boundary conditions.
         
-    inv_box = jnp.linalg.inv(box)
-    ra = transform(inv_box, ra)
-    rb = transform(inv_box, rb)
-    
-    dr = jnp.mod((rb-ra) + 1 * (0.5), 1.) - (0.5) * 1
-    
-    dr = transform(box, dr)
+    Parameters
+    ----------
+    ra : ArrayLike
+        Position vector(s) of point(s) A. Can be a 1D array of shape (3,) for a single point
+        or a 2D array of shape (N, 3) for N points.
+    rb : ArrayLike
+        Position vector(s) of point(s) B. Can be a 1D array of shape (3,) for a single point
+        or a 2D array of shape (N, 3) for N points.
+    box : ArrayLike
+        The simulation box matrix of shape (3, 3). Each row represents a box vector that
+        defines the periodic boundary conditions.
+        
+    Returns
+    -------
+    ArrayLike
+        The minimum image displacement vector(s) from ra to rb. Has the same shape as input:
+        - For single vectors: shape (3,)
+        - For batched vectors: shape (N, 3)
+        
+    Details
+    -------
+    This function computes the shortest vector from point ra to point rb, respecting
+    periodic boundary conditions defined by the simulation box. It works with both
+    single position vectors and batches of position vectors. It's using fractional
+    coordinates to compute the minimum image convention, so it's valid for any triclinic
+    box shape.
 
-    return dr
+    Notes
+    -----
+    The function computes the direct matrix inverse of the 3x3 box matrix for efficiency
+    rather than using a general inversion method. The algorithm:
+    1. Converts positions to fractional coordinates using the inverse box matrix
+    2. Applies minimum image convention using the formula: dr_frac = mod(rb_frac - ra_frac + 0.5, 1.0) - 0.5
+    3. Converts the displacement back to real coordinates using the box matrix
+    The function uses optimized computation paths for single vectors vs. batched vectors.
+    
+    Examples
+    --------
+    >>> import jax.numpy as jnp
+    >>> box = jnp.eye(3) * 10.0  # Cubic box with side length 10
+    >>> pt1 = jnp.array([1.0, 1.0, 1.0])
+    >>> pt2 = jnp.array([9.0, 9.0, 9.0])
+    >>> displacement_fn(pt1, pt2, box)  # Returns [-2.0, -2.0, -2.0] (not [8.0, 8.0, 8.0])
+    """
+
+    # Calculate direct matrix inverse for 3x3 box - faster than general inversion
+    det = (box[0,0] * (box[1,1] * box[2,2] - box[1,2] * box[2,1]) - 
+           box[0,1] * (box[1,0] * box[2,2] - box[1,2] * box[2,0]) + 
+           box[0,2] * (box[1,0] * box[2,1] - box[1,1] * box[2,0]))
+    
+    inv_det = 1.0 / det
+    
+    inv_box = jnp.array([
+        [(box[1,1] * box[2,2] - box[1,2] * box[2,1]) * inv_det, 
+         (box[0,2] * box[2,1] - box[0,1] * box[2,2]) * inv_det, 
+         (box[0,1] * box[1,2] - box[0,2] * box[1,1]) * inv_det],
+        [(box[1,2] * box[2,0] - box[1,0] * box[2,2]) * inv_det, 
+         (box[0,0] * box[2,2] - box[0,2] * box[2,0]) * inv_det, 
+         (box[0,2] * box[1,0] - box[0,0] * box[1,2]) * inv_det],
+        [(box[1,0] * box[2,1] - box[1,1] * box[2,0]) * inv_det, 
+         (box[0,1] * box[2,0] - box[0,0] * box[2,1]) * inv_det, 
+         (box[0,0] * box[1,1] - box[0,1] * box[1,0]) * inv_det]
+    ])
+    
+    # Use manual dot product instead of einsum for single vectors
+    if ra.ndim == 1:
+        ra_frac_0 = inv_box[0,0] * ra[0] + inv_box[0,1] * ra[1] + inv_box[0,2] * ra[2]
+        ra_frac_1 = inv_box[1,0] * ra[0] + inv_box[1,1] * ra[1] + inv_box[1,2] * ra[2]
+        ra_frac_2 = inv_box[2,0] * ra[0] + inv_box[2,1] * ra[1] + inv_box[2,2] * ra[2]
+        
+        rb_frac_0 = inv_box[0,0] * rb[0] + inv_box[0,1] * rb[1] + inv_box[0,2] * rb[2]
+        rb_frac_1 = inv_box[1,0] * rb[0] + inv_box[1,1] * rb[1] + inv_box[1,2] * rb[2]
+        rb_frac_2 = inv_box[2,0] * rb[0] + inv_box[2,1] * rb[1] + inv_box[2,2] * rb[2]
+        
+        dr_frac_0 = jnp.mod(rb_frac_0 - ra_frac_0 + 0.5, 1.0) - 0.5
+        dr_frac_1 = jnp.mod(rb_frac_1 - ra_frac_1 + 0.5, 1.0) - 0.5
+        dr_frac_2 = jnp.mod(rb_frac_2 - ra_frac_2 + 0.5, 1.0) - 0.5
+        
+        return jnp.array([
+            box[0,0] * dr_frac_0 + box[0,1] * dr_frac_1 + box[0,2] * dr_frac_2,
+            box[1,0] * dr_frac_0 + box[1,1] * dr_frac_1 + box[1,2] * dr_frac_2,
+            box[2,0] * dr_frac_0 + box[2,1] * dr_frac_1 + box[2,2] * dr_frac_2
+        ])
+    else:
+        # Use matrix multiplication for batched vectors
+        ra_frac = jnp.dot(ra, inv_box.T)
+        rb_frac = jnp.dot(rb, inv_box.T)
+        dr_frac = jnp.mod(rb_frac - ra_frac + 0.5, 1.0) - 0.5
+        return jnp.dot(dr_frac, box.T)
 
 def cpu_nlist(positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, initial_safety_margin=1.):
     """
@@ -1348,7 +1424,7 @@ def precompute_open(
     indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
     indices_j_lub = nl_lub[1, :]
     # array of vectors from particle i to j (size = npairs)
-    r_lub = positions[indices_j_lub,:] - positions[indices_i_lub,:]
+    r_lub = displacement_fn(positions[indices_i_lub,:], positions[indices_j_lub,:], box)
     dist_lub = space.distance(r_lub)  # distance between particle i and j
     # unit vector from particle j to i
     r_lub_unit = r_lub / dist_lub.at[:, None].get()
