@@ -5,12 +5,14 @@ from typing import Any, Callable
 
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, dtypes, jit, random
+from jax import Array, dtypes, jit, random, ops
 from jax import random as jrandom
 from jax.typing import ArrayLike
 
 from jfsd import ewald_tables, shear, thermal
 from jfsd import jaxmd_space as space
+
+from tqdm import tqdm
 
 # Define types for the functions
 DisplacementFn = Callable[[Any, Any], Any]
@@ -18,15 +20,24 @@ DisplacementFn = Callable[[Any, Any], Any]
 def preprocess_sparse_triangular(m_sparse, num_particles, max_nonzero_per_row):
     """
     Efficiently precomputes sparse lookup structures for forward substitution.
-
-    Parameters:
-    - l_low: JAX sparse BCOO lower triangular matrix
-    - num_particles: int, number of particles
-
-    Returns:
-    - row_indices: (num_particles, max_nonzero_per_row) indices of nonzero entries
-    - row_values: (num_particles, max_nonzero_per_row) corresponding values
+    
+    Parameters
+    ----------
+    m_sparse : ndarray
+        Sparse representation of precondition matrix.
+    num_particles: int 
+        Number of particles.
+    max_nonzero_per_row: int
+        Max number of non-zero entries per row that can be stored.
+    
+    Returns
+    -------
+    row_indices : ndarray
+        (num_particles, max_nonzero_per_row)  indices of nonzero entries
+    row_values: ndarray
+        (num_particles, max_nonzero_per_row) corresponding values
     """
+    
     # Convert scipy sparse structure to NumPy for fast processing
     values = np.array(m_sparse.data)
     indices = np.array(m_sparse.nonzero()).T
@@ -53,107 +64,28 @@ def preprocess_sparse_triangular(m_sparse, num_particles, max_nonzero_per_row):
         row_indices[i, :len(row_data)] = row_data
         row_values[i, :len(row_vals)] = row_vals
 
-    return (
-        row_indices,
-        row_values,
-        )
+    return row_indices, row_values
 
-@partial(jit, static_argnums=())
-def displacement_fn(
-    ra: ArrayLike, rb: ArrayLike, box: ArrayLike
-    ) -> ArrayLike:
-    """
-    Calculate the minimum image displacement vector between two points under periodic boundary conditions.
-        
-    Parameters
-    ----------
-    ra : ArrayLike
-        Position vector(s) of point(s) A. Can be a 1D array of shape (3,) for a single point
-        or a 2D array of shape (N, 3) for N points.
-    rb : ArrayLike
-        Position vector(s) of point(s) B. Can be a 1D array of shape (3,) for a single point
-        or a 2D array of shape (N, 3) for N points.
-    box : ArrayLike
-        The simulation box matrix of shape (3, 3). Each row represents a box vector that
-        defines the periodic boundary conditions.
-        
-    Returns
-    -------
-    ArrayLike
-        The minimum image displacement vector(s) from ra to rb. Has the same shape as input:
-        - For single vectors: shape (3,)
-        - For batched vectors: shape (N, 3)
-        
-    Details
-    -------
-    This function computes the shortest vector from point ra to point rb, respecting
-    periodic boundary conditions defined by the simulation box. It works with both
-    single position vectors and batches of position vectors. It's using fractional
-    coordinates to compute the minimum image convention, so it's valid for any triclinic
-    box shape.
+def displacement_fn(ra, rb, box):
 
-    Notes
-    -----
-    The function computes the direct matrix inverse of the 3x3 box matrix for efficiency
-    rather than using a general inversion method. The algorithm:
-    1. Converts positions to fractional coordinates using the inverse box matrix
-    2. Applies minimum image convention using the formula: dr_frac = mod(rb_frac - ra_frac + 0.5, 1.0) - 0.5
-    3. Converts the displacement back to real coordinates using the box matrix
-    The function uses optimized computation paths for single vectors vs. batched vectors.
-    
-    Examples
-    --------
-    >>> import jax.numpy as jnp
-    >>> box = jnp.eye(3) * 10.0  # Cubic box with side length 10
-    >>> pt1 = jnp.array([1.0, 1.0, 1.0])
-    >>> pt2 = jnp.array([9.0, 9.0, 9.0])
-    >>> displacement_fn(pt1, pt2, box)  # Returns [-2.0, -2.0, -2.0] (not [8.0, 8.0, 8.0])
-    """
+    def _get_free_indices(n: int) -> str:
+        return "".join([chr(ord("a") + i) for i in range(n)])    
 
-    # Calculate direct matrix inverse for 3x3 box - faster than general inversion
-    det = (box[0,0] * (box[1,1] * box[2,2] - box[1,2] * box[2,1]) - 
-           box[0,1] * (box[1,0] * box[2,2] - box[1,2] * box[2,0]) + 
-           box[0,2] * (box[1,0] * box[2,1] - box[1,1] * box[2,0]))
-    
-    inv_det = 1.0 / det
-    
-    inv_box = jnp.array([
-        [(box[1,1] * box[2,2] - box[1,2] * box[2,1]) * inv_det, 
-         (box[0,2] * box[2,1] - box[0,1] * box[2,2]) * inv_det, 
-         (box[0,1] * box[1,2] - box[0,2] * box[1,1]) * inv_det],
-        [(box[1,2] * box[2,0] - box[1,0] * box[2,2]) * inv_det, 
-         (box[0,0] * box[2,2] - box[0,2] * box[2,0]) * inv_det, 
-         (box[0,2] * box[1,0] - box[0,0] * box[1,2]) * inv_det],
-        [(box[1,0] * box[2,1] - box[1,1] * box[2,0]) * inv_det, 
-         (box[0,1] * box[2,0] - box[0,0] * box[2,1]) * inv_det, 
-         (box[0,0] * box[1,1] - box[0,1] * box[1,0]) * inv_det]
-    ])
-    
-    # Use manual dot product instead of einsum for single vectors
-    if ra.ndim == 1:
-        ra_frac_0 = inv_box[0,0] * ra[0] + inv_box[0,1] * ra[1] + inv_box[0,2] * ra[2]
-        ra_frac_1 = inv_box[1,0] * ra[0] + inv_box[1,1] * ra[1] + inv_box[1,2] * ra[2]
-        ra_frac_2 = inv_box[2,0] * ra[0] + inv_box[2,1] * ra[1] + inv_box[2,2] * ra[2]
+    def transform(box, r):
+        free_indices = _get_free_indices(r.ndim - 1)
+        left_indices = free_indices + "j"
+        right_indices = free_indices + "i"
+        return jnp.einsum(f"ij,{left_indices}->{right_indices}", box, r)
         
-        rb_frac_0 = inv_box[0,0] * rb[0] + inv_box[0,1] * rb[1] + inv_box[0,2] * rb[2]
-        rb_frac_1 = inv_box[1,0] * rb[0] + inv_box[1,1] * rb[1] + inv_box[1,2] * rb[2]
-        rb_frac_2 = inv_box[2,0] * rb[0] + inv_box[2,1] * rb[1] + inv_box[2,2] * rb[2]
-        
-        dr_frac_0 = jnp.mod(rb_frac_0 - ra_frac_0 + 0.5, 1.0) - 0.5
-        dr_frac_1 = jnp.mod(rb_frac_1 - ra_frac_1 + 0.5, 1.0) - 0.5
-        dr_frac_2 = jnp.mod(rb_frac_2 - ra_frac_2 + 0.5, 1.0) - 0.5
-        
-        return jnp.array([
-            box[0,0] * dr_frac_0 + box[0,1] * dr_frac_1 + box[0,2] * dr_frac_2,
-            box[1,0] * dr_frac_0 + box[1,1] * dr_frac_1 + box[1,2] * dr_frac_2,
-            box[2,0] * dr_frac_0 + box[2,1] * dr_frac_1 + box[2,2] * dr_frac_2
-        ])
-    else:
-        # Use matrix multiplication for batched vectors
-        ra_frac = jnp.dot(ra, inv_box.T)
-        rb_frac = jnp.dot(rb, inv_box.T)
-        dr_frac = jnp.mod(rb_frac - ra_frac + 0.5, 1.0) - 0.5
-        return jnp.dot(dr_frac, box.T)
+    inv_box = jnp.linalg.inv(box)
+    ra = transform(inv_box, ra)
+    rb = transform(inv_box, rb)
+    
+    dr = jnp.mod((rb-ra) + 1 * (0.5), 1.) - (0.5) * 1
+    
+    dr = transform(box, dr)
+
+    return dr
 
 def cpu_nlist(positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, initial_safety_margin=1.):
     """
@@ -335,9 +267,7 @@ def debug_nlist(positions, cutoff, box):
     
     disp = displacement_fn(positions[nlist[0,:]], positions[nlist[1,:]], box)    
     
-    # disp = disp - np.round(disp / box) * box
     # Compute the pairwise distances (N, N) by taking the norm along the last axis.
-    # dist = np.linalg.norm(disp, axis=2)
     dist = np.array(space.distance(disp))
     
     # Identify all pairs where the distance is below the cutoff.
@@ -355,19 +285,25 @@ def debug_nlist(positions, cutoff, box):
     return nlist[0,:], nlist[1,:], distances
 
 @partial(jit, static_argnums=[0])
-def update_neighborlist(num_particles, positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, unique_pairs):
+def update_neighborlist(num_particles, positions, nl_cutoff, second_cutoff, third_cutoff, unique_pairs, box):
     """
     Update the neighbor list by reactivating previously masked pairs.
 
     Returns
     -------
+    nlist1 : jnp.array
+        Neighbor list where pairs with distance >= nl_cutoff are replaced with num_particles.
+    nlist2 : jnp.array
+        Neighbor list where pairs with distance >= second_cutoff are replaced with num_particles.
+    nlist3 : jnp.array
+        Neighbor list where pairs with distance >= third_cutoff are replaced with num_particles,
+        sorted by the first index and truncated to a fixed maximum number of columns.
+    jnp.any(jnp.equal(nlist1, num_particles)) : bool
+        Boolean flag to indicate when lists need to be re-allocated.
     
     """
-    delta = (positions[unique_pairs[0],:]-positions[unique_pairs[1],:])
-    delta.at[:, 0].add( - xy * delta[:, 1])
-    delta -= jnp.round(delta / l) * l
+    delta = displacement_fn(positions[unique_pairs[0],:], positions[unique_pairs[1],:], box)
     dist_sq = jnp.sum(delta ** 2, axis=-1)
-    
     nlist1 = jnp.where(dist_sq > nl_cutoff*nl_cutoff, num_particles, unique_pairs)
     nlist2 = jnp.where(dist_sq > second_cutoff*second_cutoff, num_particles, unique_pairs)
     nlist3 = jnp.where(dist_sq > third_cutoff*third_cutoff, num_particles, unique_pairs)
@@ -619,43 +555,18 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
     """
 
     @jit
-    def compute_hardsphere(net_vel, displacements, indices_i, indices_j):
-        fp = jnp.zeros((num_particles, num_particles, 3))
-
-        # Reset particle velocity
-        net_vel *= 0.0
-
-        # Compute velocity from hard-sphere repulsion
-        dist_mod = jnp.sqrt(
-            displacements[:, :, 0] * displacements[:, :, 0]
-            + displacements[:, :, 1] * displacements[:, :, 1]
-            + displacements[:, :, 2] * displacements[:, :, 2]
-        )
-
-        fp_mod = jnp.where(
-            indices_i != indices_j, k * (1 - sigma / dist_mod[indices_i, indices_j]), 0.0
-        )
-        fp_mod = jnp.where((dist_mod[indices_i, indices_j]) < sigma, fp_mod, 0.0)
-
-        # get forces in components
-        fp = fp.at[indices_i, indices_j, 0].add(fp_mod * displacements[indices_i, indices_j, 0])
-        fp = fp.at[indices_i, indices_j, 1].add(fp_mod * displacements[indices_i, indices_j, 1])
-        fp = fp.at[indices_i, indices_j, 2].add(fp_mod * displacements[indices_i, indices_j, 2])
-        fp = fp.at[indices_j, indices_i, 0].add(fp_mod * displacements[indices_j, indices_i, 0])
-        fp = fp.at[indices_j, indices_i, 1].add(fp_mod * displacements[indices_j, indices_i, 1])
-        fp = fp.at[indices_j, indices_i, 2].add(fp_mod * displacements[indices_j, indices_i, 2])
-
-        # sum all forces in each particle
-        fp = jnp.sum(fp, 1)
-
-        net_vel = net_vel.at[(0)::3].add(fp.at[:, 0].get())
-        net_vel = net_vel.at[(1)::3].add(fp.at[:, 1].get())
-        net_vel = net_vel.at[(2)::3].add(fp.at[:, 2].get())
-
-        return net_vel
+    def precompute_hs(positions, nl, box):
+        # Brownian Dynamics calculation quantities
+        indices_i = nl[0, :]  # Pair indices (i<j always)
+        indices_j = nl[1, :]
+        # array of vectors from particle i to j (size = npairs)
+        dist = displacement_fn(positions[indices_i,:], positions[indices_j,:], box)
+        dist_mod = space.distance(dist)
+        # unit vector from particle j to i
+        return dist, dist_mod, indices_i, indices_j
 
     @jit
-    def update_pos(positions):
+    def update_pos(positions, net_vel):
         # Define array of displacement r(t+dt)-r(t)
         dr = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities
@@ -676,14 +587,30 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
         net_vel = net_vel.at[1::3].add(brow[1::6])
         net_vel = net_vel.at[2::3].add(brow[2::6])
         return net_vel
+    
+    @jit
+    def compute_hs_forces(dist: ArrayLike, dist_mod: ArrayLike,
+        indices_i: ArrayLike, indices_j: ArrayLike, dt: float
+    ) -> Array:
 
-    displacement, shift = space.periodic_general(
+        fp = jnp.zeros((num_particles, 3))
+        # particle diameter (shifted of 1% to help numerical stability)
+        k = 1/dt * 0.1
+        fp_mod = jnp.where(
+            indices_i != indices_j, k * (1 - sigma / dist_mod), 0.0
+        )
+        fp_mod = jnp.where((dist_mod) < sigma, fp_mod, 0.0)
+        fp += ops.segment_sum(fp_mod[:,None] * dist, indices_i, num_particles)  # Add contributions from i
+        fp -= ops.segment_sum(fp_mod[:,None] * dist, indices_j, num_particles)  # Subtract contributions from j
+        return jnp.ravel(fp)
+
+    _, shift = space.periodic_general(
         jnp.array([[l, 0.0, 0.0], [0.0, l, 0.0], [0.0, 0.0, l]]), fractional_coordinates=False
     )
 
     net_vel = jnp.zeros(3 * num_particles)
     key = jrandom.PRNGKey(seed)
-    temperature = 0.001
+    temperature = 0.0005
     sigma = 2.15  # 2.15 #2.05 #particle diameter
     phi_eff = num_particles / (l * l * l) * (sigma * sigma * sigma) * np.pi / 6
     phi_actual = ((np.pi / 6) * (2 * 2 * 2) * num_particles) / (l * l * l)
@@ -691,20 +618,17 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
 
     dt = brow_time / (1e5)
 
-    Nsteps = int(brow_time / dt)
+    num_steps = int(brow_time / dt)
     key, random_coord = generate_random_array(key, (num_particles * 3))
     random_coord = (random_coord - 1 / 2) * l
     positions = jnp.zeros((num_particles, 3))
     positions = positions.at[:, 0].set(random_coord[0::3])
     positions = positions.at[:, 1].set(random_coord[1::3])
     positions = positions.at[:, 2].set(random_coord[2::3])
-
-    displacements = (space.map_product(displacement))(positions, positions)
-    unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), 3., 0., 0., 0.)
-
-    overlaps = find_overlaps(positions, 2.002, num_particles, nl, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
-    k = 30 * np.sqrt(6 * temperature / (sigma * sigma * dt))  # spring constant
-
+    unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), min(6,l/2), 0., 0., 0., initial_safety_margin=3.)
+    overlaps = find_overlaps(positions, 2.002, num_particles, unique_pairs, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
+    box = jnp.array([[l, 0., 0.], [0., l, 0.], [0., 0., l]])
+    print('Initial overlaps in creating HS conf are', overlaps)
     if phi_eff > 0.6754803226762013:
         print("System Volume Fraction is ", phi_actual, phi_eff)
         raise ValueError(
@@ -713,14 +637,14 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
     print(f"Creating initial configuration with volume fraction {phi_actual:.3g}. This could take several minutes in dense systems.")
     start_time = time.time()
     while overlaps > 0:
-        for i_step in range(Nsteps):
+        for i_step in tqdm(range(num_steps), mininterval=0.5):
             # Compute Velocity (Brownian + hard-sphere)
 
             # Compute distance vectors and neighbor list indices
-            (r, indices_i, indices_j) = precompute_bd(positions, nl, num_particles, l, l, l)
+            (dist, dist_mod, indices_i, indices_j) = precompute_hs(positions, nl, box)
 
             # compute forces for each pair
-            net_vel = compute_hardsphere(net_vel, displacements, indices_i, indices_j)
+            net_vel = compute_hs_forces(dist, dist_mod, indices_i, indices_j, dt)
 
             # Compute and add Brownian velocity
             key, random_noise = generate_random_array(key, (6 * num_particles))
@@ -728,18 +652,14 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
             net_vel = add_thermal_noise(net_vel, brow)
 
             # Update positions
-            positions = update_pos(
-                positions, net_vel
-            )
-            
-
+            positions = update_pos(positions, net_vel)
             # Update neighborlists
-            nl, _, _, nl_list_bound = update_neighborlist(num_particles, positions, l, 3., 0., 0., 0., unique_pairs)
-            if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
-                unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), 3., 0., 0., 0.)
+            nl, _, _, nl_list_bound = update_neighborlist(num_particles, positions, 3., 0., 0., unique_pairs, box)
+            if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.   
+                unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]),  3., 0., 0., 0., initial_safety_margin=3.)
 
-
-        overlaps = find_overlaps(displacements, 2.002, num_particles, nl, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
+        overlaps = find_overlaps(positions, 2.002, num_particles, unique_pairs, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
+        print('Thermalized for 1 Brownian time, found ', overlaps, 'overlaps')
         if (time.time() - start_time) > 1800:  # interrupt if too computationally expensive
             raise ValueError("Creation of initial configuration failed. Abort!")
     print("Initial configuration created. Volume fraction is ", phi_actual)
@@ -1020,18 +940,18 @@ def precompute(
     # Lubrication calculation quantities
     indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
     indices_j_lub = nl_lub[1, :]
-    # array of vectors from particle i to j (size = npairs)
+    # Array of vectors from particle i to j (size = npairs)
     r_lub = displacement_fn(positions[indices_i_lub,:], positions[indices_j_lub,:], box)
     dist_lub = space.distance(r_lub)  # distance between particle i and j
     # unit vector from particle j to i
     r_lub_unit = r_lub / dist_lub.at[:, None].get()
 
-    # # Indices in resistance table
+    # Indices in resistance table
     ind = jnp.log10((dist_lub - 2.0) / res_table_min) / res_table_dr
     ind = ind.astype(int)
     dist_lub_lower = res_table_dist.at[ind].get()
     dist_lub_upper = res_table_dist.at[ind + 1].get()
-    # # Linear interpolation of the Table values
+    # Linear interpolation of the Table values
     fac_lub = jnp.where(
         dist_lub_upper - dist_lub_lower > 0.0,
         (dist_lub - dist_lub_lower) / (dist_lub_upper - dist_lub_lower),
@@ -1424,7 +1344,7 @@ def precompute_open(
     indices_i_lub = nl_lub[0, :]  # Pair indices (i<j always)
     indices_j_lub = nl_lub[1, :]
     # array of vectors from particle i to j (size = npairs)
-    r_lub = displacement_fn(positions[indices_i_lub,:], positions[indices_j_lub,:], box)
+    r_lub = positions[indices_j_lub,:] - positions[indices_i_lub,:]
     dist_lub = space.distance(r_lub)  # distance between particle i and j
     # unit vector from particle j to i
     r_lub_unit = r_lub / dist_lub.at[:, None].get()
@@ -1833,7 +1753,6 @@ def precompute_rpy(
     indices_i = nl_ff[0, :]  # Pair indices (i<j always)
     indices_j = nl_ff[1, :]
     # array of vectors from particles i to j (size = npairs)
-    # r = positions[indices_j,:] - positions[indices_i,:]
     r = displacement_fn(positions[indices_i,:], positions[indices_j,:], box)
     dist = space.distance(r)  # distances between particles i and j
     r_unit = -r / dist.at[:, None].get()  # unit vector from particle j to i
@@ -1923,11 +1842,10 @@ def precompute_rpy_open(
     return (r_unit, indices_i, indices_j, mobil_scalar)
 
 
-@partial(jit, static_argnums=[2])
+@jit
 def precompute_bd(
     positions: ArrayLike,
     nl: ArrayLike,
-    num_particles: int,
     box_x: float,
     box_y: float,
     box_z: float,
@@ -1962,7 +1880,6 @@ def precompute_bd(
     indices_i = nl[0, :]  # Pair indices (i<j always)
     indices_j = nl[1, :]
     # array of vectors from particle i to j (size = npairs)
-    # r = positions[indices_j,:] - positions[indices_i,:]
     r = displacement_fn(positions[indices_i,:], positions[indices_j,:], box)
     dist_lub = space.distance(r)  # distance between particle i and j
     # unit vector from particle j to i

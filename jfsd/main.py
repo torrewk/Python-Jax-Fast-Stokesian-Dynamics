@@ -260,6 +260,8 @@ def check_overlap(positions: ArrayLike, num_particles: int,
         Number of particles.
     nlist : ArrayLike
         Neighbor list.
+    Box : ArrayLike
+        Array (3, 3) defining the box in 3 dimensions. 
         
     Returns
     -------
@@ -311,6 +313,7 @@ def wrap_sd(
     thermal_test_flag: int,
     friction_coefficient: float,
     friction_range: float,
+    max_nonzero_per_row: int = 50,
 ) -> tuple[Array, Array, Array, list[float]]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using Stokesian Dynamics method.
 
@@ -380,6 +383,8 @@ def wrap_sd(
         Strength of hydrodynamic friction
     h0_friction: (float)
         Range of hydrodynamic friction
+    max_nonzero_per_row: (int)
+        Max number of non-zero entries per row in the sparse near-field precondition resistance matrix.
 
     Returns
     -------
@@ -409,7 +414,7 @@ def wrap_sd(
 
         Returns
         -------
-        positions
+        positions (in-place update)
 
         """
         # Define array of displacement r(t+time_step)-r(t)
@@ -460,9 +465,6 @@ def wrap_sd(
         jnp.sqrt(-jnp.log(error_tolerance)) / ewald_xi
     )  # Real Space cutoff for the Ewald Summation in the Far-Field computation
     
-    # Set max number of non-zero entries per row in the sparse near-field precondition cholesky factor 
-    max_nonzero_per_row = 50
-
     # load resistance table
     ResTable_dist = jnp.load("files/ResTableDist.npy")
     ResTable_vals = jnp.load("files/ResTableVals.npy")
@@ -1147,7 +1149,7 @@ def wrap_sd(
             if output is not None:
                 np.save(output / "stresslet.npy", stresslet_history)
         # Update positions
-        (positions) = update_positions(
+        positions = update_positions(
             shear_rate,
             positions,
             saddle_x[11 * num_particles :] + brownian_drift,
@@ -1155,7 +1157,7 @@ def wrap_sd(
         )
         
         # Update neighborlists
-        nl_ff, nl_lub, nl_prec, nl_list_bound = utils.update_neighborlist(num_particles, positions, lx, ewald_cut, 3.99, 2.1, xy, unique_pairs)
+        nl_ff, nl_lub, nl_prec, nl_list_bound = utils.update_neighborlist(num_particles, positions, ewald_cut, 3.99, 2.1, unique_pairs, box)
         if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
             unique_pairs, nl_ff, nl_lub, nl_prec, _ = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 3.99, 2.1, xy)
         if boundary_flag == 0:
@@ -1166,9 +1168,8 @@ def wrap_sd(
         # if system is sheared, strain wave-vectors grid and update box tilt factor
         if shear_rate_0 != 0:
             xy = shear.update_box_tilt_factor(time_step, shear_rate_0, xy, step, shear_frequency)
-            _, shift_fn = space.periodic_general(
-                jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
-                fractional_coordinates=False,
+            box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
+            _, shift_fn = space.periodic_general(box, fractional_coordinates=False
             )
             if boundary_flag == 0:
                 gridk = shear.compute_sheared_grid(
@@ -1364,7 +1365,7 @@ def wrap_rpy(
 
         Returns
         -------
-        positions
+        positions (in-place update)
 
         """
         # Define array of displacement r(t+time_step)-r(t)
@@ -1703,12 +1704,12 @@ def wrap_rpy(
                 mobil_scalar,
             )
         # update positions and neighborlists
-        (positions) = update_positions(
+        positions = update_positions(
             shear_rate, positions, general_velocity, time_step
         )
         
         # Update neighborlists
-        nl_ff, _, _, nl_list_bound = utils.update_neighborlist(num_particles, positions, lx, ewald_cut, 0., 0., xy, unique_pairs)
+        nl_ff, _, _, nl_list_bound = utils.update_neighborlist(num_particles, positions, ewald_cut, 0., 0., unique_pairs, box)
         if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
             unique_pairs, nl_ff, _, _, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 0., 0., xy, initial_safety_margin=nl_safety_margin)
         if boundary_flag == 0:
@@ -1719,9 +1720,8 @@ def wrap_rpy(
         # if system is sheared, strain wave-vectors grid and update box tilt factor
         if shear_rate_0 != 0:
             xy = shear.update_box_tilt_factor(time_step, shear_rate_0, xy, step, shear_frequency)
-            _, shift_fn = space.periodic_general(
-                jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
-                fractional_coordinates=False,
+            box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
+            _, shift_fn = space.periodic_general(box, fractional_coordinates=False,
             )
             if boundary_flag == 0:
                 gridk = shear.compute_sheared_grid(
@@ -1854,7 +1854,7 @@ def wrap_bd(
 
         Returns
         -------
-        positions
+        positions (in-place update)
 
         """
         # Define array of displacement r(t+time_step)-r(t)
@@ -1925,7 +1925,7 @@ def wrap_bd(
 
         # precompute quantities for Brownian dynamics calculation
         (r, indices_i, indices_j) = utils.precompute_bd(
-            positions, nl, num_particles, lx, ly, lz
+            positions, nl, lx, ly, lz, xy
         )
 
         # compute shear-rate for current timestep: simple(shear_frequency=0) or oscillatory(shear_frequency>0)
@@ -1959,20 +1959,19 @@ def wrap_bd(
         # add potential force contribution to total velocity (thermal contribution is already included)
         general_velocity += -saddle_b[11 * num_particles :]
         # update positions
-        (positions) = update_positions(
+        positions = update_positions(
             shear_rate, positions, general_velocity, time_step
         )
         # Update neighborlists
-        nl, _, _, nl_list_bound = utils.update_neighborlist(num_particles, positions, lx, interaction_cutoff, 0., 0., xy, unique_pairs)
+        nl, _, _, nl_list_bound = utils.update_neighborlist(num_particles, positions, interaction_cutoff, 0., 0., unique_pairs, box)
         if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
             unique_pairs, nl, _, _, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), interaction_cutoff, 0., 0., xy, initial_safety_margin=nl_safety_margin)
         
         # if system is sheared, strain wave-vectors grid and update box tilt factor
         if shear_rate_0 != 0:
             xy = shear.update_box_tilt_factor(time_step, shear_rate_0, xy, step, shear_frequency)
-            _, shift_fn = space.periodic_general(
-                jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]]),
-                fractional_coordinates=False,
+            box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
+            _, shift_fn = space.periodic_general(box, fractional_coordinates=False
             )
 
         # write trajectory to file

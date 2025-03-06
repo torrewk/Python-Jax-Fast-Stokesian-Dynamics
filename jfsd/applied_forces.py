@@ -80,7 +80,7 @@ def sum_applied_forces(
 
         """
         fp = jnp.zeros((num_particles, 3))
-        sigma = 2.0  # particle diameter (TODO: make this a parameter)
+        sigma = 2.0  # particle diameter
         # 1% shift to avoid overlaps for the hydrodynamic integrator (and non-positive def operators)
         sigma += sigma * 0.01
         # compute sigma/delta_r for each pair
