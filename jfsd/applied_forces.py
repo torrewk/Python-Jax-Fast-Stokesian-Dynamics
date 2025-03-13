@@ -6,6 +6,23 @@ from jax.typing import ArrayLike
 from jfsd import utils
 
 @partial(jit, static_argnums=[0])
+def spiral_trap(num_particles,indices,dt,current_step,saddle_b):
+    total_forces = jnp.zeros((num_particles,3))
+    f = jnp.zeros(3)
+    current_time = dt*current_step
+    f = f.at[0].set(jnp.cos(current_time))
+    f = f.at[1].set(jnp.cos(current_time))
+    f = f.at[2].set(1.)
+    total_forces = total_forces.at[indices, :].set(f)
+    
+    # add imposed (-forces) to rhs of linear system
+    saddle_b = saddle_b.at[(11 * num_particles + 0) :: 6].add(- total_forces.at[:, 0].get())
+    saddle_b = saddle_b.at[(11 * num_particles + 1) :: 6].add(- total_forces.at[:, 1].get())
+    saddle_b = saddle_b.at[(11 * num_particles + 2) :: 6].add(- total_forces.at[:, 2].get())
+    
+    return saddle_b
+
+@partial(jit, static_argnums=[0])
 def sum_applied_forces(
     num_particles: int,
     constant_forces: ArrayLike,

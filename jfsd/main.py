@@ -826,6 +826,8 @@ def wrap_sd(
             time_step,
             box
         )
+        
+        saddle_b = applied_forces.spiral_trap(num_particles,0,time_step,step,saddle_b)
 
         # add (-) the ambient rate of strain to the right-hand side
         if shear_rate_0 != 0:
