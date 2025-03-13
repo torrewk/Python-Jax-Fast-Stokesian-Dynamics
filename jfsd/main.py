@@ -305,7 +305,7 @@ def wrap_sd(
     thermal_test_flag: int,
     friction_coefficient: float,
     friction_range: float,
-    max_nonzero_per_row: int = 50,
+    max_nonzero_per_row: int = 100,
 ) -> tuple[Array, Array, Array, list[float]]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using Stokesian Dynamics method.
 
