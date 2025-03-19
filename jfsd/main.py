@@ -19,7 +19,7 @@ import time
 
 from jfsd import applied_forces, mobility, resistance, shear, solver, thermal, utils
 from jfsd import jaxmd_space as space
-import io_utils as io
+from jfsd import io_utils
 import stokeskit as sk
 
 
@@ -313,7 +313,7 @@ def wrap_sd(
     thermal_test_flag: int,
     friction_coefficient: float,
     friction_range: float,
-    max_nonzero_per_row: int = 50,
+    max_nonzero_per_row: int = 80,
 ) -> tuple[Array, Array, Array, list[float]]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using Stokesian Dynamics method.
 
@@ -450,10 +450,7 @@ def wrap_sd(
     
     # Calculate radii ratios of the particles. It should be a 2D array of shape (num_particles, num_particles)
     # Create the full radii ratios matrix
-    radii_matrix = np.zeros((num_particles, num_particles))
-    for i in range(num_particles):
-        for j in range(num_particles):
-            radii_matrix[i,j] = radii[i] / radii[j]
+    radii_matrix = radii.reshape(-1, 1) / radii
 
     # set initial number of Lanczos iterations, for both thermal fluctuations
     n_iter_Lanczos_ff = 2
@@ -576,7 +573,7 @@ def wrap_sd(
                 prefac,
                 expfac,
                 quadW,
-                int(gauss_support),
+                gauss_support,
                 gaussPd2,
                 ewald_n,
                 ewald_dr,
@@ -616,8 +613,34 @@ def wrap_sd(
 
         # set projector needed to compute thermal fluctuations given by lubrication
         diagonal_zeroes_for_brownian = thermal.number_of_neigh_jit(num_particles, indices_i_lub, indices_j_lub)
+
+        # Filter pairs: Both indices must be valid (< num_particles)
+        valid_indices = jnp.logical_and(
+            nl_prec[0,:] < num_particles,
+            nl_prec[1,:] < num_particles
+        )
         
-        row, col, data = resistance.rfu_sparse_precondition(positions, num_particles, len(nl_prec[1,:]), nl_prec, box)
+        # Calculate resistance functions using the updated function signature
+        res_functions_me = resistance.calculate_resistance_functions(
+            radii_ratios=radii_matrix, 
+            positions=positions, 
+            use_interp=False,
+            lubr_cutoff=2.001, 
+            cutoff=4.0, 
+            maxIter=200, 
+            rtol=1E-4, 
+            atol=1E-8,
+            nl_prec=nl_prec, 
+            box=box
+        )
+
+        # Now handle the sparse preconditioner - only calculate if we have valid pairs
+        if jnp.any(valid_indices) and any(len(v) > 0 for v in res_functions_me.values()):
+            row, col, data = resistance.rfu_sparse_precondition(positions, num_particles, len(nl_prec[1,:]), nl_prec, box, res_functions_me)
+        else:
+            # Create empty arrays for the sparse matrix when no valid pairs
+            row = col = data = jnp.zeros(0)
+        
         idx_buffer = np.where((row < 6 * num_particles))
         spp_rfu = sp.csr_matrix((data[idx_buffer], (row[idx_buffer], col[idx_buffer])), shape=(6 * num_particles, 6 * num_particles), dtype=np.float64())
         

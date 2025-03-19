@@ -12,57 +12,163 @@ import stokeskit as sk
 import time
 
 
-def calculate_XA11(d, l, lubr_cutoff=2.001, cutoff=4.0, maxIter=200, rtol=1E-4, atol=1E-8):
-    """Calculate the XA11A resistance function.
+def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lubr_cutoff=2.001, cutoff=4.0, maxIter=200, 
+                                  rtol=1E-4, atol=1E-8, nl_prec=None, box=None):
+    """Calculate resistance functions for pairs of particles.
 
     Parameters
     ----------
-    d: (np.array)
-        Distance between two particles
-    l: (np.array)
-        Ratios of the particle radii
+    positions: (np.array)
+        Particle positions of shape (num_particles, 3).
+    radii_ratios: (np.array)
+        Ratios of the particle radii. Should be a 2D matrix of shape (num_particles, num_particles).
+    use_interp: (bool)
+        Whether to use interpolated values from table lookup.
     lubr_cutoff: (float)
-        Cutoff distance for lubrication resistance
+        Cutoff distance for lubrication resistance.
     cutoff: (float)
-        Cutoff distance for resistance
+        Cutoff distance for resistance.
     maxIter: (int)
-        Maximum number of iterations
+        Maximum number of iterations.
     rtol: (float)
-        Relative tolerance
+        Relative tolerance.
     atol: (float)
-        Absolute tolerance
+        Absolute tolerance.
+    nl_prec: (np.array, optional)
+        Neighbor list with indices of particle pairs. If None, all pairs will be considered.
+    box: (np.array, optional)
+        Simulation box dimensions, required for periodic boundaries.
 
     Returns
     -------
-    res_functions: (tuple)
-        Tuple of resistance functions (XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12)
-
+    res_functions: (dict)
+        Dictionary of resistance functions (XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12)
     """
+    num_particles = len(positions)
     
-    print("Calculating XA11 resistance function")
+    # If no neighbor list is provided, compute one with all pairs
+    if nl_prec is None:
+        # Create a complete pair list
+        i_indices = []
+        j_indices = []
+        for i in range(num_particles):
+            for j in range(i+1, num_particles):
+                i_indices.append(i)
+                j_indices.append(j)
+        nl_prec = jnp.array([i_indices, j_indices])
     
+    # Empty list or single particle case - return empty dictionary early
+    if len(nl_prec[0]) == 0 or num_particles <= 1:
+        # Return empty dictionary with all expected keys
+        return {k: jnp.array([]) for k in [
+            "XA11", "XA12", "YA11", "YA12", "YB11", "YB12", 
+            "XC11", "XC12", "YC11", "YC12"
+        ]}
     
-    res_functions = sk.compute_resistance_functions(
-        d,
-        l,
-        lubr_cutoff=lubr_cutoff,
-        cutoff=cutoff,
-        maxIter=maxIter,
-        rtol=rtol,
-        atol=atol
+    # Filter pairs: Both indices must be valid
+    valid_indices = jnp.logical_and(
+        nl_prec[0,:] < num_particles,
+        nl_prec[1,:] < num_particles
     )
     
-    # Make all members of the dict jnp arrays
+    # Skip all computations if no valid pairs exist
+    if not jnp.any(valid_indices):
+        return {k: jnp.zeros(len(nl_prec[0])) for k in [
+            "XA11", "XA12", "YA11", "YA12", "YB11", "YB12", 
+            "XC11", "XC12", "YC11", "YC12"
+        ]}
+    
+    # Extract valid pair indices
+    valid_pairs_i = nl_prec[0, valid_indices]
+    valid_pairs_j = nl_prec[1, valid_indices]
+    
+    # Only compute displacements and distances for valid pairs
+    valid_r_me = utils.displacement_fn(
+        positions[valid_pairs_i],
+        positions[valid_pairs_j],
+        box
+    )
+    
+    # Get radii ratios for valid pairs only
+    valid_radii_ratios = radii_ratios[valid_pairs_i, valid_pairs_j]
+    
+    # Calculate distances for valid pairs
+    valid_dist = space.distance(valid_r_me)
+    
+    # Define the output dict with zeros for all pairs
+    res_functions = {
+        "XA11": jnp.zeros(len(nl_prec[0])),
+        "XA12": jnp.zeros(len(nl_prec[0])),
+        "YA11": jnp.zeros(len(nl_prec[0])),
+        "YA12": jnp.zeros(len(nl_prec[0])),
+        "YB11": jnp.zeros(len(nl_prec[0])),
+        "YB12": jnp.zeros(len(nl_prec[0])),
+        "XC11": jnp.zeros(len(nl_prec[0])),
+        "XC12": jnp.zeros(len(nl_prec[0])),
+        "YC11": jnp.zeros(len(nl_prec[0])),
+        "YC12": jnp.zeros(len(nl_prec[0])),
+    }
+
+    # Handle interpolation-based or direct computation (but only for valid pairs)
+    if use_interp:
+        restable_dist = jnp.load("files/ResTableDist.npy")
+        restable_vals = jnp.load("files/ResTableVals.npy")
+        # Smallest surface-to-surface distance (lower cut-off)
+        restable_min = 0.0001
+        # Table discretization (log space), i.e. ind * dr.set(log10( h[ind] / min )
+        restable_dr = 0.004305
+
+        # Process only valid distances
+        ind = jnp.log10((valid_dist - 2.0) / restable_min) / restable_dr
+        ind = ind.astype(int)
+
+        dist_lower = restable_dist[ind]
+        dist_upper = restable_dist[ind + 1]
+
+        fac = jnp.where(
+            dist_upper - dist_lower > 0.0, 
+            (valid_dist - dist_lower) / (dist_upper - dist_lower), 
+            0.0
+        )
+
+        dict_keys = ["XA11", "XA12", "YA11", "YA12", "YB11", "YB12", "XC11", "XC12", "YC11", "YC12"]
+
+        # Compute values for valid pairs and insert them into the result
+        for i, key in enumerate(dict_keys):
+            valid_values = jnp.where(
+                valid_dist >= 2 + restable_min,
+                (
+                    restable_vals[22 * (ind) + i]
+                    + (restable_vals[22 * (ind + 1) + i] - restable_vals[22 * (ind) + i]) * fac
+                ),
+                restable_vals[i],
+            )
+            res_functions[key] = res_functions[key].at[valid_indices].set(valid_values)
+    else:
+        # Compute resistance functions only for valid pairs
+        valid_res_functions = sk.compute_resistance_functions(
+            valid_dist,
+            valid_radii_ratios,
+            lubr_cutoff=lubr_cutoff,
+            cutoff=cutoff,
+            maxIter=maxIter,
+            rtol=rtol,
+            atol=atol
+        )
+        
+        # Insert valid values into result arrays
+        for key, value in valid_res_functions.items():
+            res_functions[key] = res_functions[key].at[valid_indices].set(value)
+            
+    # Ensure all values are jnp arrays
     for key, value in res_functions.items():
         res_functions[key] = jnp.array(value)
-        
-    
-    print("Done calculating XA11 resistance function")
-    
+
     return res_functions
+
 @partial(jit, static_argnums=[1,2])
 def rfu_sparse_precondition(
-    pos: ArrayLike, num_particles: int, n_pairs_lub_prec: int, nl_lub_prec: ArrayLike, box: ArrayLike
+    pos: ArrayLike, num_particles: int, n_pairs_lub_prec: int, nl_lub_prec: ArrayLike, box: ArrayLike, res_functions: dict
 ) -> tuple[Array, Array]:
     """Construct an approximate resistance matrix R_FU for particle pairs very close (d <= 2.1*radius).
 
@@ -81,15 +187,20 @@ def rfu_sparse_precondition(
     nl_lub_prec: (int)
         Array (2,n_pairs_nf) containing near-field precondition neighborlist indices
     box: (float)
-        Array (3,3) containing box affine transformation. 
+        Array (3,3) containing box affine transformation.
 
     Returns
     -------
-
-
+    row: (int)
+        Array (6*6*n_pairs_lub_prec*3) containing row indices of resistance matrix in sparse format
+    col: (int)
+        Array (6*6*n_pairs_lub_prec*3) containing column indices of resistance matrix in sparse format
+    data: (float)
+        Array (6*6*n_pairs_lub_prec*3) containing values of resistance matrix in sparse format
     """
     # Compute distances between particles, for each pair
-    r = utils.displacement_fn(pos[nl_lub_prec[0,:],:], pos[nl_lub_prec[1,:],:], box)
+    mypos = jnp.array(pos)
+    r = utils.displacement_fn(mypos.at[nl_lub_prec[0,:],:].get(), mypos.at[nl_lub_prec[1,:],:].get(), box)
     # Load resistance table
     restable_dist = jnp.load("files/ResTableDist.npy")
     restable_vals = jnp.load("files/ResTableVals.npy")
@@ -115,95 +226,11 @@ def rfu_sparse_precondition(
         dist_upper - dist_lower > 0.0, (dist - dist_lower) / (dist_upper - dist_lower), 0.0
     )
 
-    xa11 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 0]
-            + (restable_vals[22 * (ind + 1) + 0] - restable_vals[22 * (ind) + 0]) * fac
-        ),
-        restable_vals[0],
-    )
-
-    xa12 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 1]
-            + (restable_vals[22 * (ind + 1) + 1] - restable_vals[22 * (ind) + 1]) * fac
-        ),
-        restable_vals[1],
-    )
-
-    ya11 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 2]
-            + (restable_vals[22 * (ind + 1) + 2] - restable_vals[22 * (ind) + 2]) * fac
-        ),
-        restable_vals[2],
-    )
-
-    ya12 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 3]
-            + (restable_vals[22 * (ind + 1) + 3] - restable_vals[22 * (ind) + 3]) * fac
-        ),
-        restable_vals[3],
-    )
-
-    yb11 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 4]
-            + (restable_vals[22 * (ind + 1) + 4] - restable_vals[22 * (ind) + 4]) * fac
-        ),
-        restable_vals[4],
-    )
-
-    yb12 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 5]
-            + (restable_vals[22 * (ind + 1) + 5] - restable_vals[22 * (ind) + 5]) * fac
-        ),
-        restable_vals[5],
-    )
-
-    xc11 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 6]
-            + (restable_vals[22 * (ind + 1) + 6] - restable_vals[22 * (ind) + 6]) * fac
-        ),
-        restable_vals[6],
-    )
-
-    xc12 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 7]
-            + (restable_vals[22 * (ind + 1) + 7] - restable_vals[22 * (ind) + 7]) * fac
-        ),
-        restable_vals[7],
-    )
-
-    yc11 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 8]
-            + (restable_vals[22 * (ind + 1) + 8] - restable_vals[22 * (ind) + 8]) * fac
-        ),
-        restable_vals[8],
-    )
-
-    yc12 = jnp.where(
-        dist >= 2 + restable_min,
-        (
-            restable_vals[22 * (ind) + 9]
-            + (restable_vals[22 * (ind + 1) + 9] - restable_vals[22 * (ind) + 9]) * fac
-        ),
-        restable_vals[9],
-    )
+    xa11, xa12 = res_functions["XA11"], res_functions["XA12"]
+    ya11, ya12 = res_functions["YA11"], res_functions["YA12"]
+    yb11, yb12 = res_functions["YB11"], res_functions["YB12"]
+    xc11, xc12 = res_functions["XC11"], res_functions["XC12"]
+    yc11, yc12 = res_functions["YC11"], res_functions["YC12"]
 
     epsr = jnp.array(
         [
@@ -227,7 +254,7 @@ def rfu_sparse_precondition(
             [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec)],
         ]
     ) - rr)
-    
+
     rfu_pair = jnp.zeros((6 , 6, n_pairs_lub_prec))
     rfu_self = jnp.zeros((6 , 6, n_pairs_lub_prec))
     rfu_self2 = jnp.zeros((6 , 6, n_pairs_lub_prec))
@@ -237,7 +264,7 @@ def rfu_sparse_precondition(
     rfu_pair = rfu_pair.at[3:6,3:6,:].set(xc12 * rr + yc12 * (identity_m_rr))  #c_neigh
     rfu_pair = rfu_pair.at[:3,3:6,:].set(buffer) #b_tilde_neigh
     rfu_pair = rfu_pair.at[3:6,:3,:].set(buffer) #b_neigh
-    
+
     epsr = jnp.array(
         [
             [jnp.zeros(n_pairs_lub_prec), r[:, 2], -r[:, 1]],
@@ -260,22 +287,22 @@ def rfu_sparse_precondition(
             [jnp.zeros(n_pairs_lub_prec), jnp.zeros(n_pairs_lub_prec), jnp.ones(n_pairs_lub_prec)],
         ]
     ) - rr)
-    
-    
+
+
     buffer = xa11 * rr + ya11 * (identity_m_rr)
     rfu_self = rfu_self.at[:3,:3,:].set(buffer) #a_self (particle i)
     rfu_self2 = rfu_self2.at[:3,:3,:].set(buffer) #a_self (particle j)
-    
-    buffer = xc11 * rr + yc11 * (identity_m_rr) 
+
+    buffer = xc11 * rr + yc11 * (identity_m_rr)
     rfu_self = rfu_self.at[3:6,3:6,:].set(buffer) #c_self (particle i)
     rfu_self2 = rfu_self2.at[3:6,3:6,:].set(buffer) #c_self (particle j)
-        
+
     buffer = yb11 * (epsr) # b_self
     rfu_self = rfu_self.at[:3,3:6,:].set(-buffer) # b_tilde_self (particle i)
     rfu_self = rfu_self.at[3:6,:3,:].set(buffer) # b_self (particle i)
     rfu_self2 = rfu_self2.at[:3,3:6,:].set(buffer) # b_tilde_self (particle j)
     rfu_self2 = rfu_self2.at[3:6,:3,:].set(-buffer) # b_self (particle j)
-    
+
     # Define empty arrays for indices and values of resistance matrix in sparse format
     row  = jnp.zeros(6 * 6 * (n_pairs_lub_prec * 3) )
     col  = jnp.zeros(6 * 6 * (n_pairs_lub_prec * 3) )
@@ -287,19 +314,19 @@ def rfu_sparse_precondition(
     indices_i = nl_lub_prec[0, :]  # Pair indices (i<j always)
     indices_j = nl_lub_prec[1, :]
     indices_mi =  jnp.repeat(indices_i, 6 * 6) * 6
-    indices_mj =  jnp.repeat(indices_j, 6 * 6) * 6        
+    indices_mj =  jnp.repeat(indices_j, 6 * 6) * 6
     row = row.at[:   6 * 6 * (n_pairs_lub_prec)].set(indices_mi + jnp.tile(i_shift, n_pairs_lub_prec))
     col = col.at[:   6 * 6 * (n_pairs_lub_prec)].set(indices_mj + jnp.tile(j_shift, n_pairs_lub_prec))
     data = data.at[: 6 * 6 * (n_pairs_lub_prec)].set(jnp.ravel(jnp.reshape(rfu_pair, (6 * 6, n_pairs_lub_prec)).T))
-    # Generate indices and data for diagonal blocks    
+    # Generate indices and data for diagonal blocks
     row = row.at[   6 * 6 * (n_pairs_lub_prec) : 6 * 6 * (n_pairs_lub_prec*2)].set(indices_mi + jnp.tile(i_shift, n_pairs_lub_prec))
     col = col.at[   6 * 6 * (n_pairs_lub_prec) : 6 * 6 * (n_pairs_lub_prec*2)].set(indices_mi + jnp.tile(j_shift, n_pairs_lub_prec))
     data = data.at[ 6 * 6 * (n_pairs_lub_prec) : 6 * 6 * (n_pairs_lub_prec*2)].set(jnp.ravel(jnp.reshape(rfu_self, (6 * 6, n_pairs_lub_prec)).T))
     row = row.at[  6 * 6 * (n_pairs_lub_prec*2) : 6 * 6 * (n_pairs_lub_prec*3)].set(indices_mj + jnp.tile(i_shift, n_pairs_lub_prec))
     col = col.at[  6 * 6 * (n_pairs_lub_prec*2) : 6 * 6 * (n_pairs_lub_prec*3)].set(indices_mj + jnp.tile(j_shift, n_pairs_lub_prec))
     data = data.at[6 * 6 * (n_pairs_lub_prec*2) : 6 * 6 * (n_pairs_lub_prec*3)].set(jnp.ravel(jnp.reshape(rfu_self2, (6 * 6, n_pairs_lub_prec)).T))
-    
-    return row, col, data 
+
+    return row, col, data
 
 def compute_lubrication_fu(
     velocities: ArrayLike,
@@ -758,7 +785,7 @@ def compute_rse(
             + 0.5
             * ym12
             * (
-                2.0 * r_lub[:, 0] * edrj[2]
+                 2.0 * r_lub[:, 0] * edrj[2]
                 + 2.0 * r_lub[:, 2] * edrj[0]
                 - 4.0 * rdedrj * r_lub[:, 0] * r_lub[:, 2]
             )
