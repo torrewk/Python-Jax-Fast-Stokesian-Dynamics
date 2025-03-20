@@ -9,7 +9,7 @@ except ImportError:
     import tomli as tomllib  # type: ignore  # noqa
 
 from jfsd.utils import create_hardsphere_configuration
-import io_utils as io
+from jfsd import io_utils as io
 
 
 class JfsdConfiguration:

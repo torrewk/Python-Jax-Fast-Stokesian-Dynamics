@@ -12,8 +12,7 @@ import stokeskit as sk
 import time
 
 
-def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lubr_cutoff=2.001, cutoff=4.0, maxIter=200, 
-                                  rtol=1E-4, atol=1E-8, nl_prec=None, box=None):
+def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lubr_cutoff=2.001, cutoff=4.0, maxIter=200, rtol=1E-4, atol=1E-8, nl_prec=None, box=None):
     """Calculate resistance functions for pairs of particles.
 
     Parameters
@@ -78,23 +77,6 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
             "XC11", "XC12", "YC11", "YC12"
         ]}
     
-    # Extract valid pair indices
-    valid_pairs_i = nl_prec[0, valid_indices]
-    valid_pairs_j = nl_prec[1, valid_indices]
-    
-    # Only compute displacements and distances for valid pairs
-    valid_r_me = utils.displacement_fn(
-        positions[valid_pairs_i],
-        positions[valid_pairs_j],
-        box
-    )
-    
-    # Get radii ratios for valid pairs only
-    valid_radii_ratios = radii_ratios[valid_pairs_i, valid_pairs_j]
-    
-    # Calculate distances for valid pairs
-    valid_dist = space.distance(valid_r_me)
-    
     # Define the output dict with zeros for all pairs
     res_functions = {
         "XA11": jnp.zeros(len(nl_prec[0])),
@@ -108,47 +90,67 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
         "YC11": jnp.zeros(len(nl_prec[0])),
         "YC12": jnp.zeros(len(nl_prec[0])),
     }
+    
+    
+    # Get all particle positions using pair indices (with safety mask for invalid indices)
+    safe_i_indices = jnp.minimum(nl_prec[0,:], num_particles-1) #< clamp to num_particles-1
+    safe_j_indices = jnp.minimum(nl_prec[1,:], num_particles-1) #< clamp to num_particles-1
+    pos_i = positions[safe_i_indices] 
+    pos_j = positions[safe_j_indices]
+    
+    # Calculate displacements for all pairs (even if invalid - it will just be zero)
+    r_me = utils.displacement_fn(pos_i, pos_j, box)
+    
+    # Get radii ratios and calculate distances for all pairs
+    pair_radii_ratios = radii_ratios[safe_i_indices, safe_j_indices]
+    distances = space.distance(r_me)
 
-    # Handle interpolation-based or direct computation (but only for valid pairs)
+    # Handle interpolation-based or direct computation for all pairs
     if use_interp:
+        t_interp_start = time.time()
         restable_dist = jnp.load("files/ResTableDist.npy")
         restable_vals = jnp.load("files/ResTableVals.npy")
-        # Smallest surface-to-surface distance (lower cut-off)
         restable_min = 0.0001
-        # Table discretization (log space), i.e. ind * dr.set(log10( h[ind] / min )
         restable_dr = 0.004305
 
-        # Process only valid distances
-        ind = jnp.log10((valid_dist - 2.0) / restable_min) / restable_dr
-        ind = ind.astype(int)
+        # Process all distances (safely)
+        ind = jnp.log10((distances - 2.0) / restable_min) / restable_dr
+        ind = jnp.clip(ind.astype(int), 0, len(restable_dist)-2)  # Ensure valid indices
 
         dist_lower = restable_dist[ind]
         dist_upper = restable_dist[ind + 1]
 
         fac = jnp.where(
             dist_upper - dist_lower > 0.0, 
-            (valid_dist - dist_lower) / (dist_upper - dist_lower), 
+            (distances - dist_lower) / (dist_upper - dist_lower), 
             0.0
         )
 
         dict_keys = ["XA11", "XA12", "YA11", "YA12", "YB11", "YB12", "XC11", "XC12", "YC11", "YC12"]
 
-        # Compute values for valid pairs and insert them into the result
+        # Compute values only where pairs are valid
         for i, key in enumerate(dict_keys):
-            valid_values = jnp.where(
-                valid_dist >= 2 + restable_min,
+            values = jnp.where(
+                jnp.logical_and(valid_indices, distances >= 2 + restable_min),
                 (
                     restable_vals[22 * (ind) + i]
                     + (restable_vals[22 * (ind + 1) + i] - restable_vals[22 * (ind) + i]) * fac
                 ),
-                restable_vals[i],
+                jnp.where(valid_indices, restable_vals[i], 0.0),
             )
-            res_functions[key] = res_functions[key].at[valid_indices].set(valid_values)
+            res_functions[key] = values
     else:
-        # Compute resistance functions only for valid pairs
+        # Create a mask of zeros for invalid pairs to avoid computation errors
+        valid_mask = valid_indices.astype(float)
+        
+        # Compute for all pairs but zero out invalid ones
+        masked_distances = distances * valid_mask
+        masked_radii_ratios = pair_radii_ratios * valid_mask[:, jnp.newaxis] if pair_radii_ratios.ndim > 1 else pair_radii_ratios * valid_mask
+        
+        # Compute resistance functions for all pairs
         valid_res_functions = sk.compute_resistance_functions(
-            valid_dist,
-            valid_radii_ratios,
+            masked_distances,
+            masked_radii_ratios,
             lubr_cutoff=lubr_cutoff,
             cutoff=cutoff,
             maxIter=maxIter,
@@ -156,9 +158,9 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
             atol=atol
         )
         
-        # Insert valid values into result arrays
+        # Copy valid results to output
         for key, value in valid_res_functions.items():
-            res_functions[key] = res_functions[key].at[valid_indices].set(value)
+            res_functions[key] = value * valid_mask
             
     # Ensure all values are jnp arrays
     for key, value in res_functions.items():

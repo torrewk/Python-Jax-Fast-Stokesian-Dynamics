@@ -21,7 +21,7 @@ from jfsd import applied_forces, mobility, resistance, shear, solver, thermal, u
 from jfsd import jaxmd_space as space
 from jfsd import io_utils
 import stokeskit as sk
-
+from jfsd.timing_utils import SimulationTimer
 
 config.update("jax_enable_x64", False)  # Disable double precision by default
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"  # Avoid JAX preallocating most GPU memory
@@ -157,6 +157,11 @@ def main(
     
     print("jfsd is running on device:", xla_bridge.get_backend().platform)
     
+    # Initialize timer
+    timer = SimulationTimer()
+    
+    timer.start("simulation")
+    
     if hydrodynamic_interaction_flag == 0:
         trajectory, velocities = wrap_bd(
             num_steps,
@@ -179,6 +184,7 @@ def main(
             store_orientation,
             constant_applied_forces,
             constant_applied_torques,
+            timer,
         )
     elif hydrodynamic_interaction_flag == 1:
         trajectory, velocities = wrap_rpy(
@@ -207,6 +213,7 @@ def main(
             constant_applied_forces,
             constant_applied_torques,
             boundary_flag,
+            timer,
         )
     elif hydrodynamic_interaction_flag == 2:
         trajectory, stresslet_history, velocities, test_results = wrap_sd(
@@ -242,7 +249,12 @@ def main(
             thermal_test_flag,
             friction_coefficient,
             friction_range,
+            timer,
         )
+    
+    timer.stop("simulation")
+    timer.print_report()  # Uses hierarchical report by default now
+    
     return trajectory, stresslet_history, velocities, test_results
 
 
@@ -313,6 +325,7 @@ def wrap_sd(
     thermal_test_flag: int,
     friction_coefficient: float,
     friction_range: float,
+    timer: SimulationTimer,
     max_nonzero_per_row: int = 80,
 ) -> tuple[Array, Array, Array, list[float]]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using Stokesian Dynamics method.
@@ -439,6 +452,8 @@ def wrap_sd(
 
         return positions
     
+    # Initialize timer at the beginning of simulation setup
+    timer.start("initialization")
     if output is not None:
         output = Path(output)
         output.mkdir(exist_ok=True, parents=True)
@@ -463,16 +478,21 @@ def wrap_sd(
     )  # Real Space cutoff for the Ewald Summation in the Far-Field computation
     
     # load resistance table
+    timer.start("load_tables")
     ResTable_dist = jnp.load("files/ResTableDist.npy")
     ResTable_vals = jnp.load("files/ResTableVals.npy")
     ResTable_min = 0.0001000000000000
     ResTable_dr = 0.0043050000000000  # table discretization (log space), i.e. ind * dr.set(log10( h[ind] / min )
+    timer.stop("load_tables")
 
     # set INITIAL Periodic Space and Displacement Metric
     box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
     _, shift_fn = space.periodic_general(box, fractional_coordinates=False)
+    
     # compute neighbor lists 
+    timer.start("initial_neighbor_list")
     unique_pairs, nl_ff, nl_lub, nl_prec, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 3.99, 2.1, xy)
+    timer.stop("initial_neighbor_list")
 
     if boundary_flag == 0:
         # Initialize periodic hydrodynamic quantities
@@ -520,12 +540,28 @@ def wrap_sd(
     if np.count_nonzero(constant_applied_torques) > 0:  # apply external torques
         external_torques += jnp.ravel(constant_applied_torques)
     # Check if particles overlap
+    timer.start("check_overlaps")
     overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs, box)
     if overlaps > 0:
         print("Warning: initial overlaps are ", (overlaps))
-    print("Starting: compiling the code... This should not take more than 1-2 minutes.")
-    for step in tqdm(range(num_steps), mininterval=0.5):  # use tqdm to have progress bar and TPS
+    timer.stop("check_overlaps")
+    timer.stop("initialization")
     
+    print("Starting: compiling the code... This should not take more than 1-2 minutes.")
+    
+    # Initialize timer
+    timer = SimulationTimer()
+    
+    # Timing neighbor list initialization
+    timer.start("neighbor_list")
+    unique_pairs, nl_ff, nl_lub, nl_prec, nl_safety_margin = utils.cpu_nlist(
+        positions, np.array([lx, ly, lz]), ewald_cut, 3.99, 2.1, xy
+    )
+    timer.stop("neighbor_list")
+    
+    for step in tqdm(range(num_steps), mininterval=0.5):  # use tqdm to have progress bar and TPS
+        timer.start("step")
+        
         # Initialize Brownian drift (6*num_particlesarray, for linear and angular components)
         brownian_drift = jnp.zeros(6 * num_particles, float)
 
@@ -536,6 +572,7 @@ def wrap_sd(
         saddle_b = jnp.zeros(17 * num_particles, float)
 
         # precompute quantities for far-field and near-field hydrodynamic calculation
+        timer.start("hydro_precompute")
         if boundary_flag == 0:
             (
                 all_indices_x,
@@ -607,6 +644,7 @@ def wrap_sd(
                 friction_coefficient,
                 friction_range,
             )
+        timer.stop("hydro_precompute")
                 
         # compute shear-rate for current timestep: simple(shear_frequency=0) or oscillatory(shear_frequency>0)
         shear_rate = shear.update_shear_rate(time_step, step, shear_rate_0, shear_frequency, phase=0)
@@ -621,6 +659,8 @@ def wrap_sd(
         )
         
         # Calculate resistance functions using the updated function signature
+        timer.start("resistance_calculations")
+        timer.start("resistance_functions")
         res_functions_me = resistance.calculate_resistance_functions(
             radii_ratios=radii_matrix, 
             positions=positions, 
@@ -633,26 +673,57 @@ def wrap_sd(
             nl_prec=nl_prec, 
             box=box
         )
+        timer.stop("resistance_functions")
 
-        # Now handle the sparse preconditioner - only calculate if we have valid pairs
+        # Now handle the sparse preconditioner
+        timer.start("sparse_preconditioner")
+        # Filter valid pairs
+        timer.start("pair_filtering")
         if jnp.any(valid_indices) and any(len(v) > 0 for v in res_functions_me.values()):
-            row, col, data = resistance.rfu_sparse_precondition(positions, num_particles, len(nl_prec[1,:]), nl_prec, box, res_functions_me)
+            timer.start("sparse_construction")
+            row, col, data = resistance.rfu_sparse_precondition(
+                positions, num_particles, len(nl_prec[1,:]), nl_prec, box, res_functions_me
+            )
+            timer.stop("sparse_construction")
         else:
-            # Create empty arrays for the sparse matrix when no valid pairs
             row = col = data = jnp.zeros(0)
+        timer.stop("pair_filtering")
         
+        # Build sparse matrix
+        timer.start("sparse_matrix_assembly")
         idx_buffer = np.where((row < 6 * num_particles))
-        spp_rfu = sp.csr_matrix((data[idx_buffer], (row[idx_buffer], col[idx_buffer])), shape=(6 * num_particles, 6 * num_particles), dtype=np.float64())
+        spp_rfu = sp.csr_matrix(
+            (data[idx_buffer], (row[idx_buffer], col[idx_buffer])), 
+            shape=(6 * num_particles, 6 * num_particles), 
+            dtype=np.float64()
+        )
         
+        # Matrix symmetrization
+        timer.start("matrix_symmetrization")
         spp_rfu = spp_rfu + spp_rfu.T - sp.diags(spp_rfu.diagonal())
+        diag = np.where(
+            (np.arange(6 * num_particles) - 6 * (np.repeat(jnp.arange(num_particles), 6))) < 3, 
+            1, 
+            4/3
+        )
+        spp_rfu = spp_rfu + sp.diags(diag, format='csr')
+        timer.stop("matrix_symmetrization")
+        timer.stop("sparse_matrix_assembly")
         
-        diag = np.where((np.arange(6 * num_particles) - 6 * (np.repeat(jnp.arange(num_particles), 6))) < 3, 1 , 4/3)
-        spp_rfu = spp_rfu + sp.diags(diag,format='csr')
-        
-        r_prec_sparse = utils.preprocess_sparse_triangular((spp_rfu), 6*num_particles, max_nonzero_per_row)
-        
+        # Preprocess triangular form
+        timer.start("triangular_preprocessing")
+        r_prec_sparse = utils.preprocess_sparse_triangular(
+            (spp_rfu), 
+            6*num_particles, 
+            max_nonzero_per_row
+        )
+        timer.stop("triangular_preprocessing")
+        timer.stop("sparse_preconditioner")
+        timer.stop("resistance_calculations")
+
         # if temperature is not zero (and full hydrodynamics are switched on), compute Brownian Drift
         if temperature > 0:
+            timer.start("brownian_drift")
             # get array of random variables
             key_rfd, random_array = utils.generate_random_array(key_rfd, 6 * num_particles)
             random_array = -((2 * random_array - 1) * jnp.sqrt(3))
@@ -848,8 +919,11 @@ def wrap_sd(
 
             # reset RHS to zero for next saddle point solver
             saddle_b = jnp.zeros(17 * num_particles, float)
+            timer.stop("brownian_drift")
 
         # add applied forces and conservative (pair potential) forces to right-hand side of system
+        timer.start("forces")
+        timer.start("applied_forces")
         saddle_b = applied_forces.sum_applied_forces(
             num_particles,
             external_forces,
@@ -864,11 +938,14 @@ def wrap_sd(
             time_step,
             box
         )
+        timer.stop("applied_forces")
 
         # add (-) the ambient rate of strain to the right-hand side
         if shear_rate_0 != 0:
+            timer.start("shear_resistance")
             saddle_b = saddle_b.at[(6 * num_particles + 1) : (11 * num_particles) : 5].add(-shear_rate)
             # compute near field shear contribution R_FE and add it to the rhs of the system
+            timer.start("rfe_computation")
             saddle_b = saddle_b.at[11 * num_particles :].add(
                 resistance.compute_rfe(
                     num_particles,
@@ -887,6 +964,9 @@ def wrap_sd(
                     ResFunction[16],
                 )
             )
+            timer.stop("rfe_computation")
+            timer.stop("shear_resistance")
+        timer.stop("forces")
         
         # compute Thermal Fluctuations only if temperature is not zero
         if temperature > 0:
@@ -1140,8 +1220,13 @@ def wrap_sd(
         
         # add the near-field contributions to the stresslet
         if (store_stresslet > 0) and ((step % writing_period) == 0):
+            timer.start("stresslet_computation")
+            timer.start("saddle_point_stresslet")
             # get stresslet out of saddle point solution (and add it to the contribution from the Brownian drift, if temperature>0 )
             stresslet += jnp.reshape(-saddle_x[6 * num_particles : 11 * num_particles], (num_particles, 5))
+            timer.stop("saddle_point_stresslet")
+            
+            timer.start("rsu_computation")
             stresslet = resistance.compute_rsu(
                 stresslet,
                 saddle_x[11 * num_particles :],
@@ -1151,8 +1236,11 @@ def wrap_sd(
                 r_lub,
                 num_particles,
             )
+            timer.stop("rsu_computation")
+            
             # add shear (near-field) contributions to the stresslet
             if shear_rate_0 != 0:
+                timer.start("rse_computation")
                 stresslet = resistance.compute_rse(
                     num_particles,
                     shear_rate,
@@ -1167,19 +1255,24 @@ def wrap_sd(
                     ResFunction[22],
                     stresslet,
                 )
+                timer.stop("rse_computation")
             # save stresslet
             stresslet_history[int(step / writing_period), :, :] = stresslet
             if output is not None:
                 np.save(output / "stresslet.npy", stresslet_history)
+            timer.stop("stresslet_computation")
         # Update positions
+        timer.start("position_update")
         positions = update_positions(
             shear_rate,
             positions,
             saddle_x[11 * num_particles :] + brownian_drift,
             time_step,
         )
+        timer.stop("position_update")
         
-        # Update neighborlists
+        # Timing neighbor list updates
+        timer.start("neighbor_list_update")
         nl_ff, nl_lub, nl_prec, nl_list_bound = utils.update_neighborlist(num_particles, positions, ewald_cut, 3.99, 2.1, unique_pairs, box)
         if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
             unique_pairs, nl_ff, nl_lub, nl_prec, _ = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 3.99, 2.1, xy)
@@ -1187,6 +1280,7 @@ def wrap_sd(
             gaussian_grid_spacing = utils.precompute_grid_distancing(
                 gauss_support, gridh[0], xy, positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
             )
+        timer.stop("neighbor_list_update")
             
         # if system is sheared, strain wave-vectors grid and update box tilt factor
         if shear_rate_0 != 0:
@@ -1206,6 +1300,7 @@ def wrap_sd(
 
         # write trajectory to file
         if (step % writing_period) == 0:
+            timer.start("io")
             # check that the position to save do not contain 'nan' or 'inf'
             if (jnp.isnan(positions)).any() or (jnp.isinf(positions)).any():
                 raise ValueError("Invalid particles positions. Abort!")
@@ -1228,6 +1323,8 @@ def wrap_sd(
 
             # store orientation
             # TODO
+            timer.stop("io")
+        timer.stop("step")
         
     # perform thermal test if needed
     test_result = 0.0
@@ -1275,6 +1372,8 @@ def wrap_sd(
             stepnormnf,
         ]
 
+    timer.print_report()
+    
     return trajectory, stresslet_history, velocities, test_result
 
 
@@ -1304,6 +1403,7 @@ def wrap_rpy(
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
     boundary_flag: int,
+    timer: SimulationTimer,
 ) -> tuple[Array, Array, Array, list[float]]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using RPY method.
 
@@ -1801,6 +1901,7 @@ def wrap_bd(
     store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
+    timer: SimulationTimer,
 ) -> tuple[Array, Array]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using Brownian Dynamics method.
 
