@@ -20,6 +20,7 @@ import time
 from jfsd import applied_forces, mobility, resistance, shear, solver, thermal, utils
 from jfsd import jaxmd_space as space
 from jfsd import io_utils
+from jfsd.enums import HydrodynamicInteraction, BoundaryConditions, ThermalTestType, BuoyancyFlag
 import stokeskit as sk
 from jfsd.timing_utils import SimulationTimer
 
@@ -55,9 +56,9 @@ def main(
     store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
-    hydrodynamic_interaction_flag: int,
-    boundary_flag: int,
-    thermal_test_flag: int,
+    hydrodynamic_interaction_flag: HydrodynamicInteraction | int,
+    boundary_flag: BoundaryConditions | int,
+    thermal_test_flag: ThermalTestType | int,
     friction_coefficient: float,
     friction_range: float,
 ) -> tuple[Array, Array, Array, list[float]]:
@@ -91,7 +92,7 @@ def main(
         Error tolerance for numerical computations.
     interaction_strength : float
         Strength of pairwise interactions.
-    buoyancy_flag : int
+    buoyancy_flag : BuoyancyFlag | int
         If 1, applies gravitational forces to the particles.
     interaction_cutoff : float
         Cutoff distance for interaction forces.
@@ -123,12 +124,20 @@ def main(
         External forces applied to particles, shape (num_particles, 3).
     constant_applied_torques : ArrayLike
         External torques applied to particles, shape (num_particles, 3).
-    hydrodynamic_interaction_flag : int
-        Flag determining the level of hydrodynamic interactions (0: BD, 1: RPY, 2: SD).
-    boundary_flag : int
-        Flag determining boundary conditions (0: periodic, 1: open).
-    thermal_test_flag : int
-        Flag to test thermal fluctuations (1 for far-field real-space, 2 for lubrication).
+    hydrodynamic_interaction_flag : HydrodynamicInteraction | int
+        Flag determining the level of hydrodynamic interactions:
+        - BROWNIAN/0: Brownian Dynamics
+        - RPY/1: Rotne-Prager-Yamakawa
+        - STOKESIAN/2: Stokesian Dynamics
+    boundary_flag : BoundaryConditions | int
+        Flag determining boundary conditions:
+        - PERIODIC/0: periodic boundaries
+        - OPEN/1: open boundaries
+    thermal_test_flag : ThermalTestType | int
+        Flag to test thermal fluctuations:
+        - NONE/0: no thermal testing
+        - FARFIELD_REAL/1: far-field real-space testing
+        - LUBRICATION/2: lubrication testing
     friction_coefficient : float
         Coefficient for hydrodynamic friction.
     friction_range : float
@@ -146,8 +155,8 @@ def main(
             "Error: writing-to-file period is greater than the total number of simulation steps."
         )
     
-    if boundary_flag == 1:
-        if num_particles < 2 and hydrodynamic_interaction_flag > 0:
+    if boundary_flag == BoundaryConditions.OPEN:
+        if num_particles < 2 and hydrodynamic_interaction_flag > HydrodynamicInteraction.BROWNIAN:
             raise ValueError(
                 "Error: Open boundary hydrodynamics cannot be used for a single particle. "
                 "Select 'brownian' instead."
@@ -162,7 +171,7 @@ def main(
     
     timer.start("simulation")
     
-    if hydrodynamic_interaction_flag == 0:
+    if hydrodynamic_interaction_flag == HydrodynamicInteraction.BROWNIAN:
         trajectory, velocities = wrap_bd(
             num_steps,
             writing_period,
@@ -186,7 +195,7 @@ def main(
             constant_applied_torques,
             timer,
         )
-    elif hydrodynamic_interaction_flag == 1:
+    elif hydrodynamic_interaction_flag == HydrodynamicInteraction.RPY:
         trajectory, velocities = wrap_rpy(
             num_steps,
             writing_period,
@@ -215,7 +224,7 @@ def main(
             boundary_flag,
             timer,
         )
-    elif hydrodynamic_interaction_flag == 2:
+    elif hydrodynamic_interaction_flag == HydrodynamicInteraction.STOKESIAN:
         trajectory, stresslet_history, velocities, test_results = wrap_sd(
             num_steps,
             writing_period,
@@ -305,7 +314,7 @@ def wrap_sd(
     ewald_xi: float,
     error_tolerance: float,
     interaction_strength: float,
-    buoyancy_flag: int,
+    buoyancy_flag: BuoyancyFlag | int,
     interaction_cutoff: float,
     positions: ArrayLike,
     radii: ArrayLike,
@@ -321,8 +330,8 @@ def wrap_sd(
     store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
-    boundary_flag: int,
-    thermal_test_flag: int,
+    boundary_flag: BoundaryConditions | int,
+    thermal_test_flag: ThermalTestType | int,
     friction_coefficient: float,
     friction_range: float,
     timer: SimulationTimer,
@@ -494,7 +503,7 @@ def wrap_sd(
     unique_pairs, nl_ff, nl_lub, nl_prec, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 3.99, 2.1, xy)
     timer.stop("initial_neighbor_list")
 
-    if boundary_flag == 0:
+    if boundary_flag == BoundaryConditions.PERIODIC:
         # Initialize periodic hydrodynamic quantities
         (
             quadW,
@@ -520,7 +529,7 @@ def wrap_sd(
         ) = utils.init_periodic_box(
             error_tolerance, ewald_xi, lx, ly, lz, ewald_cut, max_strain, xy, positions, num_particles, temperature, seed_ffwave
         )
-    if boundary_flag == 1:
+    if boundary_flag == BoundaryConditions.OPEN:
         nl_open = utils.compute_distinct_pairs(
             num_particles
         )  # compute list of distinct pairs for long range hydrodynamics (not optimized)
@@ -533,7 +542,7 @@ def wrap_sd(
     # set external applied forces/torques (no pair-interactions, will be added later)
     external_forces = jnp.zeros(3 * num_particles, float)
     external_torques = jnp.zeros(3 * num_particles, float)
-    if buoyancy_flag == 1:  # apply buoyancy forces (in z direction)
+    if buoyancy_flag == BuoyancyFlag.ON:  # apply buoyancy forces (in z direction)
         external_forces = external_forces.at[2::3].add(-1.0)
     if np.count_nonzero(constant_applied_forces) > 0:  # apply external forces
         external_forces += jnp.ravel(constant_applied_forces)
@@ -573,7 +582,7 @@ def wrap_sd(
 
         # precompute quantities for far-field and near-field hydrodynamic calculation
         timer.start("hydro_precompute")
-        if boundary_flag == 0:
+        if boundary_flag == BoundaryConditions.PERIODIC:
             (
                 all_indices_x,
                 all_indices_y,
@@ -623,7 +632,7 @@ def wrap_sd(
                 friction_coefficient,
                 friction_range,
             )
-        elif boundary_flag == 1:
+        elif boundary_flag == BoundaryConditions.OPEN:
             (
                 r,
                 indices_i,
@@ -735,7 +744,7 @@ def wrap_sd(
             buffer_positions = update_positions(
                 shear_rate, positions, random_array, epsilon / 2.0
             )
-            if boundary_flag == 0:
+            if boundary_flag == BoundaryConditions.PERIODIC:
                 # update wave grid and far-field neighbor list (not needed in open boundaries)
                 buffer_gaussian_grid_spacing = utils.precompute_grid_distancing(
                     gauss_support, gridh[0], xy, buffer_positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
@@ -782,7 +791,7 @@ def wrap_sd(
                         max_nonzero_per_row,
                         r_prec_sparse,
                     )
-            elif boundary_flag == 1:
+            elif boundary_flag == BoundaryConditions.OPEN:
                 output_precompute = utils.precompute_open(
                     buffer_positions,
                     nl_open,
@@ -824,7 +833,7 @@ def wrap_sd(
             buffer_positions = update_positions(
                 shear_rate, positions, random_array, -epsilon / 2.0
             )
-            if boundary_flag == 0:
+            if boundary_flag == BoundaryConditions.PERIODIC:
                 buffer_gaussian_grid_spacing = utils.precompute_grid_distancing(
                     gauss_support, gridh[0], xy, buffer_positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
                 )
@@ -872,7 +881,7 @@ def wrap_sd(
                     saddle_x                    
                 )
 
-            elif boundary_flag == 1:
+            elif boundary_flag == BoundaryConditions.OPEN:
                 output_precompute = utils.precompute_open(
                     buffer_positions,
                     nl_open,
@@ -975,7 +984,7 @@ def wrap_sd(
             key_ffreal, random_array_real = utils.generate_random_array(key_ffreal, (11 * num_particles))
 
             # compute far-field (real space contribution) slip velocity and set in rhs of linear system
-            if boundary_flag == 0:
+            if boundary_flag == BoundaryConditions.PERIODIC:
                 key_ffwave, random_array_wave = utils.generate_random_array(
                     key_ffwave, (3 * 2 * len(wave_bro_ind[:, 0, 0]) + 3 * len(wave_bro_nyind[:, 0]))
                 )
@@ -1054,7 +1063,7 @@ def wrap_sd(
                     )
                 )
 
-            elif boundary_flag == 1:
+            elif boundary_flag == BoundaryConditions.OPEN:
                 rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                     thermal.compute_real_space_slipvelocity_open(
                         num_particles,
@@ -1163,7 +1172,7 @@ def wrap_sd(
                     )
         
         # solve the system Ax=b, where x contains the unknown particle velocities (relative to the background flow) and stresslet
-        if boundary_flag == 0:
+        if boundary_flag == BoundaryConditions.PERIODIC:
                 saddle_x, exitcode_gmres = solver.solve_linear_system(
                     num_particles,
                     saddle_b,  # rhs vector of the linear system
@@ -1197,7 +1206,7 @@ def wrap_sd(
                     max_nonzero_per_row,
                     r_prec_sparse
                 )
-        elif boundary_flag == 1:
+        elif boundary_flag == BoundaryConditions.OPEN:
                 saddle_x, exitcode_gmres = solver.solve_linear_system_open(
                     num_particles,
                     saddle_b,  # rhs vector of the linear system
@@ -1276,7 +1285,7 @@ def wrap_sd(
         nl_ff, nl_lub, nl_prec, nl_list_bound = utils.update_neighborlist(num_particles, positions, ewald_cut, 3.99, 2.1, unique_pairs, box)
         if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
             unique_pairs, nl_ff, nl_lub, nl_prec, _ = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 3.99, 2.1, xy)
-        if boundary_flag == 0:
+        if boundary_flag == BoundaryConditions.PERIODIC:
             gaussian_grid_spacing = utils.precompute_grid_distancing(
                 gauss_support, gridh[0], xy, positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
             )
@@ -1288,7 +1297,7 @@ def wrap_sd(
             box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
             _, shift_fn = space.periodic_general(box, fractional_coordinates=False
             )
-            if boundary_flag == 0:
+            if boundary_flag == BoundaryConditions.PERIODIC:
                 gridk = shear.compute_sheared_grid(
                     int(grid_x), int(grid_y), int(grid_z), xy, lx, ly, lz, eta, xisq
                 )
@@ -1328,7 +1337,7 @@ def wrap_sd(
         
     # perform thermal test if needed
     test_result = 0.0
-    if (temperature > 0) and (thermal_test_flag == 1):
+    if (temperature > 0) and (thermal_test_flag == ThermalTestType.FARFIELD_REAL):
         ff, nf = thermal.compute_exact_thermals(
             num_particles,
             m_self,
@@ -1390,7 +1399,7 @@ def wrap_rpy(
     ewald_xi: float,
     error_tolerance: float,
     interaction_strength: float,
-    buoyancy_flag: int,
+    buoyancy_flag: BuoyancyFlag | int,
     interaction_cutoff: float,
     positions: ArrayLike,
     seed_ffwave: int,
@@ -1402,7 +1411,7 @@ def wrap_rpy(
     store_orientation: bool,
     constant_applied_forces: ArrayLike,
     constant_applied_torques: ArrayLike,
-    boundary_flag: int,
+    boundary_flag: BoundaryConditions | int,
     timer: SimulationTimer,
 ) -> tuple[Array, Array, Array, list[float]]:
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using RPY method.
@@ -1531,7 +1540,7 @@ def wrap_rpy(
     # set external applied forces/torques (no pair-interactions, will be added later)
     external_forces = jnp.zeros(3 * num_particles, float)
     external_torques = jnp.zeros(3 * num_particles, float)
-    if buoyancy_flag == 1:  # apply buoyancy forces (in z direction)
+    if buoyancy_flag == BuoyancyFlag.ON:  # apply buoyancy forces (in z direction)
         external_forces = external_forces.at[2::3].add(-1.0)
     if np.count_nonzero(constant_applied_forces) > 0:  # apply external forces
         external_forces += jnp.ravel(constant_applied_forces)
@@ -1545,7 +1554,7 @@ def wrap_rpy(
     unique_pairs, nl_ff, _, _, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 0., 0., xy)
     
     n_iter_Lanczos_ff = 2  # set initial Lanczos iterations, for thermal fluctuation calculation
-    if boundary_flag == 0:
+    if boundary_flag == BoundaryConditions.PERIODIC:
         (
             quadW,
             prefac,
@@ -1570,7 +1579,7 @@ def wrap_rpy(
         ) = utils.init_periodic_box(
             error_tolerance, ewald_xi, lx, ly, lz, ewald_cut, max_strain, xy, positions, num_particles, temperature, seed_ffwave
         )
-    elif boundary_flag == 1:
+    elif boundary_flag == BoundaryConditions.OPEN:
         nl_open = utils.compute_distinct_pairs(num_particles)
 
     # create RNG states for real space thermal fluctuations
@@ -1590,7 +1599,7 @@ def wrap_rpy(
         # define rhs array of the linear system Ax=b (with A the saddle point matrix)
         saddle_b = jnp.zeros(17 * num_particles, float)
 
-        if boundary_flag == 0:
+        if boundary_flag == BoundaryConditions.PERIODIC:
             # precompute quantities for periodic boundaries hydrodynamic calculation
             (
                 all_indices_x,
@@ -1630,7 +1639,7 @@ def wrap_rpy(
                 ewald_cut,
                 ewaldC1
             )
-        elif boundary_flag == 1:
+        elif boundary_flag == BoundaryConditions.OPEN:
             (r, indices_i, indices_j, mobil_scalar) = utils.precompute_rpy_open(
                 positions, nl_open
             )
@@ -1657,7 +1666,7 @@ def wrap_rpy(
         if temperature > 0:
             # compute far-field (real space contribution) slip velocity and set in rhs of linear system
             key_ffreal, random_array_real = utils.generate_random_array(key_ffreal, (11 * num_particles))
-            if boundary_flag == 0:
+            if boundary_flag == BoundaryConditions.PERIODIC:
                 key_ffwave, random_array_wave = utils.generate_random_array(
                     key_ffwave, (3 * 2 * len(wave_bro_ind[:, 0, 0]) + 3 * len(wave_bro_nyind[:, 0]))
                 )
@@ -1738,7 +1747,7 @@ def wrap_rpy(
                     )
                 )
 
-            elif boundary_flag == 1:
+            elif boundary_flag == BoundaryConditions.OPEN:
                 rs_linvel, rs_angvel_strain, stepnormff, diag_ff = (
                     thermal.compute_real_space_slipvelocity_open(
                         num_particles,
@@ -1790,7 +1799,7 @@ def wrap_rpy(
         # add random velocity to total velocity in RPY
         general_velocity += saddle_b[: 6 * num_particles]
         # add potential force contribution to total velocity in RPY
-        if boundary_flag == 0:
+        if boundary_flag == BoundaryConditions.PERIODIC:
             general_velocity += mobility.mobility_periodic(
                 num_particles,
                 grid_x,
@@ -1816,7 +1825,7 @@ def wrap_rpy(
                 h3,
                 -saddle_b[11 * num_particles :],
             )
-        elif boundary_flag == 1:
+        elif boundary_flag == BoundaryConditions.OPEN:
             general_velocity += mobility.mobility_open(
                 num_particles,
                 r,
@@ -1835,7 +1844,7 @@ def wrap_rpy(
         nl_ff, _, _, nl_list_bound = utils.update_neighborlist(num_particles, positions, ewald_cut, 0., 0., unique_pairs, box)
         if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
             unique_pairs, nl_ff, _, _, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 0., 0., xy, initial_safety_margin=nl_safety_margin)
-        if boundary_flag == 0:
+        if boundary_flag == BoundaryConditions.PERIODIC:
             gaussian_grid_spacing = utils.precompute_grid_distancing(
                 gauss_support, gridh[0], xy, positions, num_particles, grid_x, grid_y, grid_z, lx, ly, lz
             )
@@ -1846,7 +1855,7 @@ def wrap_rpy(
             box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
             _, shift_fn = space.periodic_general(box, fractional_coordinates=False,
             )
-            if boundary_flag == 0:
+            if boundary_flag == BoundaryConditions.PERIODIC:
                 gridk = shear.compute_sheared_grid(
                     int(grid_x), int(grid_y), int(grid_z), xy, lx, ly, lz, eta, xisq
                 )
@@ -1890,7 +1899,7 @@ def wrap_bd(
     num_particles: int,
     temperature: float,
     interaction_strength: float,
-    buoyancy_flag: int,
+    buoyancy_flag: BuoyancyFlag | int,
     interaction_cutoff: float,
     positions: ArrayLike,
     seed: int,
@@ -2023,7 +2032,7 @@ def wrap_bd(
     # set external applied forces/torques (no pair-interactions, will be added later)
     external_forces = jnp.zeros(3 * num_particles, float)
     external_torques = jnp.zeros(3 * num_particles, float)
-    if buoyancy_flag == 1:  # apply buoyancy forces (in z direction)
+    if buoyancy_flag == BuoyancyFlag.ON:  # apply buoyancy forces (in z direction)
         external_forces = external_forces.at[2::3].add(-1.0)
     if np.count_nonzero(constant_applied_forces) > 0:  # apply external forces
         external_forces += jnp.ravel(constant_applied_forces)

@@ -10,6 +10,7 @@ except ImportError:
 
 from jfsd.utils import create_hardsphere_configuration
 from jfsd import io_utils as io
+from jfsd.enums import HydrodynamicInteraction, BoundaryConditions, BuoyancyFlag, ThermalTestType
 
 
 class JfsdConfiguration:
@@ -159,23 +160,28 @@ class Physics(NamedTuple):
     buoyancy: bool = False
 
     def get_parameters(self, n_particles):
-        if self.dynamics_type.lower() == "brownian":
-            HIs_flag = 0
-        elif self.dynamics_type.lower() == "rpy":
-            HIs_flag = 1
-        elif self.dynamics_type.lower() == "stokesian":
-            HIs_flag = 2
-        else:
+        # Convert dynamics type string to HydrodynamicInteraction enum
+        dynamics_mapping = {
+            "brownian": HydrodynamicInteraction.BROWNIAN,
+            "rpy": HydrodynamicInteraction.RPY, 
+            "stokesian": HydrodynamicInteraction.STOKESIAN
+        }
+        try:
+            HIs_flag = dynamics_mapping[self.dynamics_type.lower()]
+        except KeyError:
             raise ValueError(
                 f"Unknown dynamics type: {self.dynamics_type}, choose from:"
                 " brownian, rpy or stokesian."
             )
 
-        if self.boundary_conditions.lower() == "periodic":
-            boundary_flag = 0
-        elif self.boundary_conditions.lower() == "open":
-            boundary_flag = 1
-        else:
+        # Convert boundary conditions string to BoundaryConditions enum
+        boundary_mapping = {
+            "periodic": BoundaryConditions.PERIODIC,
+            "open": BoundaryConditions.OPEN
+        }
+        try:
+            boundary_flag = boundary_mapping[self.boundary_conditions.lower()]
+        except KeyError:
             raise ValueError(
                 f"Unknown boundary conditions: {self.boundary_conditions}, choose from:"
                 " periodic or open."
@@ -197,7 +203,7 @@ class Physics(NamedTuple):
             "friction_range": self.friction_range,
             "constant_applied_forces": constant_forces,
             "constant_applied_torques": constant_torques,
-            "buoyancy_flag": int(self.buoyancy),
+            "buoyancy_flag": BuoyancyFlag.ON if self.buoyancy else BuoyancyFlag.OFF,
             "ewald_xi": 0.5,  # Ewald parameter
             "error_tolerance": 0.001,  # Error tolerance
         }
@@ -231,13 +237,14 @@ class Output(NamedTuple):
     thermal_fluctuation_test: str = "none"
 
     def get_parameters(self):
-        _rf_convert = {
-            "none": 0,
-            "far-field": 1,
-            "lubrication": 2,
+        # Convert thermal test string to ThermalTestType enum
+        thermal_mapping = {
+            "none": ThermalTestType.NONE,
+            "far-field": ThermalTestType.FARFIELD_REAL,
+            "lubrication": ThermalTestType.LUBRICATION,
         }
         try:
-            thermal_fluct = _rf_convert[self.thermal_fluctuation_test]
+            thermal_fluct = thermal_mapping[self.thermal_fluctuation_test]
         except KeyError:
             raise ValueError(
                 "Wrong parameter for thermal fluctuation test, choose one"

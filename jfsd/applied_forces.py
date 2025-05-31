@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from jax import Array, jit, ops
 from jax.typing import ArrayLike
 from jfsd import utils
+from jfsd.enums import HydrodynamicInteraction
 
 @partial(jit, static_argnums=[0])
 def sum_applied_forces(
@@ -167,7 +168,7 @@ def sum_applied_forces(
         # compute forces for each pair
         # spring constant must be calibrated to exactly remove the current overlap
         # with lubrication hydrodynamic this is ~ o(1000) because of divergent (at contact) effective drag coeff
-        k = jnp.where(hydrodynamics_flag > 1, (2500.839791) / dt, 1 / dt)
+        k = jnp.where(hydrodynamics_flag > HydrodynamicInteraction.RPY, (2500.839791) / dt, 1 / dt)
 
         fp_mod = jnp.where(
             indices_i != indices_j, k * (1 - sigma / dist_mod), 0.0
