@@ -10,6 +10,7 @@ from jfsd import utils
 from jfsd import jaxmd_space as space
 import stokeskit as sk
 import time
+from jfsd import io_utils as io
 
 
 def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lubr_cutoff=2.001, cutoff=4.0, maxIter=200, rtol=1E-4, atol=1E-8, nl_prec=None, box=None):
@@ -44,6 +45,18 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
         Dictionary of resistance functions (XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12)
     """
     num_particles = len(positions)
+    keys = [    "XA11", "XA12", "XA22", "XA21",
+                "YA11", "YA12", "YA22", "YA21",
+                "YB11", "YB12", "YB22", "YB21",
+                "XC11", "XC12", "XC22", "XC21",
+                "YC11", "YC12", "YC22", "YC21",
+                "XG11", "XG12", "XG22", "XG21",
+                "YG11", "YG12", "YG22", "YG21",
+                "YH11", "YH12", "YH22", "YH21",
+                "XM11", "XM12", "XM22", "XM21",
+                "YM11", "YM12", "YM22", "YM21",
+                "ZM11", "ZM12", "ZM22", "ZM21"  ]
+    
     
     # If no neighbor list is provided, compute one with all pairs
     if nl_prec is None:
@@ -59,10 +72,7 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
     # Empty list or single particle case - return empty dictionary early
     if len(nl_prec[0]) == 0 or num_particles <= 1:
         # Return empty dictionary with all expected keys
-        return {k: jnp.array([]) for k in [
-            "XA11", "XA12", "YA11", "YA12", "YB11", "YB12", 
-            "XC11", "XC12", "YC11", "YC12"
-        ]}
+        return {k: jnp.array([]) for k in keys}
     
     # Filter pairs: Both indices must be valid
     valid_indices = jnp.logical_and(
@@ -72,25 +82,14 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
     
     # Skip all computations if no valid pairs exist
     if not jnp.any(valid_indices):
-        return {k: jnp.zeros(len(nl_prec[0])) for k in [
-            "XA11", "XA12", "YA11", "YA12", "YB11", "YB12", 
-            "XC11", "XC12", "YC11", "YC12"
-        ]}
+        return {k: jnp.zeros(len(nl_prec[0])) for k in keys}
+    
     
     # Define the output dict with zeros for all pairs
-    res_functions = {
-        "XA11": jnp.zeros(len(nl_prec[0])),
-        "XA12": jnp.zeros(len(nl_prec[0])),
-        "YA11": jnp.zeros(len(nl_prec[0])),
-        "YA12": jnp.zeros(len(nl_prec[0])),
-        "YB11": jnp.zeros(len(nl_prec[0])),
-        "YB12": jnp.zeros(len(nl_prec[0])),
-        "XC11": jnp.zeros(len(nl_prec[0])),
-        "XC12": jnp.zeros(len(nl_prec[0])),
-        "YC11": jnp.zeros(len(nl_prec[0])),
-        "YC12": jnp.zeros(len(nl_prec[0])),
-    }
-    
+    res_functions = {}
+    for key in keys:
+        if key not in res_functions:
+            res_functions[key] = jnp.zeros(len(nl_prec[0]))
     
     # Get all particle positions using pair indices (with safety mask for invalid indices)
     safe_i_indices = jnp.minimum(nl_prec[0,:], num_particles-1) #< clamp to num_particles-1
@@ -126,10 +125,8 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
             0.0
         )
 
-        dict_keys = ["XA11", "XA12", "YA11", "YA12", "YB11", "YB12", "XC11", "XC12", "YC11", "YC12"]
-
         # Compute values only where pairs are valid
-        for i, key in enumerate(dict_keys):
+        for i, key in enumerate(keys):
             values = jnp.where(
                 jnp.logical_and(valid_indices, distances >= 2 + restable_min),
                 (
@@ -162,6 +159,41 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
         for key, value in valid_res_functions.items():
             res_functions[key] = value * valid_mask
             
+        # stokeskit does not return all keys, so we need to fill the rest with interpolated values
+        missing_keys = [k for k in keys if k not in valid_res_functions]
+        if len(missing_keys) > 0:
+            io.logger.warning(f"Some resistance functions were not computed by stokeskit, using interpolation for those: {missing_keys}")
+            t_interp_start = time.time()
+            restable_dist = jnp.load("files/ResTableDist.npy")
+            restable_vals = jnp.load("files/ResTableVals.npy")
+            restable_min = 0.0001
+            restable_dr = 0.004305
+
+            # Process all distances (safely)
+            ind = jnp.log10((distances - 2.0) / restable_min) / restable_dr
+            ind = jnp.clip(ind.astype(int), 0, len(restable_dist)-2)  # Ensure valid indices
+
+            dist_lower = restable_dist[ind]
+            dist_upper = restable_dist[ind + 1]
+
+            fac = jnp.where(
+                dist_upper - dist_lower > 0.0, 
+                (distances - dist_lower) / (dist_upper - dist_lower), 
+                0.0
+            )
+
+            # Compute values only where pairs are valid
+            for i, key in enumerate(missing_keys):
+                values = jnp.where(
+                    jnp.logical_and(valid_indices, distances >= 2 + restable_min),
+                    (
+                        restable_vals[22 * (ind) + i]
+                        + (restable_vals[22 * (ind + 1) + i] - restable_vals[22 * (ind) + i]) * fac
+                    ),
+                    jnp.where(valid_indices, restable_vals[i], 0.0),
+                )
+                res_functions[key] = values
+        
     # Ensure all values are jnp arrays
     for key, value in res_functions.items():
         res_functions[key] = jnp.array(value)
