@@ -39,7 +39,7 @@ def update_positions(
 
     Returns
     -------
-    positions (in-place update)
+    positions: Updated particle positions
 
     """
     box_half = jnp.array([lx, ly, lz]) / 2

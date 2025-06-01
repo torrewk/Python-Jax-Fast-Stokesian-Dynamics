@@ -45,17 +45,30 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
         Dictionary of resistance functions (XA11, XA12, YA11, YA12, YB11, YB12, XC11, XC12, YC11, YC12)
     """
     num_particles = len(positions)
-    keys = [    "XA11", "XA12", "XA22", "XA21",
-                "YA11", "YA12", "YA22", "YA21",
-                "YB11", "YB12", "YB22", "YB21",
-                "XC11", "XC12", "XC22", "XC21",
-                "YC11", "YC12", "YC22", "YC21",
-                "XG11", "XG12", "XG22", "XG21",
-                "YG11", "YG12", "YG22", "YG21",
-                "YH11", "YH12", "YH22", "YH21",
-                "XM11", "XM12", "XM22", "XM21",
-                "YM11", "YM12", "YM22", "YM21",
-                "ZM11", "ZM12", "ZM22", "ZM21"  ]
+    keys = [    # All 11 and 12 keys
+                "XA11", "XA12", 
+                "YA11", "YA12", 
+                "YB11", "YB12", 
+                "XC11", "XC12", 
+                "YC11", "YC12", 
+                "XG11", "XG12", 
+                "YG11", "YG12", 
+                "YH11", "YH12", 
+                "XM11", "XM12", 
+                "YM11", "YM12", 
+                "ZM11", "ZM12",
+                # All 22 and 21 keys
+                "XA22", "XA21",
+                "YA22", "YA21",
+                "YB22", "YB21",
+                "XC22", "XC21",
+                "YC22", "YC21",
+                "XG22", "XG21",
+                "YG22", "YG21",
+                "YH22", "YH21",
+                "XM22", "XM21",
+                "YM22", "YM21",
+                "ZM22", "ZM21"  ]
     
     
     # If no neighbor list is provided, compute one with all pairs
@@ -184,6 +197,7 @@ def calculate_resistance_functions(positions, radii_ratios, use_interp=False, lu
 
             # Compute values only where pairs are valid
             for i, key in enumerate(missing_keys):
+                i += len(valid_res_functions)  # Offset for missing keys
                 values = jnp.where(
                     jnp.logical_and(valid_indices, distances >= 2 + restable_min),
                     (
