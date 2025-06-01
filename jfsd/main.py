@@ -1492,27 +1492,18 @@ def wrap_rpy(
             Updated positions of particles (num_particles,3)
 
         """
-        # Define array of displacement r(t+time_step)-r(t)
-        dR = jnp.zeros((num_particles, 3), float)
-        # Compute actual displacement due to velocities (relative to background flow)
-        dR = dR.at[:, 0].set(time_step * net_vel[(0)::6])
-        dR = dR.at[:, 1].set(time_step * net_vel[(1)::6])
-        dR = dR.at[:, 2].set(time_step * net_vel[(2)::6])
-        # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
-        positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+        
+        return integrator.update_positions(
+            shear_rate=shear_rate,
+            positions=positions,
+            net_vel=net_vel,
+            time_step=time_step,
+            shift_fn=shift_fn,
+            lx=lx,
+            ly=ly,
+            lz=lz,
+            num_particles=num_particles
         )
-
-        # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
-        dR = jnp.zeros((num_particles, 3), float)
-        dR = dR.at[:, 0].set(
-            time_step * shear_rate * positions[:, 1]
-        )  # Assuming y:gradient direction, x:background flow direction
-        positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
-        )  # Apply shift
-
-        return positions
 
     if output is not None:
         output = Path(output)
@@ -1983,26 +1974,18 @@ def wrap_bd(
             Updated positions of particles (num_particles,3)
 
         """
-        # Define array of displacement r(t+time_step)-r(t)
-        dR = jnp.zeros((num_particles, 3), float)
-        # Compute actual displacement due to velocities (relative to background flow)
-        dR = dR.at[:, 0].set(time_step * net_vel[(0)::6])
-        dR = dR.at[:, 1].set(time_step * net_vel[(1)::6])
-        dR = dR.at[:, 2].set(time_step * net_vel[(2)::6])
-        # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
-        positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+        
+        return integrator.update_positions(
+            shear_rate=shear_rate,
+            positions=positions,
+            net_vel=net_vel,
+            time_step=time_step,
+            shift_fn=shift_fn,
+            lx=lx,
+            ly=ly,
+            lz=lz,
+            num_particles=num_particles
         )
-
-        # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
-        dR = jnp.zeros((num_particles, 3), float)
-        dR = dR.at[:, 0].set(
-            time_step * shear_rate * positions[:, 1]
-        )  # Assuming y:gradient direction, x:background flow direction
-        positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
-        )  # Apply shift
-        return positions
 
     if output is not None:
         output = Path(output)
