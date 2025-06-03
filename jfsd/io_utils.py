@@ -4,72 +4,360 @@ Date: 2025
 Email: d.aslanis@uu.nl - reach out for questions or suggestions :)
 """
 
-import re
-from loguru import logger
-import sys
+import glob
 import os
+import re
+import sys
+import time
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 import numpy as np
-from typing import Optional, Union, Tuple
+from loguru import logger
+try:
+    import jax.numpy as jnp
+    from jax.typing import ArrayLike
+except ImportError:
+    # Fallback if JAX is not available
+    jnp = np
+    ArrayLike = Any
 
-def get_next_log_file(base_path):
+
+class ThermoOutput:
+    """LAMMPS-style thermodynamic output for simulation monitoring."""
+    
+    def __init__(self, 
+                 thermo_period: int = 100,
+                 columns: Optional[list] = None,
+                 width: int = 12):
+        """
+        Initialize thermodynamic output.
+        
+        Parameters
+        ----------
+        thermo_period : int
+            How often to print thermodynamic output
+        columns : list, optional
+            List of column names to output. If None, uses default set.
+        width : int
+            Width of each column in characters
+        """
+        self.thermo_period = thermo_period
+        self.width = width
+        self.start_time = None
+        self.step_times = []
+        
+        # Default columns similar to LAMMPS thermo output
+        if columns is None:
+            self.columns = ['Step', 'Time', 'Temp', 'CPU', 'TotTime']
+        else:
+            self.columns = columns
+            
+        self.data_history = {col: [] for col in self.columns}
+        self.header_printed = False
+        
+    def print_header(self):
+        """Print the header for thermodynamic output."""
+        # Print separator line
+        total_width = len(self.columns) * (self.width + 1) - 1
+        print("-" * total_width)
+        
+        # Print column headers
+        header_line = ""
+        for i, col in enumerate(self.columns):
+            if i > 0:
+                header_line += " "
+            header_line += f"{col:>{self.width}}"
+        print(header_line)
+        
+        # Print separator line
+        print("-" * total_width)
+        self.header_printed = True
+        
+    def update(self, 
+               step: int, 
+               time_step: float,
+               temperature: float = 0.0,
+               positions: Optional[ArrayLike] = None,
+               velocities: Optional[ArrayLike] = None,
+               forces: Optional[ArrayLike] = None,
+               **kwargs):
+        """
+        Update and potentially print thermodynamic data.
+        
+        Parameters
+        ----------
+        step : int
+            Current simulation step
+        time_step : float
+            Simulation time step
+        temperature : float
+            System temperature
+        positions : ArrayLike, optional
+            Particle positions
+        velocities : ArrayLike, optional
+            Particle velocities
+        forces : ArrayLike, optional
+            Forces on particles
+        **kwargs
+            Additional thermodynamic quantities
+        """
+        current_time = time.time()
+        
+        if self.start_time is None:
+            self.start_time = current_time
+            
+        # Calculate timing statistics
+        if len(self.step_times) > 0:
+            step_duration = current_time - self.step_times[-1]
+        else:
+            step_duration = 0.0
+            
+        self.step_times.append(current_time)
+        
+        # Keep only recent step times for performance calculation
+        if len(self.step_times) > 1000:
+            self.step_times = self.step_times[-1000:]
+        
+        # Calculate thermodynamic quantities
+        thermo_data = self._calculate_thermo_data(
+            step, time_step, temperature, positions, velocities, forces, 
+            current_time, step_duration, **kwargs
+        )
+        
+        # Store data
+        for col in self.columns:
+            if col in thermo_data:
+                self.data_history[col].append(thermo_data[col])
+        
+        # Print if needed
+        if step % self.thermo_period == 0:
+            if not self.header_printed:
+                self.print_header()
+            self._print_thermo_line(thermo_data)
+            
+    def _calculate_thermo_data(self, 
+                              step: int,
+                              time_step: float, 
+                              temperature: float,
+                              positions: Optional[ArrayLike],
+                              velocities: Optional[ArrayLike],
+                              forces: Optional[ArrayLike],
+                              current_time: float,
+                              step_duration: float,
+                              **kwargs) -> Dict[str, Any]:
+        """Calculate thermodynamic quantities."""
+        data = {}
+        
+        # Basic quantities
+        data['Step'] = step
+        data['Time'] = step * time_step
+        data['Temp'] = temperature
+        
+        # Timing information
+        total_time = current_time - self.start_time if self.start_time else 0.0
+        data['TotTime'] = total_time
+        
+        # Performance metrics
+        if step > 0 and len(self.step_times) > 1:
+            recent_times = self.step_times[-min(100, len(self.step_times)):]
+            if len(recent_times) > 1:
+                avg_step_time = (recent_times[-1] - recent_times[0]) / (len(recent_times) - 1)
+                steps_per_sec = 1.0 / avg_step_time if avg_step_time > 0 else 0.0
+                data['CPU'] = avg_step_time
+                data['StepsSec'] = steps_per_sec
+            else:
+                data['CPU'] = step_duration
+                data['StepsSec'] = 1.0 / step_duration if step_duration > 0 else 0.0
+        else:
+            data['CPU'] = 0.0
+            data['StepsSec'] = 0.0
+            
+        # Physical quantities if available
+        if positions is not None:
+            # Convert to numpy if needed
+            if hasattr(positions, 'shape'):
+                pos_array = np.array(positions) if not isinstance(positions, np.ndarray) else positions
+                num_particles = pos_array.shape[0]
+                data['Natoms'] = num_particles
+                
+                # Center of mass
+                if pos_array.ndim == 2 and pos_array.shape[1] >= 3:
+                    com = np.mean(pos_array[:, :3], axis=0)
+                    data['Xcm'] = com[0]
+                    data['Ycm'] = com[1] 
+                    data['Zcm'] = com[2]
+        
+        if velocities is not None:
+            # Convert to numpy if needed
+            if hasattr(velocities, 'shape'):
+                vel_array = np.array(velocities) if not isinstance(velocities, np.ndarray) else velocities
+                
+                if vel_array.ndim == 2 and vel_array.shape[1] >= 3:
+                    # Kinetic energy (assuming unit mass)
+                    ke_linear = 0.5 * np.sum(vel_array[:, :3]**2)
+                    data['KE'] = ke_linear
+                    
+                    # Angular kinetic energy if available
+                    if vel_array.shape[1] >= 6:
+                        ke_angular = 0.5 * np.sum(vel_array[:, 3:6]**2)
+                        data['KErot'] = ke_angular
+                        data['KEtot'] = ke_linear + ke_angular
+                    else:
+                        data['KEtot'] = ke_linear
+                        
+        if forces is not None:
+            # Convert to numpy if needed 
+            if hasattr(forces, 'shape'):
+                force_array = np.array(forces) if not isinstance(forces, np.ndarray) else forces
+                
+                if force_array.ndim == 2 and force_array.shape[1] >= 3:
+                    # Force magnitudes
+                    force_mags = np.sqrt(np.sum(force_array[:, :3]**2, axis=1))
+                    data['Fmax'] = np.max(force_mags)
+                    data['Fave'] = np.mean(force_mags)
+                    
+        # Add any additional quantities from kwargs
+        for key, value in kwargs.items():
+            if key in self.columns:
+                data[key] = value
+                
+        return data
+        
+    def _print_thermo_line(self, data: Dict[str, Any]):
+        """Print a line of thermodynamic data."""
+        line = ""
+        for i, col in enumerate(self.columns):
+            if i > 0:
+                line += " "
+                
+            if col in data:
+                value = data[col]
+                # Format based on data type and column name
+                if col == 'Step':
+                    line += f"{int(value):>{self.width}}"
+                elif col in ['Time', 'TotTime', 'CPU']:
+                    line += f"{value:>{self.width}.3f}"
+                elif col in ['Temp', 'KE', 'KErot', 'KEtot']:
+                    line += f"{value:>{self.width}.6f}"
+                elif col in ['StepsSec']:
+                    line += f"{value:>{self.width}.2f}"
+                elif col in ['Fmax', 'Fave']:
+                    line += f"{value:>{self.width}.3e}"
+                elif col in ['Xcm', 'Ycm', 'Zcm']:
+                    line += f"{value:>{self.width}.4f}"
+                elif col == 'Natoms':
+                    line += f"{int(value):>{self.width}}"
+                else:
+                    # Generic formatting
+                    if isinstance(value, int):
+                        line += f"{value:>{self.width}}"
+                    elif isinstance(value, float):
+                        line += f"{value:>{self.width}.4f}"
+                    else:
+                        line += f"{str(value):>{self.width}}"
+            else:
+                line += f"{'N/A':>{self.width}}"
+                
+        print(line)
+        sys.stdout.flush()  # Ensure immediate output
+        
+    def finalize(self):
+        """Print final statistics and clean up."""
+        if self.start_time and len(self.step_times) > 1:
+            total_time = self.step_times[-1] - self.start_time
+            total_steps = len(self.step_times) - 1
+            avg_performance = total_steps / total_time if total_time > 0 else 0.0
+            
+            print(f"\nPerformance: {avg_performance:.2f} steps/second")
+            print(f"Total time: {total_time:.3f} seconds")
+            print(f"Total steps: {total_steps}")
+            
+    def set_columns(self, columns: list):
+        """Set new column layout."""
+        self.columns = columns
+        self.data_history = {col: [] for col in self.columns}
+        self.header_printed = False
+        
+    def get_data_history(self) -> Dict[str, list]:
+        """Get the history of all thermodynamic data."""
+        return self.data_history.copy()
+
+
+# For log rotation, a simpler version:
+def get_next_log_file(base_path, max_backups=10):
     """
     Generate the next available log file name by appending a number.
-    Rotates existing numbered files up by one.
     """
     dir_path = os.path.dirname(base_path)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
+    
     base_name = os.path.basename(base_path)
     name, ext = os.path.splitext(base_name)
     
-    # Get all existing log files with numeric suffixes
-    numbered_files = []
-    pattern = f"{name}_\\d+{ext}"
-    for f in os.listdir(dir_path):
-        if re.match(pattern, f):
-            try:
-                num = int(f.replace(f"{name}_", "").replace(ext, ""))
-                numbered_files.append((num, f))
-            except ValueError:
-                continue
+    # Get existing log files
+    pattern = os.path.join(dir_path, f"{name}_*{ext}")
+    existing_files = glob.glob(pattern)
     
-    # Sort files by number in descending order
-    numbered_files.sort(reverse=True)
-    
-    # Rotate existing numbered files
-    for num, filename in numbered_files:
-        old_path = os.path.join(dir_path, filename)
-        new_path = os.path.join(dir_path, f"{name}_{num + 1}{ext}")
-        try:
-            if os.path.exists(old_path):  # Check again before renaming
-                os.rename(old_path, new_path)
-        except OSError as e:
-            logger.error(f"Failed to rotate log file {filename}: {e}")
-    
-    # Handle the current file if it exists
+    # Rotate if the original file exists
     original_path = os.path.join(dir_path, base_name)
     if os.path.exists(original_path):
+        # Find the next available number
+        nums = [0]
+        for f in existing_files:
+            match = re.search(f"{name}_([0-9]+){ext}$", f)
+            if match:
+                nums.append(int(match.group(1)))
+        
+        next_num = max(nums) + 1
+        new_path = os.path.join(dir_path, f"{name}_{next_num}{ext}")
         try:
-            new_path = os.path.join(dir_path, f"{name}_1{ext}")
             os.rename(original_path, new_path)
         except OSError as e:
-            logger.error(f"Failed to rotate current log file: {e}")
-    
+            logger.error(f"Failed to rotate log file: {e}")
+        # Prune old backups beyond max_backups
+        if max_backups is not None:
+            backup_pattern = os.path.join(dir_path, f"{name}_*{ext}")
+            backup_files = glob.glob(backup_pattern)
+            backups = []
+            for bf in backup_files:
+                match = re.search(f"{name}_([0-9]+){ext}$", bf)
+                if match:
+                    backups.append((int(match.group(1)), bf))
+            backups.sort(key=lambda x: x[0])
+            if len(backups) > max_backups:
+                for _, old_file in backups[:-max_backups]:
+                    try:
+                        os.remove(old_file)
+                    except OSError as e:
+                        logger.error(f"Failed to remove old log backup {old_file}: {e}")
     return original_path
 
-def setup_logging(log_file="logs/simulation.log", debug_file="logs/debug.log", debug_enabled=False):
+def setup_logging(output_dir=None, debug_enabled=False, max_backups=10):
     """
     Set up logging configuration with console and file handlers.
     
     Parameters
     ----------
-    log_file : str
-        Path to the main log file. Default is 'logs/simulation.log'
-    debug_file : str
-        Path to the debug log file. Default is 'logs/debug.log'
+    output_dir : str or Path, optional
+        Output directory for log files. If None, defaults to 'logs/'
     debug_enabled : bool
         Whether to enable debug logging. Default is False
+    max_backups : int
+        Maximum number of backup log files to keep. Default is 10
     """
+    # Determine log directory
+    if output_dir is None:
+        log_dir = "logs"
+    else:
+        log_dir = str(Path(output_dir))
+    
+    # Set log file paths
+    log_file = os.path.join(log_dir, "simulation.log")
+    debug_file = os.path.join(log_dir, "debug.log")
     # Create logs directory if it doesn't exist
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
     
     # Remove default logger
     logger.remove()
@@ -79,9 +367,9 @@ def setup_logging(log_file="logs/simulation.log", debug_file="logs/debug.log", d
     
     # Handle log file rotation
     try:
-        log_file = get_next_log_file(log_file)
+        log_file = get_next_log_file(log_file, max_backups)
         if debug_enabled:
-            debug_file = get_next_log_file(debug_file)
+            debug_file = get_next_log_file(debug_file, max_backups)
     except Exception as e:
         logger.error(f"Failed to set up log rotation: {e}")
         return
@@ -109,9 +397,6 @@ def setup_logging(log_file="logs/simulation.log", debug_file="logs/debug.log", d
         log_file,
         format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} | {message}",
         level="INFO",
-        # rotation="1 day",
-        # retention="30 days",
-        # compression="zip",
         enqueue=True,
         catch=True
     )
@@ -122,9 +407,6 @@ def setup_logging(log_file="logs/simulation.log", debug_file="logs/debug.log", d
             debug_file,
             format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} | {message}",
             level="DEBUG",
-            # rotation="1 day",
-            # retention="7 days",
-            # compression="zip",
             enqueue=True,
             catch=True
         )
@@ -132,8 +414,24 @@ def setup_logging(log_file="logs/simulation.log", debug_file="logs/debug.log", d
         
     return
 
-# Initialize logging when module is imported (TODO: move this into main script)
-setup_logging(debug_enabled=True)  # Set default debug logging to False
+# Initialize basic logging when module is imported (will be reconfigured in main script)
+# Only setup basic console logging initially
+logger.remove()
+logger.add(sys.stderr, level="WARNING")
+
+def setup_simulation_logging(output_dir=None, debug_enabled=False):
+    """
+    Setup logging for simulation with the specified output directory.
+    This function should be called from the main script.
+    
+    Parameters
+    ----------
+    output_dir : str or Path, optional
+        Output directory for log files. If None, defaults to 'logs/'
+    debug_enabled : bool
+        Whether to enable debug logging. Default is False
+    """
+    setup_logging(output_dir=output_dir, debug_enabled=debug_enabled)
 
 def log_and_exit(message, code=1):
     """
@@ -668,37 +966,124 @@ class LAMMPSDataWriter:
         logger.info(f"Successfully wrote LAMMPS data file to {self.filename}")
         logger.debug("Completed full data write")
 
-def write_lammpstrj(
-    output_file: str,
-    step: int,
-    num_particles: int,
-    box_size: Tuple[float, float, float],
-    box_tilt: float,
-    positions: np.ndarray,
-    velocities: Optional[np.ndarray] = None,
-    orientations: Optional[np.ndarray] = None,
-) -> None:
-    """Write system state to a LAMMPS trajectory file.
-    
-    Parameters
-    ----------
-    output_file : str
-        Path to the output file
-    step : int
-        Current timestep
-    num_particles : int
-        Number of particles in the system
-    box_size : tuple[float, float, float]
-        Box dimensions (lx, ly, lz)
-    box_tilt : float
-        Box tilt factor for sheared systems
-    positions : ndarray
-        Particle positions, shape (num_particles, 3)
-    velocities : ndarray, optional
-        Particle velocities, shape (num_particles, 3) or (num_particles, 6)
-    orientations : ndarray, optional
-        Particle orientations, shape (num_particles, 4) for quaternions
+# Add a new file format utility class
+class DataConverter:
     """
+    Utility class to convert between different data formats
+    """
+    
+    @staticmethod
+    def lammps_to_numpy(atoms: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
+        """
+        Convert LAMMPS atom data to NumPy arrays
+        
+        Parameters
+        ----------
+        atoms : list
+            List of dictionaries containing atom data
+            
+        Returns
+        -------
+        dict
+            Dictionary with keys 'positions', 'types', 'diameters', 'densities'
+            containing NumPy arrays
+        """
+        if not atoms:
+            logger.warning("No atom data to convert")
+            return {}
+            
+        n_atoms = len(atoms)
+        positions = np.zeros((n_atoms, 3))
+        types = np.zeros(n_atoms, dtype=np.int32)
+        diameters = np.zeros(n_atoms)
+        densities = np.zeros(n_atoms)
+        
+        try:
+            for i, atom in enumerate(atoms):
+                types[i] = atom['type']
+                diameters[i] = atom['diameter']
+                densities[i] = atom['density']
+                positions[i, 0] = atom['x']
+                positions[i, 1] = atom['y']
+                positions[i, 2] = atom['z']
+                
+            return {
+                'positions': positions,
+                'types': types,
+                'diameters': diameters,
+                'densities': densities
+            }
+        except KeyError as e:
+            logger.error(f"Missing key in atom data: {e}")
+            raise ValueError(f"Missing key in atom data: {e}")
+    
+    @staticmethod
+    def numpy_to_lammps(
+        positions: np.ndarray, 
+        types: np.ndarray = None, 
+        diameters: np.ndarray = None, 
+        densities: np.ndarray = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Convert NumPy arrays to LAMMPS atom data format
+        
+        Parameters
+        ----------
+        positions : ndarray
+            Particle positions, shape (n_atoms, 3)
+        types : ndarray, optional
+            Particle types, shape (n_atoms,)
+        diameters : ndarray, optional
+            Particle diameters, shape (n_atoms,)
+        densities : ndarray, optional
+            Particle densities, shape (n_atoms,)
+            
+        Returns
+        -------
+        list
+            List of dictionaries containing atom data in LAMMPS format
+        """
+        n_atoms = positions.shape[0]
+        
+        if types is None:
+            types = np.ones(n_atoms, dtype=np.int32)
+        if diameters is None:
+            diameters = np.ones(n_atoms)
+        if densities is None:
+            densities = np.ones(n_atoms)
+            
+        # Validate array shapes
+        if any(arr.shape[0] != n_atoms for arr in [types, diameters, densities]):
+            logger.error("Array shape mismatch")
+            raise ValueError("All arrays must have the same length matching the number of atoms")
+            
+        atoms = []
+        for i in range(n_atoms):
+            atom = {
+                'id': i + 1,
+                'type': int(types[i]),
+                'diameter': float(diameters[i]),
+                'density': float(densities[i]),
+                'x': float(positions[i, 0]),
+                'y': float(positions[i, 1]),
+                'z': float(positions[i, 2])
+            }
+            atoms.append(atom)
+            
+        return atoms
+
+# Improved trajectory file writer with better error handling
+def write_lammpstrj(
+    output_file, step, num_particles, box_size, positions,
+    velocities=None, orientations=None, atom_types=None
+):
+    """Write system state to a LAMMPS trajectory file."""
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
+    # Default atom types if not provided
+    if atom_types is None:
+        atom_types = np.ones(num_particles, dtype=int)
+    
     lx, ly, lz = box_size
     with open(output_file, 'a') as f:
         # Write header
@@ -707,11 +1092,11 @@ def write_lammpstrj(
         f.write("ITEM: NUMBER OF ATOMS\n")
         f.write(f"{num_particles}\n")
         
-        # Write box bounds with tilt factors for sheared system
-        f.write("ITEM: BOX BOUNDS xy xz yz\n")
-        f.write(f"{-lx/2:.6f} {lx/2:.6f} {box_tilt*ly:.6f}\n")  # xlo xhi xy
-        f.write(f"{-ly/2:.6f} {ly/2:.6f} 0.0\n")                 # ylo yhi xz
-        f.write(f"{-lz/2:.6f} {lz/2:.6f} 0.0\n")                 # zlo zhi yz
+        # Write box bounds 
+        f.write("ITEM: BOX BOUNDS pp pp pp\n")
+        f.write(f"{-lx/2:.6f} {lx/2:.6f}\n")
+        f.write(f"{-ly/2:.6f} {ly/2:.6f}\n") 
+        f.write(f"{-lz/2:.6f} {lz/2:.6f}\n")
         
         # Construct the header for atom data
         columns = ["id", "type", "x", "y", "z"]
@@ -729,10 +1114,11 @@ def write_lammpstrj(
         
         # Write atom data
         for i in range(num_particles):
-            line = [f"{i+1}", "1"]  # id and type
+            line = [f"{i+1}", f"{atom_types[i]}"]  # id and type
             line.extend([f"{x:.6f}" for x in positions[i]])  # positions
             
             if velocities is not None:
+                vel_dim = velocities.shape[1]
                 if vel_dim >= 3:
                     line.extend([f"{v:.6f}" for v in velocities[i, :3]])  # linear velocities
                 if vel_dim == 6:
@@ -742,6 +1128,9 @@ def write_lammpstrj(
                 line.extend([f"{q:.6f}" for q in orientations[i]])  # quaternions
                 
             f.write(" ".join(line) + "\n")
+            
+        logger.debug(f"Successfully wrote trajectory frame at step {step} to {output_file}")
+        
 
 # Example Usage:
 if __name__ == "__main__":

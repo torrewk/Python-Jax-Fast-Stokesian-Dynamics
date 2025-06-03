@@ -5,9 +5,10 @@ from typing import Any, Callable
 
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, dtypes, jit, random, ops
+from jax import Array, jit, random, ops
 from jax import random as jrandom
 from jax.typing import ArrayLike
+from loguru import logger
 
 from jfsd import ewald_tables, shear, thermal
 from jfsd import jaxmd_space as space
@@ -66,8 +67,23 @@ def preprocess_sparse_triangular(m_sparse, num_particles, max_nonzero_per_row):
 
     return row_indices, row_values
 
-def displacement_fn(ra, rb, box):
-
+def displacement_fn(ra: Array, rb: Array, box: Array) -> Array:
+    """Calculate displacement vector between two positions with periodic boundary conditions.
+    
+    Parameters
+    ----------
+    ra : Array, shape (N, 3)
+        First position array with N particles
+    rb : Array, shape (N, 3)
+        Second position array with N particles
+    box : Array, shape (3, 3)
+        Box dimensions array representing the periodic cell
+        
+    Returns
+    -------
+    Array, shape (N, 3)
+        Displacement vectors between ra and rb accounting for periodic boundaries
+    """
     def _get_free_indices(n: int) -> str:
         return "".join([chr(ord("a") + i) for i in range(n)])    
 
@@ -205,7 +221,7 @@ def cpu_nlist(positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, initial_
     # If no neighbor pairs were found, return empty arrays.
     if pairs_i.size == 0:
         empty_arr = jnp.empty((2, 0), dtype=int)
-        print('Warning: neighborlists are empty. Increase cell list cutoff, or the simulation might run at a slower speed.')
+        logger.warning('Neighborlists are empty. Increase cell list cutoff, or the simulation might run at a slower speed.')
         return empty_arr, empty_arr, empty_arr, empty_arr, safety_margin
     
     # Stack into a (2, num_pairs) array and remove duplicate pairs.
@@ -338,7 +354,7 @@ def check_ewald_cutoff(ewald_cut: float, box_x: float, box_y: float, box_z: floa
         new_xi = np.sqrt(-np.log(error)) / max_cut
         raise ValueError(f"Ewald cutoff radius is too large. Try with xi = {new_xi}")
     else:
-        print("Ewald Cutoff is ", ewald_cut)
+        logger.info(f"Ewald Cutoff is {ewald_cut}")
     return
 
 
@@ -628,13 +644,13 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
     unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]), min(6,l/2), 0., 0., 0., initial_safety_margin=3.)
     overlaps = find_overlaps(positions, 2.002, num_particles, unique_pairs, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
     box = jnp.array([[l, 0., 0.], [0., l, 0.], [0., 0., l]])
-    print('Initial overlaps in creating HS conf are', overlaps)
+    logger.info(f'Initial overlaps in creating HS conf are {overlaps}')
     if phi_eff > 0.6754803226762013:
-        print("System Volume Fraction is ", phi_actual, phi_eff)
+        logger.info(f"System Volume Fraction is {phi_actual} {phi_eff}")
         raise ValueError(
             "Attempted to create particles configuration too dense. Use imported coordinates instead. Abort!"
         )
-    print(f"Creating initial configuration with volume fraction {phi_actual:.3g}. This could take several minutes in dense systems.")
+    logger.info(f"Creating initial configuration with volume fraction {phi_actual:.3g}. This could take several minutes in dense systems.")
     start_time = time.time()
     while overlaps > 0:
         for i_step in tqdm(range(num_steps), mininterval=0.5):
@@ -659,20 +675,20 @@ def create_hardsphere_configuration(l: float, num_particles: int, seed: int, tem
                 unique_pairs, nl, _, _, _ = cpu_nlist(positions, np.array([l,l,l]),  3., 0., 0., 0., initial_safety_margin=3.)
 
         overlaps = find_overlaps(positions, 2.002, num_particles, unique_pairs, np.array([[l,0.,0.],[0.,l,0.],[0.,0.,l]]))
-        print('Thermalized for 1 Brownian time, found ', overlaps, 'overlaps')
+        logger.info(f'Thermalized for 1 Brownian time, found {overlaps} overlaps')
         if (time.time() - start_time) > 1800:  # interrupt if too computationally expensive
             raise ValueError("Creation of initial configuration failed. Abort!")
-    print("Initial configuration created. Volume fraction is ", phi_actual)
+    logger.info(f"Initial configuration created. Volume fraction is {phi_actual}")
     return positions
 
 
 @partial(jit, static_argnums=[1])
-def generate_random_array(key: dtypes.prng_key, size: int) -> tuple[dtypes.prng_key, Array]:
+def generate_random_array(key: Array, size: int) -> tuple[Array, Array]:
     """Generate array of random number using JAX.
 
     Parameters
     ----------
-    key: (prng_key)
+    key: (Array)
         Current key of random number generator
     size: (int)
         Size of random array to generate
@@ -1349,12 +1365,12 @@ def precompute_open(
     # unit vector from particle j to i
     r_lub_unit = r_lub / dist_lub.at[:, None].get()
 
-    # # Indices in resistance table
+    # Indices in resistance table
     ind = jnp.log10((dist_lub - 2.0) / res_table_min) / res_table_dr
     ind = ind.astype(int)
     dist_lub_lower = res_table_dist.at[ind].get()
     dist_lub_upper = res_table_dist.at[ind + 1].get()
-    # # Linear interpolation of the Table values
+    # Linear interpolation of the Table values
     fac_lub = jnp.where(
         dist_lub_upper - dist_lub_lower > 0.0,
         (dist_lub - dist_lub_lower) / (dist_lub_upper - dist_lub_lower),

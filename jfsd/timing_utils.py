@@ -1,22 +1,22 @@
+"""Class and utilities for timing the simulation."""
 import time
-from typing import Dict, Optional, List, Set, Tuple
-from dataclasses import dataclass
+from typing import Dict, NamedTuple, Optional
 from collections import defaultdict
 import numpy as np
+from loguru import logger
 
-@dataclass
-class TimingStats:
-    """Statistics for a timed section."""
-    total_time: float
-    mean_time: float
-    std_time: float
-    min_time: float
-    max_time: float
-    num_calls: int
-    percent_total: float
-    percent_parent: float = 0.0  # Percentage relative to parent timer
-    parent: str = ""  # Parent section name
-    depth: int = 0    # Nesting depth
+class TimerStats(NamedTuple):
+    """Statistics for a timer section."""
+    total_time: float = 0.0
+    mean_time: float = 0.0  
+    std_time: float = 0.0
+    min_time: float = 0.0
+    max_time: float = 0.0
+    num_calls: int = 0
+    percent_total: float = 0.0
+    percent_parent: float = 0.0
+    parent: str = ""
+    depth: int = 0
 
 class SimulationTimer:
     """Timing utility for the simulation."""
@@ -42,7 +42,7 @@ class SimulationTimer:
     def stop(self, section: str):
         """Stop timing a section and record the duration."""
         if section not in self._nested_calls or self._nested_calls[section] <= 0:
-            print(f"Warning: Stopping timer '{section}' that was never started")
+            logger.warning(f"Stopping timer '{section}' that was never started")
             return
             
         self._nested_calls[section] -= 1
@@ -56,7 +56,7 @@ class SimulationTimer:
                 if self._current_stack and self._current_stack[-1] == section:
                     self._current_stack.pop()
     
-    def get_statistics(self) -> Dict[str, TimingStats]:
+    def get_statistics(self) -> Dict[str, TimerStats]:
         """Calculate timing statistics for each section."""
         stats = {}
         
@@ -102,7 +102,7 @@ class SimulationTimer:
             if parent and parent in section_totals and section_totals[parent] > 0:
                 parent_percent = section_total / section_totals[parent] * 100
             
-            stats[section] = TimingStats(
+            stats[section] = TimerStats(
                 total_time=section_total,
                 mean_time=section_mean,
                 std_time=section_std,
@@ -163,10 +163,10 @@ class SimulationTimer:
         root_sections = {section for section, stat in stats.items() if not stat.parent}
         total_root_time = sum(stats[section].total_time for section in root_sections)
         
-        print("\nFlat Performance Report")
-        print("=" * 120)
-        print(f"{'Section':<40} {'Total(s)':<10} {'Mean(ms)':<10} {'Calls':<8} {'Nested':<8} {'% of Parent':<14}")
-        print("-" * 120)
+        logger.info("\nFlat Performance Report")
+        logger.info("=" * 120)
+        logger.info(f"{'Section':<40} {'Total(s)':<10} {'Mean(ms)':<10} {'Calls':<8} {'Nested':<8} {'% of Parent':<14}")
+        logger.info("-" * 120)
         
         for section, timing in sections:
             # Indent section names based on depth
@@ -180,12 +180,12 @@ class SimulationTimer:
             # Display parent percentage
             parent_str = f"{timing.percent_parent:>7.1f}% of {timing.parent}" if timing.parent else "-"
             
-            print(f"{section_display:<40} {timing.total_time:>10.3f} {timing.mean_time*1000:>10.1f} "
+            logger.info(f"{section_display:<40} {timing.total_time:>10.3f} {timing.mean_time*1000:>10.1f} "
                   f"{timing.num_calls:>8d} {nested_info:>8} {parent_str:<14}")
                   
-        print("-" * 120)
-        print(f"{'Total':<40} {total_root_time:>10.3f}")
-        print("=" * 120)
+        logger.info("-" * 120)
+        logger.info(f"{'Total':<40} {total_root_time:>10.3f}")
+        logger.info("=" * 120)
 
     def _print_hierarchical_report(self, top_n: Optional[int] = None, sort_by: str = "total_time"):
         """
@@ -226,10 +226,10 @@ class SimulationTimer:
         # Total time from root sections
         total_time = sum(stats[root].total_time for root in roots)
         
-        print("\nHierarchical Performance Report")
-        print("=" * 100)
-        print(f"{'Section':<50} {'Total(s)':<10} {'%Root':<8} {'Calls':<8} {'Mean(ms)':<10}")
-        print("-" * 100)
+        logger.info("\nHierarchical Performance Report")
+        logger.info("=" * 100)
+        logger.info(f"{'Section':<50} {'Total(s)':<10} {'%Root':<8} {'Calls':<8} {'Mean(ms)':<10}")
+        logger.info("-" * 100)
         
         # Track which sections are the last child of their parent for tree drawing
         is_last_child = {}
@@ -262,7 +262,7 @@ class SimulationTimer:
             # Calculate percentage of root time
             if timing.parent:
                 root_finder = timing.parent
-                while stats.get(root_finder, TimingStats(0, 0, 0, 0, 0, 0, 0)).parent:  # Find the root ancestor
+                while stats.get(root_finder, TimerStats(0, 0, 0, 0, 0, 0, 0)).parent:  # Find the root ancestor
                     root_finder = stats[root_finder].parent
                 root_time = stats[root_finder].total_time
                 root_percent = timing.total_time / root_time * 100 if root_time > 0 else 0
@@ -270,7 +270,7 @@ class SimulationTimer:
                 # This is a root section
                 root_percent = timing.percent_total
                 
-            print(f"{section_name:<50} {timing.total_time:>10.3f} {root_percent:>7.1f}% "
+            logger.info(f"{section_name:<50} {timing.total_time:>10.3f} {root_percent:>7.1f}% "
                   f"{timing.num_calls:>8d} {timing.mean_time*1000:>10.1f}")
             
             # Sort and print children
@@ -282,15 +282,15 @@ class SimulationTimer:
         for root in roots:
             print_section(root)
             
-        print("-" * 100)
-        print(f"{'Total':<50} {total_time:>10.3f}")
-        print("=" * 100)
-        print("Note: '%Root' shows percentage relative to the root timer's time in each hierarchy.")
+        logger.info("-" * 100)
+        logger.info(f"{'Total':<50} {total_time:>10.3f}")
+        logger.info("=" * 100)
+        logger.info("Note: '%Root' shows percentage relative to the root timer's time in each hierarchy.")
         
         # Add explanation when multiple root timers exist
         if len(roots) > 1:
-            print(f"Note: There are {len(roots)} separate top-level timers. Each top-level timer's")
-            print(f"      percentage is relative to the total execution time ({total_time:.3f}s).")
+            logger.info(f"Note: There are {len(roots)} separate top-level timers. Each top-level timer's")
+            logger.info(f"      percentage is relative to the total execution time ({total_time:.3f}s).")
 
     def get_section_time(self, section: str) -> float:
         """Get the total time spent in a specific section."""
@@ -315,15 +315,15 @@ class SimulationTimer:
         
         total_time = sum(stats[root].total_time for root in root_sections)
         
-        print("\nTiming Summary")
-        print("=" * 60)
-        print(f"{'Section':<30} {'Time (s)':<10} {'%':<8}")
-        print("-" * 60)
+        logger.info("\nTiming Summary")
+        logger.info("=" * 60)
+        logger.info(f"{'Section':<30} {'Time (s)':<10} {'%':<8}")
+        logger.info("-" * 60)
         
         for section in root_sections:
             timing = stats[section]
-            print(f"{section:<30} {timing.total_time:>10.3f} {timing.percent_total:>7.1f}%")
+            logger.info(f"{section:<30} {timing.total_time:>10.3f} {timing.percent_total:>7.1f}%")
         
-        print("-" * 60)
-        print(f"{'Total':<30} {total_time:>10.3f}")
-        print("=" * 60)
+        logger.info("-" * 60)
+        logger.info(f"{'Total':<30} {total_time:>10.3f}")
+        logger.info("=" * 60)

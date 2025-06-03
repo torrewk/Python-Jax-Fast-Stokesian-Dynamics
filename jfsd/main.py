@@ -7,14 +7,17 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array, jit, random
 try:
-    from jax.config import config #< Older versions of JAX
+    # Note: For newer JAX versions, config is in jax._src.config
+    try:
+        from jax import config
+    except ImportError:
+        from jax._src.config import config
 except ImportError:
     from jax import config #< Newer versions of JAX
     
 from jax.lib import xla_bridge
 from jax.typing import ArrayLike
 
-from tqdm import tqdm
 import time
 
 from jfsd import applied_forces, mobility, resistance, shear, solver, thermal, utils, integrator
@@ -23,6 +26,8 @@ from jfsd import io_utils
 from jfsd.enums import HydrodynamicInteraction, BoundaryConditions, ThermalTestType, BuoyancyFlag
 import stokeskit as sk
 from jfsd.timing_utils import SimulationTimer
+from pathlib import Path
+from loguru import logger
 
 config.update("jax_enable_x64", False)  # Disable double precision by default
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"  # Avoid JAX preallocating most GPU memory
@@ -148,7 +153,11 @@ def main(
     tuple
         (trajectory, stresslet_history, velocities, test_results)
     """
-    trajectory = stresslet_history = velocities = test_results = None
+    # Initialize with empty arrays/list
+    trajectory = jnp.zeros((0, 0, 3))  # Empty 3D array
+    stresslet_history = jnp.zeros((0, 0, 5))  # Empty 3D array 
+    velocities = jnp.zeros((0, 0, 6))  # Empty 3D array
+    test_results = []  # Empty list for test results
     
     if writing_period > num_steps:
         raise ValueError(
@@ -164,7 +173,7 @@ def main(
         lx = ly = lz = 999999  # Effectively infinite box size.
         config.update("jax_enable_x64", True)  # Enable double precision for long-range interactions.
     
-    print("jfsd is running on device:", xla_bridge.get_backend().platform)
+    logger.info(f"jfsd is running on device: {xla_bridge.get_backend().platform}")
     
     # Initialize timer
     timer = SimulationTimer()
@@ -440,6 +449,7 @@ def wrap_sd(
             Updated particle positions
 
         """
+        
         return integrator.update_positions(
             shear_rate=shear_rate,
             positions=positions,
@@ -455,8 +465,8 @@ def wrap_sd(
     # Initialize timer at the beginning of simulation setup
     timer.start("initialization")
     if output is not None:
-        output = Path(output)
-        output.mkdir(exist_ok=True, parents=True)
+        os.makedirs(output, exist_ok=True)
+        output_path = Path(output)  # Create Path object for file operations while keeping output as str
 
     # set array for output trajectory, velocities and stresslet in time
     trajectory = np.zeros((int(num_steps / writing_period), num_particles, 3), float)
@@ -465,7 +475,7 @@ def wrap_sd(
     
     # Calculate radii ratios of the particles. It should be a 2D array of shape (num_particles, num_particles)
     # Create the full radii ratios matrix
-    radii_matrix = radii.reshape(-1, 1) / radii
+    radii_matrix = jnp.array(radii).reshape(-1, 1) / jnp.array(radii)
 
     # set initial number of Lanczos iterations, for both thermal fluctuations
     n_iter_Lanczos_ff = 2
@@ -520,7 +530,7 @@ def wrap_sd(
         ) = utils.init_periodic_box(
             error_tolerance, ewald_xi, lx, ly, lz, ewald_cut, max_strain, xy, positions, num_particles, temperature, seed_ffwave
         )
-    if boundary_flag == BoundaryConditions.OPEN:
+    elif boundary_flag == BoundaryConditions.OPEN:
         nl_open = utils.compute_distinct_pairs(
             num_particles
         )  # compute list of distinct pairs for long range hydrodynamics (not optimized)
@@ -543,11 +553,11 @@ def wrap_sd(
     timer.start("check_overlaps")
     overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs, box)
     if overlaps > 0:
-        print("Warning: initial overlaps are ", (overlaps))
+        logger.warning("initial overlaps are ", (overlaps))
     timer.stop("check_overlaps")
     timer.stop("initialization")
     
-    print("Starting: compiling the code... This should not take more than 1-2 minutes.")
+    logger.info("Starting: compiling the code... This should not take more than 1-2 minutes.")
     
     # Initialize timer
     timer = SimulationTimer()
@@ -559,7 +569,13 @@ def wrap_sd(
     )
     timer.stop("neighbor_list")
     
-    for step in tqdm(range(num_steps), mininterval=0.5):  # use tqdm to have progress bar and TPS
+    # Initialize thermodynamic output
+    thermo = io_utils.ThermoOutput(
+        thermo_period=10,  # Print every 100 steps
+        columns=['Step', 'Time', 'Temp', 'CPU', 'TotTime', 'StepsSec']
+    )
+    
+    for step in range(num_steps):
         timer.start("step")
         
         # Initialize Brownian drift (6*num_particlesarray, for linear and angular components)
@@ -1259,7 +1275,7 @@ def wrap_sd(
             # save stresslet
             stresslet_history[int(step / writing_period), :, :] = stresslet
             if output is not None:
-                np.save(output / "stresslet.npy", stresslet_history)
+                np.save(output_path / "stresslet.npy", stresslet_history)
             timer.stop("stresslet_computation")
         # Update positions
         timer.start("position_update")
@@ -1311,7 +1327,7 @@ def wrap_sd(
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions
             if output is not None:
-                np.save(output / "trajectory.npy", trajectory)
+                np.save(output_path / "trajectory.npy", trajectory)
 
             # store velocity (linear and angular) to file
             if store_velocity > 0:
@@ -1319,11 +1335,20 @@ def wrap_sd(
                     saddle_x[11 * num_particles :] + brownian_drift, (num_particles, 6)
                 )
                 if output is not None:
-                    np.save(output / "velocities.npy", velocities)
+                    np.save(output_path / "velocities.npy", velocities)
 
             # store orientation
             # TODO
             timer.stop("io")
+        
+        # Update thermodynamic output
+        thermo.update(
+            step=step,
+            time_step=time_step,
+            temperature=temperature,
+            positions=positions
+        )
+        
         timer.stop("step")
         
     # perform thermal test if needed
@@ -1404,7 +1429,8 @@ def wrap_rpy(
     constant_applied_torques: ArrayLike,
     boundary_flag: BoundaryConditions | int,
     timer: SimulationTimer,
-) -> tuple[Array, Array, Array, list[float]]:
+) -> tuple[Array, Array]:
+    
     """Wrap all functions needed to integrate the particles equation of motions forward in time, using RPY method.
 
     Parameters
@@ -1571,10 +1597,13 @@ def wrap_rpy(
     # check if particles overlap
     overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs, box)
     if overlaps > 0:
-        print("Warning: initial overlaps are ", (overlaps))
-    print("Starting: compiling the code... This should not take more than 1-2 minutes.")
+        logger.warning("initial overlaps are ", (overlaps))
+    logger.info("Starting: compiling the code... This should not take more than 1-2 minutes.")
 
-    for step in tqdm(range(num_steps), mininterval=0.5):
+    # Initialize ThermoOutput for simulation monitoring  
+    thermo = io_utils.ThermoOutput(thermo_period=100, columns=['Step', 'Time', 'Temp', 'CPU', 'TotTime', 'StepsSec'])
+
+    for step in range(num_steps):
         # initialize generalized velocity (6*num_particlesarray, for linear and angular components)
         # this array stores the velocity for Brownian Dynamics, or the Brownian drift otherwise
         general_velocity = jnp.zeros(6 * num_particles, float)
@@ -2021,10 +2050,16 @@ def wrap_bd(
     # check if particles overlap
     overlaps = utils.find_overlaps(positions, 2.0, num_particles, unique_pairs, box)
     if overlaps > 0:
-        print("Warning: initial overlaps are ", (overlaps))
-    print("Starting: compiling the code... This should not take more than 1-2 minutes.")
+        logger.warning("initial overlaps are ", (overlaps))
+    logger.info("Starting: compiling the code... This should not take more than 1-2 minutes.")
 
-    for step in tqdm(range(num_steps), mininterval=0.5):
+    # Initialize ThermoOutput for simulation monitoring
+    thermo = io_utils.ThermoOutput(
+        thermo_period=100,
+        columns=['Step', 'Time', 'Temp', 'CPU', 'TotTime', 'StepsSec']
+    )
+
+    for step in range(num_steps):
         # initialize generalized velocity (6*num_particlesarray, for linear and angular components)
         # this array stores the velocity for Brownian Dynamics, or the Brownian drift otherwise
         general_velocity = jnp.zeros(6 * num_particles, float)

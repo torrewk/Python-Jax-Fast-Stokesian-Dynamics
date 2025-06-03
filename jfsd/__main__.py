@@ -8,6 +8,7 @@ from pathlib import Path
 from jfsd.config import JfsdConfiguration
 from jfsd.interactive import interactive_main
 from jfsd.main import main
+from jfsd.io_utils import setup_simulation_logging
 
 DEFAULT_CONFIG_FP = files(__package__) / "default_configuration.toml"
 
@@ -40,6 +41,10 @@ def cli_main():
         "-o", "--output", help="Output directory to store the results in.", type=Path, default=None
     )
     args = parser.parse_args()
+    
+    # Setup logging with the output directory
+    setup_simulation_logging(output_dir=args.output, debug_enabled=True)
+    
     if args.interactive:
         interactive_main()
         return
