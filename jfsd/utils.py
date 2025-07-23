@@ -229,18 +229,11 @@ def cpu_nlist(positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, initial_
     nlist3 = nlist_buffer[:, :max_neigh_prec]
     
     # --- Return results ---
-    if np.any(nlist1 == num_particles):
-        return (jnp.array(unique_pairs, int),
-                jnp.array(nlist1, int),
-                jnp.array(nlist2, int),
-                jnp.array(nlist3, int),
-                safety_margin)
-    else:
-        return (jnp.array(unique_pairs, int),
-                jnp.array(unique_pairs, int),
-                jnp.array(unique_pairs, int),
-                jnp.array(unique_pairs, int),
-                initial_safety_margin)
+    return (jnp.array(unique_pairs, int),
+            jnp.array(nlist1, int),
+            jnp.array(nlist2, int),
+            jnp.array(nlist3, int),
+            safety_margin)
     
 def debug_nlist(positions, cutoff, box):
     """
