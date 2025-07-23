@@ -14,22 +14,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout full Git history and tags
+      uses: actions/checkout@v4
       with:
-           fetch-depth: 0  # ← This ensures all tags and history are available for setuptools_scm
+        fetch-depth: 0  # Ensures setuptools_scm can see tags
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.x'
-    - name: Install dependencies
+
+    - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build
+        pip install build setuptools setuptools-scm twine
+
+    - name: (Optional) Force version if setuptools_scm fails
+      run: echo "SETUPTOOLS_SCM_PRETEND_VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+
     - name: Build package
       run: python -m build
-    - name: Publish package
-      uses: pypa/gh-action-pypi-publish@7eb3b701d11256e583f5b49899c5e7203deab573
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+
+    - name: Check metadata with Twine
+      run: twine check dist/*
+
+    - name: Publish to PyPI
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: twine upload dist/*
+
