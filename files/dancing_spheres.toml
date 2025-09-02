@@ -1,5 +1,5 @@
 [general]
-n_steps = 10 # TODO: modify appropriately
+n_steps = 1000 # TODO: modify appropriately
 dt = 0.1 # TODO: modify appropriately
 
 [initialization]
@@ -35,5 +35,5 @@ nf = 0
 store_stresslet = false
 store_velocity = false
 store_orientation = false
-writing_period = 1000
+writing_period = 100
 thermal_fluctuation_test = "none"
