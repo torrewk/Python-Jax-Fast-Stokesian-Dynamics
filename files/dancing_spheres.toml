@@ -1,0 +1,39 @@
+[general]
+n_steps = 10 # TODO: modify appropriately
+dt = 0.1 # TODO: modify appropriately
+
+[initialization]
+position_source_type = 'file'
+
+[physics]
+dynamics_type = "stokesian"
+boundary_conditions = "open"
+kT = 0.0
+interaction_strength = 0.0
+interaction_cutoff = 0.0
+shear_rate = 0.0
+shear_frequency = 0.0
+friction_coefficient = 0.0
+friction_range = 0.0
+constant_force = [0.0, 0.0, 0.0]
+constant_torque = [0.0, 0.0, 0.0]
+buoyancy = true
+
+[box]
+lx = 50.0
+ly = 50.0
+lz = 50.0
+max_strain = 0.5
+
+[seeds]
+rfd = 0
+ffwave = 0
+ffreal = 0
+nf = 0
+
+[output]
+store_stresslet = false
+store_velocity = false
+store_orientation = false
+writing_period = 1000
+thermal_fluctuation_test = "none"
