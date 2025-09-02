@@ -22,14 +22,18 @@ classifiers = [
 ]
 
 dependencies = [
-    "jax==0.4.17",
+    #"jax==0.6.2",
+    #"jaxlib==0.6.2",
     "numpy",
-    "scipy==1.10.1",
+    "scipy==1.15.3",
     "jraph==0.0.6.dev0",
+    "flax>=0.7.0",
     "absl-py==2.1.0",
     "tomli;python_version<'3.11'",
     "tqdm",
+    "loguru",
 ]
+
 
 dynamic = ["version"]
 

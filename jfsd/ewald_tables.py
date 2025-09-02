@@ -30,7 +30,7 @@ def compute_real_space_ewald_table(num_entries: int, radius: float, xi: float) -
     # Table discretization in extended precision (80-bit)
     dr_string = "0.00100000000000000000000000000000"  # Pass value as a string with arbitrary precision
     dr_decimal = Decimal(dr_string)  # Convert to float with arbitrary precision
-    dr = np.longfloat(dr_decimal)  # Convert to numpy long float (truncated to 64/80/128-bit, depending on platform)
+    dr = np.longdouble(dr_decimal)  # Convert to numpy long float (truncated to 64/80/128-bit, depending on platform)
 
     ident_minus_rr = np.zeros(num_entries)
     rr = np.zeros(num_entries)
@@ -40,9 +40,9 @@ def compute_real_space_ewald_table(num_entries: int, radius: float, xi: float) -
     scalar_h2 = np.zeros(num_entries)
     scalar_h3 = np.zeros(num_entries)
 
-    xi_longfloat = np.longfloat(xi)
-    radius_longfloat = np.longfloat(radius)
-    PI = np.longfloat(np.pi)
+    xi_longfloat = np.longdouble(xi)
+    radius_longfloat = np.longdouble(radius)
+    PI = np.longdouble(np.pi)
     index_array = np.arange(num_entries, dtype=np.longdouble)
     r_array = index_array * dr + dr
 

@@ -6,7 +6,7 @@ import scipy.sparse as sp
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, jit, random
-from jax.config import config
+from jax import config
 from jax.lib import xla_bridge
 from jax.typing import ArrayLike
 
