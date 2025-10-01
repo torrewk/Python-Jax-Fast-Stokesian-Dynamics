@@ -1,303 +1,261 @@
-from functools import partial
 import jax.numpy as jnp
 import jax.scipy as jscipy
-from jax import Array, jit, vmap
+from functools import partial
 from jax.typing import ArrayLike
+from jax import jit, Array
 from jfsd import mobility, resistance
-
-@partial(jit, static_argnums=[0, 4, 5, 6, 7, 9])
-def solve_linear_system(
-    num_particles: int,
-    rhs: ArrayLike,
-    gridk: ArrayLike,
-    precomputed: tuple,
-    grid_nx: int,
-    grid_ny: int,
-    grid_nz: int,
-    gauss_support: int,
-    m_self: ArrayLike,
-    max_nonzero_per_row: int,
-    r_prec: ArrayLike,
-    initial_guess: ArrayLike = None,
-) -> tuple[Array, int]:
-    """Solve the linear system Ax=b.
-
-    With:
-        A contains the saddle point matrix,
-        b contains applied_forces, thermal_noise, R_SU and strain terms
-        x contains particle linear/angular velocities and stresslet
-
-        With HIs_flag = 0 --> the solver is not called, as the system is already diagonalized
-        With HIs_flag = 1 --> the solver is not called, as the system is already diagonalized
-        With HIs_flag = 2 --> A is a 17x17 matrix reproducing hydrodynamic interaction at the SD level
-
-    Parameters
-    ----------
     
-    num_particles: (int)
-        Number of particles
-    rhs: (float)
-        Array (17*num_particles) containing right-hand side vector of the linear system Ax=b
-    gridk: (float)
-        Array (grid_nx,grid_ny,grid_nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
-    precomputed: (float)
-        Tuples containing quantities needed to iteratively solve the linear system, computed only once
-    grid_nx: (int)
-        Number of grid points in x direction
-    grid_ny: (int)
-        Number of grid points in y direction
-    grid_nz: (int)
-        Number of grid points in z direction
-    gauss_support: (int)
-        Gaussian support size for wave space calculation
-    m_self: (float)
-        Array (,2) containing mobility self contributions
-    max_nonzero_per_row: (int)
-        Max number of non zero element in each row of the precondition resistnce FU matrix
-    r_prec: (tuple)
-        Approximation of the resistance matrix in sparse format
-    initial_guess: (float)
-        Array (17*num_particles) containing initial guess x0 for the linear system Ax=b
-    
-    Returns
-    -------
-    x, exitCode
-
-    """
-
-    def compute_saddle_sd(x: ArrayLike) -> Array:
-        """Construct the saddle point operator A.
-
-        This acts on x and returns A*x (without using A in matrix representation).
-
-        Parameters
-        ----------
-        x: (float)
-            Array (,17*num_particles) containing unknown particle linear/angular velocities, stresslets and hydrodynamic forces
-
-        Returns
-        -------
-        ax
-
-        """
-        # set output to zero to start
-        ax = jnp.zeros(num_particles * 17, float)
-
-        # compute far-field contribution (M * F): output velocities+torques (first 6N) and strain rates (last 5N)
-        ax = ax.at[: 11 * num_particles].set(
-            mobility.generalized_mobility_periodic(
-                num_particles,
-                (grid_nx),
-                (grid_ny),
-                (grid_nz),
-                (gauss_support),
-                gridk,
-                m_self,
-                all_indices_x,
-                all_indices_y,
-                all_indices_z,
-                gaussian_grid_spacing1,
-                gaussian_grid_spacing2,
-                r,
-                indices_i,
-                indices_j,
-                f1,
-                f2,
-                g1,
-                g2,
-                h1,
-                h2,
-                h3,
-                x.at[: 11 * num_particles].get(),
-            )
-        )
-
-        # add B*U to M*F (modify only the first 6N entries of output because of projector B)
-        ax = ax.at[: 6 * num_particles].add(x.at[11 * num_particles :].get())
-        ax = ax.at[11 * num_particles :].set(
-            (
-                resistance.compute_lubrication_fu(
-                    x.at[11 * num_particles :].get(), indices_i_lub, indices_j_lub, res_functions, r_lub, num_particles
-                )
-            )
-            * (-1)
-        )
-
-        # Add (B^T * F) to (- R^nf_FU * U): modify the last 6N entries of output
-        ax = ax.at[11 * num_particles :].add(x.at[: 6 * num_particles].get())
-
-        return ax
-
-    def compute_precond_sd_kwt(x: jnp.ndarray) -> jnp.ndarray:
-        """
-        Computes the preconditioner by solving a single system R x = b using JAX CG.
+@partial(jit, static_argnums=[0,5,6,7,8])    
+def solver(
+        N: int,
+        rhs: ArrayLike,
+        gridk: ArrayLike,
+        RFU_pre_low_tri: ArrayLike,
+        precomputed: tuple,
+        Nx: int,
+        Ny: int,
+        Nz: int,
+        gaussP: int,
+        m_self: ArrayLike) -> tuple[Array,int]:
+        
+        """Solve the linear system Ax=b.
+        
+        With:
+            A contains the saddle point matrix,
+            b contains applied_forces, thermal_noise, R_SU and strain terms
+            x contains particle linear/angular velocities and stresslet
+        
+            With HIs_flag = 0 --> the solver is not called, as the system is already diagonalized 
+            With HIs_flag = 1 --> the solver is not called, as the system is already diagonalized 
+            With HIs_flag = 2 --> A is a 17x17 matrix reproducing hydrodynamic interaction at the SD level   
         
         Parameters
         ----------
-        x : jnp.ndarray
-            Input vector containing unknown particle linear/angular velocities and stresslets.
+        N: (int)
+            Number of particles
+        rhs: (float)
+            Array (17*N) containing right-hand side vector of the linear system Ax=b
+        gridk: (float)
+            Array (Nx,Ny,Nz,4) containing wave vectors and scaling factors for far-field wavespace calculation
+        RFU_pre_low_tri: (float)
+            Array (6*N,6*N) containing lower triangular Cholesky factor of R_FU (built only from particle pairs very close)
+        precomputed: (float)
+            Tuples containing quantities needed to iteratively solve the linear system, computed only once
+        Nx: (int)
+            Number of grid points in x direction
+        Ny: (int)
+            Number of grid points in y direction
+        Nz: (int)
+            Number of grid points in z direction
+        gaussP: (int)
+            Gaussian support size for wave space calculation 
+        m_self: (float)
+            Array (,2) containing mobility self contributions
+        dist_ff: (float)
+            Array (,N*(N-1)/2) containing interparticle distances for each pair in the far-field regime
             
         Returns
         -------
-        ppx : jnp.ndarray
-            Preconditioned output vector.
-        """
-        # Initialize output
-        ppx = jnp.zeros(17 * num_particles, float)
-        # Copy over the first 11*num_particles entries from x
-        ppx = ppx.at[:11 * num_particles].set(x[:11 * num_particles])
+        x, exitCode
         
-        # Compute right-hand side b
-        b = -x[:6 * num_particles] + x[11 * num_particles:]
-        
-        # --- Define a single linear operator that applies L and U ---
-        def apply_R(v: jnp.ndarray) -> jnp.ndarray:
-            """Applies R to a vector v."""
-            def apply_L(i):
-                return jnp.dot(row_values[i, :max_nonzero_per_row], 
-                            v[row_indices[i, :max_nonzero_per_row]])
+        """                               
 
-            return vmap(apply_L)(jnp.arange(6 * num_particles))
-
-        # Solve R x = b in one CG call
-        x_solved, exitCode = jscipy.sparse.linalg.cg(apply_R, b, tol=1e-3)
-        
-        # Build the full preconditioner output
-        ppx = ppx.at[:6 * num_particles].set(x_solved)
-        ppx = ppx.at[11 * num_particles:].set(-x_solved)
-        ppx = ppx.at[:11 * num_particles].add(x[:11 * num_particles])
-
-        return ppx
-
-
-    row_indices, row_values = r_prec
-    # Extract the quantities for the calculation, from input
-    (
-        all_indices_x,
-        all_indices_y,
-        all_indices_z,
-        gaussian_grid_spacing1,
-        gaussian_grid_spacing2,
-        r,
-        indices_i,
-        indices_j,
-        f1,
-        f2,
-        g1,
-        g2,
-        h1,
-        h2,
-        h3,
-        r_lub,
-        indices_i_lub,
-        indices_j_lub,
-        res_functions,
-    ) = precomputed
-
-    x, exitCode = jscipy.sparse.linalg.gmres(
-        x0=initial_guess, A=compute_saddle_sd, b=rhs, tol=1e-5, restart=25, M=compute_precond_sd_kwt
-    )
-    return x, exitCode
-
-
-@partial(jit, static_argnums=[0,4])
-def solve_linear_system_open(
-        num_particles: int, rhs: ArrayLike, precomputed: tuple, dist_ff: ArrayLike, max_nonzero_per_row: int,
-        r_prec: ArrayLike, initial_guess: ArrayLike = None
-) -> tuple[Array, int]:
-    def compute_distances():
-        return jnp.linalg.norm(dist_ff, axis=1)
-
-    def compute_saddle_sd_open(x: ArrayLike) -> Array:
-        """Construct the saddle point operator A.
-
-        This acts on x and returns A*x (without using A in matrix representation).
-
-        Parameters
-        ----------
-        x: (float)
-            Array (,17*num_particles) containing unknown particle linear/angular velocities, stresslets and hydrodynamic forces
-
-        Returns
-        -------
-        ax
-
-        """
-        # set output to zero to start
-        ax = jnp.zeros(num_particles * 17, float)
-
-        # compute far-field contribution (M * F): output velocities+torques (first 6N) and strain rates (last 5N)
-
-        ax = ax.at[: 11 * num_particles].add(
-            mobility.generalized_mobility_open(
-                num_particles, r, indices_i, indices_j, x.at[: 11 * num_particles].get(), mobil_funct
-            )
-        )
-
-        # add B*U to M*F (modify only the first 6N entries of output because of projector B)
-        ax = ax.at[: 6 * num_particles].add(x.at[11 * num_particles :].get())
-
-        ax = ax.at[11 * num_particles :].add(
-            (
-                resistance.compute_lubrication_fu(
-                    x[11 * num_particles :], indices_i_lub, indices_j_lub, res_functions, r_lub, num_particles
-                )
-            )
-            * (-1)
-        )
-
-        # Add (B^T * F) to (- R^nf_FU * U): modify the last 6N entries of output
-        ax = ax.at[11 * num_particles :].add(x.at[: 6 * num_particles].get())
-
-        return ax
-    
-    def compute_precond_sd_kwt(x: jnp.ndarray) -> jnp.ndarray:
-        """
-        Computes the preconditioner by solving a single system R x = b using JAX CG.
-        
-        Parameters
-        ----------
-        x : jnp.ndarray
-            Input vector containing unknown particle linear/angular velocities and stresslets.
+           
+        def compute_saddleSD(
+                x: ArrayLike) -> Array:
             
-        Returns
-        -------
-        ppx : jnp.ndarray
-            Preconditioned output vector.
-        """
-        # Initialize output
-        ppx = jnp.zeros(17 * num_particles, float)
-        # Copy over the first 11*num_particles entries from x
-        ppx = ppx.at[:11 * num_particles].set(x[:11 * num_particles])
+            """Construct the saddle point operator A.
+            
+            This acts on x and returns A*x (without using A in matrix representation).
+        
+            Parameters
+            ----------
+            x: (float)
+                Array (,17*N) containing unknown particle linear/angular velocities, stresslets and hydrodynamic forces
                 
-        # --- Define a single linear operator that applies L and U ---
-        def apply_R(v: jnp.ndarray) -> jnp.ndarray:
-            """Applies R to a vector v."""
-            def apply_L(i):
-                return jnp.dot(row_values[i, :max_nonzero_per_row], 
-                            v[row_indices[i, :max_nonzero_per_row]])
-
-            return vmap(apply_L)(jnp.arange(6 * num_particles))
-
-        # Solve R x = b in one CG call
-        x_solved, _ = jscipy.sparse.linalg.cg(apply_R, -x[:6 * num_particles] + x[11 * num_particles:], tol=1e-3)
+            Returns
+            -------
+            Ax
         
-        # Build the full preconditioner output
-        ppx = ppx.at[:6 * num_particles].set(x_solved)
-        ppx = ppx.at[11 * num_particles:].set(-x_solved)
-        ppx = ppx.at[:11 * num_particles].add(x[:11 * num_particles])
+            """   
+            
+            # set output to zero to start
+            Ax = jnp.zeros(N*17, float)
 
-        return ppx
+            # compute far-field contribution (M * F): output velocities+torques (first 6N) and strain rates (last 5N)
+            
+            Ax = Ax.at[:11*N].set(mobility.GeneralizedMobility_periodic(N, (Nx), (Ny), (Nz),
+                                                                (gaussP), gridk, m_self,
+                                                                all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
+                                                                r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
+                                                                x.at[:11*N].get()))
+            
+            # add B*U to M*F (modify only the first 6N entries of output because of projector B)
+            Ax = Ax.at[:6*N].add(x.at[11*N:].get())            
+            Ax = Ax.at[11*N:].set((resistance.ComputeLubricationFU(x[11*N:],
+                       indices_i_lub, indices_j_lub, ResFunctions, r_lub, N)) * (-1))
+            
+            # Add (B^T * F) to (- R^nf_FU * U): modify the last 6N entries of output
+            Ax = Ax.at[11*N:].add(x.at[:6*N].get())
+
+            return Ax
+        
+        def compute_precondSD(
+                x: ArrayLike) -> Array:
+            
+            """Construct precondition operator P that approximate the action of A^(-1)
+            
+            Parameters
+            ----------
+            x:
+                Array (17*N)
+
+            Returns
+            -------
+            Px
+            
+            """ 
+            
+            # set output to zero to start
+            Px = jnp.zeros(17*N, float)
+            
+            # action of precondition matrix on the first 11*N entries of x is the same as the
+            # identity (indeed, the identity is the precondition matrix for the far field granmobility M)
+            Px = Px.at[:11*N].set(x[:11*N])
+            
+            #action of resistance matrix (full, not just lubrication)
+            # -R_FU^-1 * x[:6N]
+            # First solve L^T * y = x, for y, where L^T is the lower triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                RFU_pre_low_tri, x.at[:6*N].get(), lower=True)
+            # Then solve L * z = y, for z, where L is the upper triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                jnp.transpose(RFU_pre_low_tri), buffer, lower=False)
+            Px = Px.at[:6*N].add(-buffer)
+            Px = Px.at[11*N:].set(buffer)
+            # -R_FU^-1 * x[11N:]
+            # First solve L^T * y = x, for y, where L^T is the lower triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                RFU_pre_low_tri, x.at[11*N:].get(), lower=True)
+            # Then solve L * z = y, for z, where L is the upper triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                jnp.transpose(RFU_pre_low_tri), buffer, lower=False)
+            Px = Px.at[:6*N].add(buffer)
+            Px = Px.at[11*N:].add(-buffer)       
+
+            return Px
+
+        #Extract the quantities for the calculation, from input
+        (all_indices_x, all_indices_y, all_indices_z, gaussian_grid_spacing1, gaussian_grid_spacing2,
+         r, indices_i, indices_j, f1, f2, g1, g2, h1, h2, h3,
+         r_lub, indices_i_lub, indices_j_lub, ResFunctions) = precomputed
+
+        #Solve the linear system Ax= b
+        x, exitCode = jscipy.sparse.linalg.gmres(
+            A=compute_saddleSD, b=rhs, tol=1e-5, restart=25, M=compute_precondSD)
+
+        return x, exitCode
     
-    row_indices, row_values = r_prec
-    # Extract the quantities for the calculation, from input
-    (r, indices_i, indices_j, r_lub, indices_i_lub, indices_j_lub, res_functions, mobil_funct) = (
-        precomputed
-    )
+@partial(jit, static_argnums=[0])
+def solver_open(
+        N: int,
+        rhs: ArrayLike,
+        RFU_pre_low_tri: ArrayLike,
+        precomputed: tuple,
+        dist_ff: ArrayLike) -> tuple[Array,int]:                               
 
-    # Solve the linear system Ax= b
-    x, exitCode = jscipy.sparse.linalg.gmres(
-        A=compute_saddle_sd_open, b=rhs, tol=1e-5, restart=25, M=compute_precond_sd_kwt
-    )
+        def compute_distances():
+            return jnp.linalg.norm(dist_ff, axis=1)
+           
+        def compute_saddleSD_open(
+                x: ArrayLike) -> Array:
+            
+            """Construct the saddle point operator A.
+            
+            This acts on x and returns A*x (without using A in matrix representation).
+        
+            Parameters
+            ----------
+            x: (float)
+                Array (,17*N) containing unknown particle linear/angular velocities, stresslets and hydrodynamic forces
+                
+            Returns
+            -------
+            Ax
+        
+            """   
+            
+            # set output to zero to start
+            Ax = jnp.zeros(N*17, float)
 
-    return x, exitCode
+            # compute far-field contribution (M * F): output velocities+torques (first 6N) and strain rates (last 5N)
+            
+            Ax = Ax.at[:11*N].add(mobility.GeneralizedMobility_open(N,r,indices_i,indices_j,x.at[:11*N].get(),mobil_funct))
+            
+            # add B*U to M*F (modify only the first 6N entries of output because of projector B)
+            Ax = Ax.at[:6*N].add(x.at[11*N:].get())
+            
+            Ax = Ax.at[11*N:].add((resistance.ComputeLubricationFU(x[11*N:],
+                        indices_i_lub, indices_j_lub, ResFunctions, r_lub, N)) * (-1))
+            
+            # Add (B^T * F) to (- R^nf_FU * U): modify the last 6N entries of output
+            Ax = Ax.at[11*N:].add(x.at[:6*N].get())
+
+            return Ax
+        
+        def compute_precondSD_open(
+                x: ArrayLike) -> Array:
+            
+            """Construct precondition operator P that approximate the action of A^(-1)
+            
+            Parameters
+            ----------
+            x:
+                Array (17*N)
+
+            Returns
+            -------
+            Px
+            
+            """ 
+            
+            # set output to zero to start
+            Px = jnp.zeros(17*N, float)
+            
+            # action of precondition matrix on the first 11*N entries of x is the same as the
+            # identity (indeed, the identity is the precondition matrix for the far field granmobility M)
+            Px = Px.at[:11*N].set(x[:11*N])
+            
+            #action of resistance matrix (full, not just lubrication)
+            # -R_FU^-1 * x[:6N]
+            # First solve L^T * y = x, for y, where L^T is the lower triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                RFU_pre_low_tri, x.at[:6*N].get(), lower=True)
+            # Then solve L * z = y, for z, where L is the upper triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                jnp.transpose(RFU_pre_low_tri), buffer, lower=False)
+            Px = Px.at[:6*N].add(-buffer)
+            Px = Px.at[11*N:].add(buffer)
+            # -R_FU^-1 * x[11N:]
+            # First solve L^T * y = x, for y, where L^T is the lower triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                RFU_pre_low_tri, x.at[11*N:].get(), lower=True)
+            # Then solve L * z = y, for z, where L is the upper triangular Chol. factor of R^nf_FU
+            buffer = jscipy.linalg.solve_triangular(
+                jnp.transpose(RFU_pre_low_tri), buffer, lower=False)
+            Px = Px.at[:6*N].add(buffer)
+            Px = Px.at[11*N:].add(-buffer)       
+
+            return Px
+
+        #Extract the quantities for the calculation, from input
+        (r,indices_i,indices_j,r_lub,indices_i_lub,indices_j_lub,ResFunctions,mobil_funct) = precomputed
+        
+        #Solve the linear system Ax= b
+        x, exitCode = jscipy.sparse.linalg.gmres(
+            A=compute_saddleSD_open, b=rhs, tol=1e-5, restart=25, M=compute_precondSD_open)
+
+        return x, exitCode
+    
+    
+    

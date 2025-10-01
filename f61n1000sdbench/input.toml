@@ -1,0 +1,40 @@
+[general]
+n_steps = 10000
+#n_particles = 1000
+dt = 0.004
+
+[initialization]
+position_source_type = "file"  # Other option: file
+init_seed = 7238659235
+
+[physics]
+dynamics_type = "stokesian"  # Options: brownian, rpy, stokesian
+kT = 0.005
+interaction_strength = 0.0 #in units of kBT
+interaction_cutoff = 0.0 #in units of particle radius
+shear_rate = 0.0
+shear_frequency = 0.0
+friction_coefficient = 0.0
+friction_range = 0.0
+constant_force = [0.0, 0.0, 0.0]
+constant_torque = [0.0, 0.0, 0.0]
+buoyancy = false
+
+[box]
+Lx = 19.00726
+Ly = 19.00726
+Lz = 19.00726
+max_strain = 0.5
+
+[seeds]
+RFD = 43175675
+ffwave = 6357442
+ffreal = 6474524532
+nf = 325425435
+
+[output]
+store_stresslet = false
+store_velocity = false
+store_orientation = false
+writing_period = 10
+thermal_fluctuation_test = "none"  # Other options: far-field, lubrication

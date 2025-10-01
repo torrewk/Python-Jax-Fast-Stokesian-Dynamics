@@ -40,7 +40,7 @@ class TestClassCPU:
                 None, 0, 0, 0,np.array([0]), np.array([0]),
                 2,0,0,0.,0.)
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert (error < 5 * 1e-4)
+        assert (error < 1e-5)
         
     def test_thermal_realspace(self):
         """Physical unit test for non-deterministic part of hydrodynamic calculations, that runs on CPU. 
@@ -50,10 +50,10 @@ class TestClassCPU:
 
         """
         assert (jax_has_cpu() == 'cpu') #check that jax is running on cpu
-        num_particles = 25
+        N = 25
         dr=2.0005
         _, _, _, testresults = main.main(
-                    1, 1, 0.1, 35, 35, 35, num_particles, 0.5,
+                    1, 1, 0.1, 35, 35, 35, N, 0.5,
                     0.001, 1, 0.5, 0.001, 0., 0, 1.,
                     jnp.array([[0., dr, 0.],    [0., dr, dr],    [0., dr,-dr],    [-dr, dr, 0.],    [dr, dr, 0.],
                                 [0., 2*dr, 0.],  [0., 2*dr, dr],  [0., 2*dr,-dr],  [-dr, 2*dr, 0.],  [dr, 2*dr, 0.],
@@ -93,4 +93,4 @@ class TestClassCPU:
             )
         # Only calculate error for this specific delta
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert (error < 5 * 1e-4)
+        assert error < 1e-5

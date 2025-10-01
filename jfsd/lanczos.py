@@ -1,74 +1,80 @@
 import jax.numpy as jnp
-from jax import Array, lax
+from jax import lax, Array
 from jax.typing import ArrayLike
 
-def lanczos_algorithm(
-    matrix_vector_product: ArrayLike, dimension: int, order: int, initial_vector: ArrayLike
-) -> tuple[Array, Array]:
-    """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^T) * x.
+def lanczos_alg(
+    matrix_vector_product: ArrayLike,
+    dim: int,
+    order: int,
+    init_vec: ArrayLike) -> tuple[Array,Array]:
 
-    Where T is a tridiagonal matrix (order x order) and V is a transformation matrix (dimension x order).
-
+    """Perform a Lanczos factorization of a matrix-vector product M*x = (V T V^t) * x.
+    
+    Where T is a tridiagonal matrix (order x order) and V is a transformation matrix (dim x order). 
+    
     Parameters
     ----------
-    matrix_vector_product : ArrayLike
-        Function computing the matrix-vector product M(x).
-    dimension : int
-        Dimension of matrix M.
-    order : int
-        Order of the decomposition and dimension of the spanned Krylov subspace.
-    initial_vector : ArrayLike
-        Initial vector x (shape: (dimension,)).
+    matrix_vector_product: (float)
+        Array (,dim) containing input matrix-vector produc M(x)
+    dim: (int)
+        Dimension of matrix M
+    order: (int)
+        Order of the decomposition and dimension of the spanned Krylov subspace
+    init_vec: (float)
+        Array (,dim) containing input vector x
 
     Returns
     -------
-    tuple[Array, Array]
-        - Tridiagonal matrix T of shape (order, order).
-        - Transformation matrix V of shape (order, dimension).
-    """
+    (tridiag, vecs)
+    
+    """ 
+
     def update(
-        args: tuple[ArrayLike, ArrayLike, ArrayLike], i: int
-    ) -> tuple[tuple[ArrayLike, ArrayLike, ArrayLike], tuple[ArrayLike, ArrayLike, ArrayLike]]:
-        """Perform one iteration of the Lanczos decomposition.
-
-        This results in the increase of the dimension of the Krylov subspace by one.
-
+            args: tuple[ArrayLike,ArrayLike,ArrayLike], 
+            i: int) -> tuple[tuple[ArrayLike,ArrayLike,ArrayLike],
+                             tuple[ArrayLike,ArrayLike,ArrayLike]]:
+        """Perform one iteration of the Lanczos decomposition. 
+        
+        This results in the increase of the dimensione of the Krylov subspace by one.
+        
         Parameters
         ----------
-        args : tuple[ArrayLike, ArrayLike, ArrayLike]
-            Tuple containing beta, vector matrix V (order, dimension), and tridiagonal matrix T (order, order).
-        i : int
-            Iteration index.
+        args: (float)
+            Tuple containing beta, array (dim,order) V and array T (order,order), at the current step
+        i: (int)
+            Iteration index
 
         Returns
         -------
-        tuple[tuple[ArrayLike, ArrayLike, ArrayLike], tuple[ArrayLike, ArrayLike, ArrayLike]]
-            Updated beta, vector matrix V, and tridiagonal matrix T.
-        """
-        beta, vectors, tridiagonal = args
-        v = vectors[i, :].reshape((dimension,))
+        (beta, vecs, tridiag), (beta, vecs, tridiag)
+        
+        """ 
+
+        beta, vecs, tridiag = args
+        v = vecs[i, :].reshape((dim))
         w = matrix_vector_product(v)
-        w = w - beta * jnp.where(i == 0, jnp.zeros(dimension), vectors[i - 1, :].reshape((dimension,)))
+        w = w - beta * jnp.where(i == 0, jnp.zeros(dim),
+                               vecs[i - 1, :].reshape((dim)))
 
         alpha = jnp.dot(w, v)
-        tridiagonal = tridiagonal.at[i, i].add(alpha)
+        tridiag = tridiag.at[i, i].add(alpha)
         w = w - alpha * v
 
         beta = jnp.linalg.norm(w)
-        tridiagonal = tridiagonal.at[i, i + 1].add(beta)
-        tridiagonal = tridiagonal.at[i + 1, i].add(beta)
-        vectors = vectors.at[i + 1, :].add(jnp.where(beta > 1e-8, w / beta, 0.0))
+        tridiag = tridiag.at[i, i+1].add(beta)
+        tridiag = tridiag.at[i+1, i].add(beta)
+        # vecs = vecs.at[i+1, :].add(w/beta)
+        vecs = vecs.at[i+1, :].add(jnp.where(beta>1e-8, w/beta, 0.))
 
-        return (beta, vectors, tridiagonal), (beta, vectors, tridiagonal)
+        return (beta, vecs, tridiag), (beta, vecs, tridiag)
 
-    tridiagonal = jnp.zeros((order, order))
-    vectors = jnp.zeros((order, dimension))
+    tridiag = jnp.zeros((order, order))
+    vecs = jnp.zeros((order, dim))
 
-    initial_vector = initial_vector / jnp.linalg.norm(initial_vector)
-    vectors = vectors.at[0, :].add(initial_vector)
+    init_vec = init_vec / jnp.linalg.norm(init_vec)
+    vecs = vecs.at[0, :].add(init_vec)
 
     beta = 0
-    (beta, vectors, tridiagonal), _ = lax.scan(update, (beta, vectors, tridiagonal), jnp.arange(order))
+    (beta, vecs, tridiag), _ = lax.scan(update,  (beta, vecs, tridiag), jnp.arange(order))
 
-    return tridiagonal, vectors
-
+    return (tridiag, vecs)

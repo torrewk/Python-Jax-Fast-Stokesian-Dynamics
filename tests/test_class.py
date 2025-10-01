@@ -47,7 +47,6 @@ class TestClass:
         
         #test SD
         traj, _, _, _ = main.main(
-            # 2, 1, 0.01, 50, 50, 50, 2, 0.5,
             1000, 10, 0.01, 50, 50, 50, 2, 0.5,
             0., 1, 0.5, 0.001, 0., 0, 1.,
             jnp.array([[0., 1.+dr, 0.], [0., -1.-dr, 0.]]),
@@ -104,11 +103,11 @@ class TestClass:
         This test probes lubrication and real-space far-field calculation of thermal motion.
 
         """
-        num_particles = 50
+        N = 50
         dr=2.0005
         assert (jax_has_gpu() == 'gpu')
         _, _, _, testresults = main.main(
-                    1, 1, 0.1, 35, 35, 35, num_particles, 0.5,
+                    1, 1, 0.1, 35, 35, 35, N, 0.5,
                     0.001, 1, 0.5, 0.001, 0., 0, 1.,
                     jnp.array([[0., dr, 0.],    [0., dr, dr],    [0., dr,-dr],    [-dr, dr, 0.],    [dr, dr, 0.],
                                 [0., 2*dr, 0.],  [0., 2*dr, dr],  [0., 2*dr,-dr],  [-dr, 2*dr, 0.],  [dr, 2*dr, 0.],
@@ -154,7 +153,7 @@ class TestClass:
                 None, 0, 0, 0,np.array([0]), np.array([0]),
                 2,0,0,0.,0.)
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert (error < 9*1e-5)
+        assert (error < 1e-5)
     
     @pytest.mark.parametrize("delta", [0.0001, 0.001, 0.01, 0.1, 1, 10])
     def test_shear(self,delta):
@@ -179,4 +178,4 @@ class TestClass:
             )
         # Only calculate error for this specific delta
         error = np.linalg.norm(reference_traj[index,:,:] - traj[0, :, :])
-        assert error < 9*1e-5
+        assert error < 1e-5
