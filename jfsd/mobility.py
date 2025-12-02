@@ -2262,7 +2262,7 @@ def generalized_mobility_open(
     w = yh12.at[:, None].get() * (2.0 * epsrdsdri.T)
 
     velocities = velocities.at[indices_j, :3].add(u)
-    velocities = velocities.at[indices_j, 3:].add(w)
+    velocities = velocities.at[indices_j, 3:].add(-w)
 
     # #M_EF * F
     # translational part
@@ -2319,11 +2319,11 @@ def generalized_mobility_open(
     strain_yy_i += yh12 * (r[:, 1] * epsrdtj[1] + epsrdtj[1] * r[:, 1])
 
     # compute strain for particles j
-    strain_xx_j += yh12 * (r[:, 0] * epsrdti[0] + epsrdti[0] * r[:, 0])
-    strain_xy_j += yh12 * (r[:, 0] * epsrdti[1] + epsrdti[0] * r[:, 1])
-    strain_xz_j += yh12 * (r[:, 0] * epsrdti[2] + epsrdti[0] * r[:, 2])
-    strain_yz_j += yh12 * (r[:, 1] * epsrdti[2] + epsrdti[1] * r[:, 2])
-    strain_yy_j += yh12 * (r[:, 1] * epsrdti[1] + epsrdti[1] * r[:, 1])
+    strain_xx_j += -yh12 * (r[:, 0] * epsrdti[0] + epsrdti[0] * r[:, 0])
+    strain_xy_j += -yh12 * (r[:, 0] * epsrdti[1] + epsrdti[0] * r[:, 1])
+    strain_xz_j += -yh12 * (r[:, 0] * epsrdti[2] + epsrdti[0] * r[:, 2])
+    strain_yz_j += -yh12 * (r[:, 1] * epsrdti[2] + epsrdti[1] * r[:, 2])
+    strain_yy_j += -yh12 * (r[:, 1] * epsrdti[1] + epsrdti[1] * r[:, 1])
 
     strain = strain.at[indices_i, 0].add((2.0 * strain_xx_i + strain_yy_i))
     strain = strain.at[indices_i, 1].add(2.0 * strain_xy_i)
