@@ -29,6 +29,9 @@ dependencies = [
     "absl-py==2.1.0",
     "tomli;python_version<'3.11'",
     "tqdm",
+    "PySide6",
+    "vispy",
+    "toml",
 ]
 
 dynamic = ["version"]
@@ -52,6 +55,7 @@ test = [
 
 [project.scripts]
 jfsd = "jfsd.__main__:cli_main"
+jfsd-gui = "jfsd.jfsd_gui:main"
 
 [tool.setuptools]
 packages = ["jfsd"]
