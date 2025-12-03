@@ -56,8 +56,15 @@ You can install **JFSD** in two ways:
    ```  
 
 For the latest updates and bug fixes, using the **source installation** is recommended.
+
+## How to Run Simulations (with GUI)
+	
+### 1 - Launch the GUI, from the project directory, via:
+```bash
+jfsd-gui
+```
 		
-## How to Run Simulations
+## How to Run Simulations (without GUI)
 
 ### 1 - Create a configuration .toml in files/ (use "files/example_configuration.toml" as reference)	
 ### 2a - Run the main code, from the project directory, via:
