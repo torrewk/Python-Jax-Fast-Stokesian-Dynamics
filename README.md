@@ -56,13 +56,6 @@ You can install **JFSD** in two ways:
    ```  
 
 For the latest updates and bug fixes, using the **source installation** is recommended.
-
-## How to Run Simulations (with GUI)
-	
-### 1 - Launch the GUI, from the project directory, via:
-```bash
-jfsd-gui
-```
 		
 ## How to Run Simulations (without GUI)
 
@@ -78,6 +71,12 @@ jfsd -c files/<your_config_file.toml> -s <initial_particle_positions.npy> -o <di
 ```
 Replace <initial_particle_positions.npy> with the name of your initial configuration, and modify <your_config_file.toml> to accept initial positions from file (instead of randomly creating it, see 'example_configuration.toml'). Note that this file must be a numpy array of shape (N<sub>p</sub>, 3), with N<sub>p</sub> the number of particles.
 
+## How to Run Simulations (with GUI)
+	
+### 1 - Launch the GUI, from the project directory, via:
+```bash
+jfsd-gui
+```
 
 ## Analyzing Trajectory Data
 During the simulation, the particles trajectories,velocities, and stresslets are saved in a numpy array of shape (N<sub>s</sub>, N<sub>p</sub>, N<sub>c</sub>), with N<sub>s</sub> the number of frames stored, N<sub>p</sub> the number of particles and N<sub>c</sub> the number of d.o.f. (3 for trajectories, 6 for velocities, 5 for stresslets). 
