@@ -87,7 +87,7 @@ def displacement_fn(ra, rb, box):
 
     return dr
 
-def cpu_nlist(positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, initial_safety_margin=1.):
+def cpu_nlist(positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, initial_safety_margin=2.):
     """
     Compute a sparse neighbor list with an adaptive safety layer (R + dR) using a cell list.
     
@@ -137,7 +137,7 @@ def cpu_nlist(positions, l, nl_cutoff, second_cutoff, third_cutoff, xy, initial_
 
     # --- Cell List Construction ---
     # Choose cell size (here we use extended_cutoff*2 or the smallest box dimension)
-    cell_size = min(extended_cutoff * 2, np.min(l))
+    cell_size = min(extended_cutoff, np.min(l) * 0.5)
     # Shift positions so that the box goes from 0 to l (assumes positions originally centered at 0)
     shifted_positions = positions + l * 0.5
     cell_indices = np.floor(shifted_positions / cell_size).astype(int)
