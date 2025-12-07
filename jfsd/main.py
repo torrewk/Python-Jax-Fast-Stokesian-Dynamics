@@ -391,7 +391,7 @@ def wrap_sd(
         net_vel: ArrayLike,
         time_step: float,
     ) -> tuple[Array, Array]:
-        """Update particle positions and neighbor lists
+        """Update particle positions
 
         Parameters
         ----------
@@ -409,6 +409,8 @@ def wrap_sd(
         positions (in-place update)
 
         """
+        # Define displacement needed to re-center particle positions
+        offset = box @ jnp.array([0.5, 0.5, 0.5])
         # Define array of displacement r(t+time_step)-r(t)
         dR = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
@@ -417,7 +419,7 @@ def wrap_sd(
         dR = dR.at[:, 2].set(time_step * net_vel[(2)::6])
         # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
         positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+            shift_fn(positions + offset, dR) - offset
         )
 
         # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
@@ -426,10 +428,47 @@ def wrap_sd(
             time_step * shear_rate * positions[:, 1]
         )  # Assuming y:gradient direction, x:background flow direction
         positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+            shift_fn(positions + offset, dR) - offset
         )  # Apply shift
 
         return positions
+    
+    @jit
+    def update_positions_rfd(
+        positions: ArrayLike,
+        net_vel: ArrayLike,
+        time_step: float,
+    ) -> tuple[Array, Array]:
+        """Update particle positions without wrapping them back into the box 
+
+        Parameters
+        ----------
+        positions: (float)
+            Array (num_particles,3) of particles positions
+        net_vel: (float)
+            Array (6*num_particles) of linear/angular velocities relative to the background flow
+        time_step: (float)
+            Timestep used to advance positions
+
+        Returns
+        -------
+        positions
+
+        """
+        # Define array of displacement r(t+time_step)-r(t)
+        dR = jnp.zeros((num_particles, 3), float)
+        # Compute actual displacement due to velocities (relative to background flow)
+        dR = dR.at[:, 0].set(time_step * net_vel[(0)::6])
+        dR = dR.at[:, 1].set(time_step * net_vel[(1)::6])
+        dR = dR.at[:, 2].set(time_step * net_vel[(2)::6])
+        # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
+        positions_out = jnp.copy(positions)
+        offset = box @ jnp.array([0.5, 0.5, 0.5])
+        positions_out = (
+            shift_fn_open(positions_out + offset, dR) - offset
+        )
+
+        return positions_out
     
     if output is not None:
         output = Path(output)
@@ -459,6 +498,7 @@ def wrap_sd(
     # set INITIAL Periodic Space and Displacement Metric
     box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
     _, shift_fn = space.periodic_general(box, fractional_coordinates=False)
+    _, shift_fn_open = space.periodic_general(box, fractional_coordinates=False, wrapped=False)
     # compute neighbor lists 
     unique_pairs, nl_ff, nl_lub, nl_prec, nl_safety_margin = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 3.99, 2.1, xy)
 
@@ -623,8 +663,8 @@ def wrap_sd(
 
             # SOLVE SADDLE POINT IN THE POSITIVE DIRECTION
             # perform a displacement in the positive random directions (and update wave grid) and save it to a buffer
-            buffer_positions = update_positions(
-                shear_rate, positions, random_array, epsilon / 2.0
+            buffer_positions = update_positions_rfd(
+                positions, random_array, epsilon / 2.0
             )
             if boundary_flag == 0:
                 # update wave grid and far-field neighbor list (not needed in open boundaries)
@@ -693,7 +733,7 @@ def wrap_sd(
                         max_nonzero_per_row,
                         r_prec_sparse
                     )
-            if exitcode_gmres > 0:
+            if ((exitcode_gmres > 0) or (not math.isfinite(saddle_x[11 * num_particles]))):
                 raise ValueError(
                     "GMRES (RFD) did not converge. Abort!"
                 )
@@ -712,8 +752,8 @@ def wrap_sd(
                 )
         
             # SOLVE SADDLE POINT IN THE NEGATIVE DIRECTION
-            buffer_positions = update_positions(
-                shear_rate, positions, random_array, -epsilon / 2.0
+            buffer_positions = update_positions_rfd(
+                positions, random_array, -epsilon / 2.0
             )
             if boundary_flag == 0:
                 buffer_gaussian_grid_spacing = utils.precompute_grid_distancing(
@@ -784,7 +824,7 @@ def wrap_sd(
                     r_prec_sparse,
                     saddle_x
                 )
-            if exitcode_gmres > 0:
+            if ((exitcode_gmres > 0) or (not math.isfinite(saddle_x[11 * num_particles]))):
                 raise ValueError(
                     "GMRES (RFD) did not converge. Abort!"
                 )
@@ -1097,7 +1137,7 @@ def wrap_sd(
                     max_nonzero_per_row,
                     r_prec_sparse
                 )
-        if exitcode_gmres > 0:
+        if ((exitcode_gmres > 0) or (not math.isfinite(saddle_x[11 * num_particles]))):
             raise ValueError(f"GMRES did not converge! Iterations are {exitcode_gmres}. Abort!")
         
         # add the near-field contributions to the stresslet
@@ -1140,10 +1180,15 @@ def wrap_sd(
             saddle_x[11 * num_particles :] + brownian_drift,
             time_step,
         )
-        
+        # Check for invalid positions
+        if (jnp.isnan(positions)).any() or (jnp.isinf(positions)).any():
+                raise ValueError("Invalid particles positions. Abort!")
         # Update neighborlists
         nl_ff, nl_lub, nl_prec, nl_list_bound = utils.update_neighborlist(num_particles, positions, ewald_cut, 3.99, 2.1, unique_pairs, box)
-        if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.     
+        # Check for overlaps
+        check_overlap(positions, num_particles, unique_pairs, box)
+        if not nl_list_bound: # Re-allocate list if number of neighbors exceeded list size.  
+            print('Re-allocating neighborlist...')   
             unique_pairs, nl_ff, nl_lub, nl_prec, _ = utils.cpu_nlist(positions, np.array([lx,ly,lz]), ewald_cut, 3.99, 2.1, xy)
         if boundary_flag == 0:
             gaussian_grid_spacing = utils.precompute_grid_distancing(
@@ -1155,6 +1200,8 @@ def wrap_sd(
             xy = shear.update_box_tilt_factor(time_step, shear_rate_0, xy, step, shear_frequency)
             box = jnp.array([[lx, ly * xy, lz * 0.0], [0.0, ly, lz * 0.0], [0.0, 0.0, lz]])
             _, shift_fn = space.periodic_general(box, fractional_coordinates=False
+            )
+            _, shift_fn_open = space.periodic_general(box, fractional_coordinates=False, wrapped=False
             )
             if boundary_flag == 0:
                 gridk = shear.compute_sheared_grid(
@@ -1168,13 +1215,6 @@ def wrap_sd(
 
         # write trajectory to file
         if (step % writing_period) == 0:
-            # check that the position to save do not contain 'nan' or 'inf'
-            if (jnp.isnan(positions)).any() or (jnp.isinf(positions)).any():
-                raise ValueError("Invalid particles positions. Abort!")
-
-            # check that current configuration does not have overlapping particles
-            check_overlap(positions, num_particles, unique_pairs, box)
-
             # save trajectory to file
             trajectory[int(step / writing_period), :, :] = positions
             if output is not None:
@@ -1335,7 +1375,7 @@ def wrap_rpy(
         net_vel: ArrayLike,
         time_step: float,
     ) -> tuple[Array, Array]:
-        """Update particle positions and neighbor lists
+        """Update particle positions
 
         Parameters
         ----------
@@ -1353,6 +1393,8 @@ def wrap_rpy(
         positions (in-place update)
 
         """
+        # Define displacement needed to re-center particle positions
+        offset = box @ jnp.array([0.5, 0.5, 0.5])
         # Define array of displacement r(t+time_step)-r(t)
         dR = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
@@ -1361,7 +1403,7 @@ def wrap_rpy(
         dR = dR.at[:, 2].set(time_step * net_vel[(2)::6])
         # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
         positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+            shift_fn(positions + offset, dR) - offset
         )
 
         # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
@@ -1370,7 +1412,7 @@ def wrap_rpy(
             time_step * shear_rate * positions[:, 1]
         )  # Assuming y:gradient direction, x:background flow direction
         positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+            shift_fn(positions + offset, dR) - offset
         )  # Apply shift
 
         return positions
@@ -1824,7 +1866,7 @@ def wrap_bd(
         net_vel: ArrayLike,
         time_step: float,
     ) -> tuple[Array, Array]:
-        """Update particle positions and neighbor lists
+        """Update particle positions
 
         Parameters
         ----------
@@ -1842,6 +1884,8 @@ def wrap_bd(
         positions (in-place update)
 
         """
+        # Define displacement needed to re-center particle positions
+        offset = box @ jnp.array([0.5, 0.5, 0.5])
         # Define array of displacement r(t+time_step)-r(t)
         dR = jnp.zeros((num_particles, 3), float)
         # Compute actual displacement due to velocities (relative to background flow)
@@ -1850,7 +1894,7 @@ def wrap_bd(
         dR = dR.at[:, 2].set(time_step * net_vel[(2)::6])
         # Apply displacement and compute wrapped shift (Lees Edwards boundary conditions)
         positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+            shift_fn(positions + offset, dR) - offset
         )
 
         # Define array of displacement r(t+time_step)-r(t) (this time for displacement given by background flow)
@@ -1859,8 +1903,9 @@ def wrap_bd(
             time_step * shear_rate * positions[:, 1]
         )  # Assuming y:gradient direction, x:background flow direction
         positions = (
-            shift_fn(positions + jnp.array([lx, ly, lz]) / 2, dR) - jnp.array([lx, ly, lz]) * 0.5
+            shift_fn(positions + offset, dR) - offset
         )  # Apply shift
+
         return positions
 
     if output is not None:
